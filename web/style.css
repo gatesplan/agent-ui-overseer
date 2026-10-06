@@ -81,6 +81,31 @@ code { font-family: var(--font-mono); font-size: .9em; padding: 0 4px; backgroun
 .dot.waiting { background: var(--hold); }
 .dot.working { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
 .dot.idle { background: var(--line-strong); }
+.dot.exited { background: none; outline: 1px solid var(--muted); outline-offset: -1px; }
+.tab-x { margin-left: 2px; padding: 0 4px; color: var(--muted); visibility: hidden; }
+.tab:hover .tab-x { visibility: visible; }
+.tab-x:hover { color: var(--rej); }
+
+/* 새 세션 설정 창 */
+.newtab { width: min(560px, calc(100vw - 32px)); padding: 18px 20px; color: var(--text); background: var(--panel); border: 1px solid var(--line-strong); font-size: 14px; }
+.newtab::backdrop { background: rgba(0, 0, 0, .55); }
+.nt-row { display: flex; flex-direction: column; gap: 6px; margin: 14px 0; }
+.nt-row span { font-size: 0.857em; color: var(--muted); }
+.nt-row input { padding: 8px 10px; color: var(--text); background: var(--bg); border: 1px solid var(--line-strong); font: 0.929em var(--font-mono); }
+.nt-list { max-height: min(46vh, 360px); overflow-y: auto; margin: -6px 0 14px; border: 1px solid var(--line); background: var(--bg); }
+.nt-root { position: sticky; top: 0; padding: 6px 10px 4px; font: 0.786em var(--font-mono); color: var(--muted); background: var(--panel); border-bottom: 1px solid var(--line); }
+.nt-opt { display: flex; align-items: center; gap: 8px; padding: 6px 12px; cursor: pointer; }
+.nt-opt:hover { background: var(--panel-2); }
+.nt-opt.on { background: color-mix(in srgb, var(--accent) 18%, transparent); box-shadow: inset 2px 0 var(--accent); }
+.nt-opt small { margin-left: auto; font-size: 0.786em; color: var(--muted); }
+.nt-opt.create { color: var(--accent); border-top: 1px dashed var(--line-strong); }
+.nt-opt select { color: var(--text); background: var(--bg); border: 1px solid var(--line-strong); font: 0.857em var(--font-mono); }
+.nt-empty { padding: 12px; color: var(--muted); font-size: 0.857em; }
+.nt-check { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
+.nt-check input { margin-top: 4px; }
+.nt-check small { display: block; margin-top: 2px; color: var(--muted); font-size: 0.857em; }
+.nt-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+.nt-actions button { padding: 6px 16px; }
 @keyframes pulse { 50% { opacity: .3; } }
 
 .views { display: flex; align-items: center; gap: 6px; }
@@ -103,6 +128,10 @@ code { font-family: var(--font-mono); font-size: .9em; padding: 0 4px; backgroun
 .term-head { display: flex; justify-content: space-between; padding: 10px 14px; font: 0.786em var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--line); }
 .term-body { flex: 1; margin: 0; padding: 14px; overflow: auto; color: var(--term-text); font: 0.929em/1.55 var(--font-mono); white-space: pre-wrap; }
 .term-body .prompt { color: var(--term-prompt); }
+/* 실제 모드: 탭마다 xterm 하나를 겹쳐 두고 현재 탭 것만 보인다 */
+.term-body.live { padding: 6px 0 0 8px; overflow: hidden; white-space: normal; position: relative; }
+.xterm-host { position: absolute; inset: 6px 0 0 8px; }
+.xterm-host[hidden] { display: none; }
 .empty { margin: auto; text-align: center; color: var(--muted); font-family: var(--font-display); letter-spacing: .04em; }
 .empty small { font-family: var(--font-mono); font-size: 0.786em; }
 

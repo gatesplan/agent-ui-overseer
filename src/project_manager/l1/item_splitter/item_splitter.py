@@ -9,6 +9,7 @@ class ItemSplitter:
     HEADING = re.compile(r'^#{2,4}\s*\[([^\]]+)\]\s*(.+?)\s*$')
     FENCE = re.compile(r'^\s*(```|~~~)')
     PARENT = re.compile(r'\s*\(\s*(?:←|<-)\s*#([\w-]+)\s*\)\s*$')
+    TAG = re.compile(r'^\[([WD])\]\s*')
 
     def split(self, text: str) -> tuple[str, list[Item]]:
         preamble: list[str] = []
@@ -23,8 +24,9 @@ class ItemSplitter:
             if match:
                 self._close(items, body)
                 kind = match.group(1).strip()
-                title, parent = self._title(match.group(2))
-                items.append(Item(kind=kind, title=title, body='', known_kind=kind in self.KINDS, parent=parent))
+                tag, rest = self._tag(match.group(2))
+                title, parent = self._title(rest)
+                items.append(Item(kind=kind, title=title, body='', known_kind=kind in self.KINDS, parent=parent, tag=tag))
                 body = []
             elif items:
                 body.append(line)
@@ -33,6 +35,13 @@ class ItemSplitter:
 
         self._close(items, body)
         return '\n'.join(preamble).strip(), items
+
+    # 종류 라벨 바로 뒤의 보존 표시 `[D]`, `[W]`
+    def _tag(self, raw: str) -> tuple[str | None, str]:
+        match = self.TAG.match(raw)
+        if not match:
+            return None, raw
+        return match.group(1), raw[match.end():]
 
     def _title(self, raw: str) -> tuple[str, str | None]:
         match = self.PARENT.search(raw)

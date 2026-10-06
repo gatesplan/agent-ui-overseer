@@ -22,20 +22,41 @@ const KIND_ORDER = { 보고: 0, 질문: 1, 제안: 2 };
 const FONT_KEYS = { cur: '현재 카드', prev: '이전 카드', draft: '시안', head: '턴 머리' };
 const FONT_DEFAULT = { cur: 20, prev: 14, draft: 14, head: 14 };
 
-const blank = { decisions: {}, sent: {}, log: [], extra: '', wrapup: false, running: null, turns: [], summary: {}, summarySent: {} };
-const sessions = window.MOCK.sessions.map(s => ({
-  ...blank, ...s,
-  decisions: Object.fromEntries(Object.entries(s.decisions).map(([k, [a, n]]) => [k, { action: a, note: n }])),
-  sent: Object.fromEntries((s.sent || []).map(id => [id, { action: s.decisions[id][0], note: s.decisions[id][1] }])),
-  log: [],
-}));
-sessions.push({ ...blank, id: 'fmp', project: 'fishmathpics', agent: 'codex', status: 'idle', log: [] });
+const blank = { decisions: {}, sent: {}, log: [], extra: '', wrapup: false, running: null, turns: [], summary: {}, summarySent: {}, alive: true };
+// 실제 모드: 패널 서버(scripts 의 overseer)가 있으면 그 탭을 쓴다. 없으면(serve_mock) 목업 데이터를 쓴다
+let LIVE = false;
+let sessions = [];
+
+function mockSessions() {
+  const list = window.MOCK.sessions.map(s => ({
+    ...blank, ...s,
+    decisions: Object.fromEntries(Object.entries(s.decisions).map(([k, [a, n]]) => [k, { action: a, note: n }])),
+    sent: Object.fromEntries((s.sent || []).map(id => [id, { action: s.decisions[id][0], note: s.decisions[id][1] }])),
+    log: [],
+  }));
+  list.push({ ...blank, id: 'fmp', project: 'fishmathpics', agent: 'codex', status: 'idle', log: [] });
+  return list;
+}
+
+// 서버 탭 상태를 화면 세션으로. 작성 중인 처리, 의견, 추가 지시는 화면이 주인이라 처음 한 번만 서버 초안에서 읽는다
+function fromServer(t, prev) {
+  const d = t.draft || {};
+  return {
+    ...blank, ...t,
+    turns: t.turns.map(x => ({ ...x, wrapup: x.prompt.includes(WRAPUP) })),
+    decisions: prev ? prev.decisions : (d.decisions || {}),
+    summary: prev ? prev.summary : (d.summary || {}),
+    extra: prev ? prev.extra : (d.extra || ''),
+    wrapup: prev ? prev.wrapup : !!d.wrapup,
+    log: [],
+  };
+}
 
 function pref(key, fallback) { try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; } }
 function savePref(key, value) { try { localStorage.setItem(key, value); } catch { /* 저장 못 해도 동작엔 지장 없음 */ } }
 
 const ui = {
-  cur: sessions[0].id, active: null, term: false, open: new Set(), promptOpen: new Set(), drawer: null,
+  cur: null, active: null, term: false, open: new Set(), promptOpen: new Set(), drawer: null,
   theme: pref('overseer.theme', 'future-industry'),
   refs: pref('overseer.refs', '1') === '1',
   fs: Object.fromEntries(Object.keys(FONT_KEYS).map(k => [k, Number(pref(`overseer.fs.${k}`, FONT_DEFAULT[k]))])),
@@ -102,7 +123,7 @@ function progress(s) {
 // 전부 처리했고 보낼 내용이 있어야 승인 가능
 function canSend(s) {
   const { done, total } = progress(s);
-  return done === total && !!compose(s);
+  return s.alive && !s.running && done === total && !!compose(s);
 }
 
 // 관계: 출처(parent), 보존 사안의 근거(basis), 본문에서 앞 턴 사안을 #ID 로 언급한 것(ref)
@@ -161,10 +182,10 @@ function compose(s) {
 function renderTabs() {
   $('#tabs').innerHTML = sessions.map(s => {
     const n = allItems(s).filter(i => statusOf(s, i) === 'todo').length;
-    return `<button class="tab ${s.id === ui.cur ? 'on' : ''}" data-tab="${s.id}">
+    return `<button class="tab ${s.id === ui.cur ? 'on' : ''}" data-tab="${s.id}" title="${esc(s.cwd || s.project)}${s.args ? `\nclaude ${esc(s.args)}` : ''}">
       <span class="dot ${s.status}"></span>${esc(s.project)} <span class="agent">${s.agent}</span>
-      ${n ? `<span class="badge">${n}</span>` : ''}</button>`;
-  }).join('') + `<button class="tab add" title="새 세션 (목업)">+</button>`;
+      ${n ? `<span class="badge">${n}</span>` : ''}${LIVE ? `<span class="tab-x" data-close="${s.id}" title="탭 닫기 (세션 종료)">×</span>` : ''}</button>`;
+  }).join('') + `<button class="tab add" data-newtab title="${LIVE ? '새 세션' : '새 세션 (목업)'}">+</button>`;
 }
 
 function stateChip(s, item) {
@@ -260,7 +281,7 @@ function column(s, t, isCur) {
   const todo = t.items.filter(i => statusOf(s, i) === 'todo').length;
   return `<section class="col ${isCur ? 'col-cur' : 'col-prev'}" data-col="${t.turn}">
     <header class="col-head">
-      <div class="col-title"><b>TURN ${pad(t.turn)}${t.wrapup ? '<i class="wrap-tag">정리</i>' : ''}</b><span>사안 ${t.items.length}${todo ? ` · 미처리 ${todo}` : ''}</span></div>
+      <div class="col-title"><b>TURN ${pad(t.turn)}${t.wrapup ? '<i class="wrap-tag">정리</i>' : ''}${t.after ? `<i class="wrap-tag" title="이 턴 앞에서 에이전트 맥락이 바뀌었다">${esc(t.after)}</i>` : ''}</b><span>사안 ${t.items.length}${todo ? ` · 미처리 ${todo}` : ''}</span></div>
       ${promptBlock(t.turn, t.prompt)}
     </header>
     <div class="col-items">${summaryCard(s, t, isCur)}${sorted(t.items).map(i => card(s, i, isCur)).join('')}</div>
@@ -297,6 +318,14 @@ function progressHTML(s) {
 
 function nextColumn(s) {
   const next = pad(s.turns.length + 1);
+  if (!s.alive) {
+    return `<section class="col col-next" data-col="next">
+      <header class="col-head"><div class="col-title"><b>NEXT INPUT</b><span>TURN ${next}</span></div></header>
+      <div class="col-body"><div class="draft-label">세션 꺼짐</div>
+      <button class="primary send" data-resume="${s.id}">이어서 띄우기</button>
+      <div class="sent-note">마지막 세션을 --resume 으로 다시 띄운다. 작성 중인 처리는 그대로 남는다</div></div>
+    </section>`;
+  }
   if (s.running) {
     return `<section class="col col-next col-run" data-col="next">
       <header class="col-head"><div class="col-title"><b>TURN ${next}</b><span class="working"><span class="dot working"></span>에이전트 작업 중</span></div></header>
@@ -324,8 +353,13 @@ function arrow(s) {
 }
 
 function renderMain(s) {
+  if (!s) return `<div class="empty">열린 세션 없음<br><small>위의 + 로 작업 폴더를 골라 claude 를 띄운다</small></div>`;
   if (!s.turns.length) {
-    return `<div class="empty">${s.status === 'working' ? '에이전트 작업 중. 턴이 끝나면 사안 기둥이 생긴다' : '아직 사안 없음'}<br><small>MOCK / 연결된 세션 아님</small></div>`;
+    const msg = !s.alive ? '세션 꺼짐' : s.status === 'working' ? '에이전트 작업 중. 턴이 끝나면 사안 기둥이 생긴다' : '아직 사안 없음';
+    const sub = !LIVE ? 'MOCK / 연결된 세션 아님'
+      : !s.alive ? `<button class="primary" data-resume="${s.id}">이어서 띄우기</button>`
+      : '터미널 창에서 첫 입력을 한다. 시작 확인 창도 거기서 처리한다';
+    return `<div class="empty">${msg}<br><small>${sub}</small></div>`;
   }
   const last = s.turns.length - 1;
   return `<section class="pane">
@@ -364,6 +398,7 @@ function renderDrawer() {
 }
 
 function renderTerm(s) {
+  if (LIVE) { showTerm(s); return; }
   $('#term-title').textContent = `${s.project} · ${s.agent}`;
   const parts = s.turns.flatMap(t => [`<span class="prompt">&gt; ${esc(t.prompt)}</span>`, esc(t.text)]);
   s.log.forEach(m => parts.push(`<span class="prompt">&gt; ${esc(m)}</span>`));
@@ -388,7 +423,7 @@ function render({ keepScroll = true } = {}) {
   $('#main').innerHTML = renderMain(s);
   $('#term').hidden = !ui.term;
   $('#toggle-term').classList.toggle('on', ui.term);
-  renderTerm(s);
+  if (s || LIVE) renderTerm(s);
   renderDrawer();
 
   const flow = $('#flow');
@@ -472,19 +507,27 @@ function flash(el) {
   el.classList.add('flash');
 }
 
-function send() {
+async function send() {
   const s = cur();
-  if (!canSend(s)) return;
+  if (!s || !canSend(s)) return;
   const msg = compose(s);
-  allItems(s).filter(i => isReady(s, i)).forEach(i => { s.sent[i.id] = { ...s.decisions[i.id] }; ui.open.delete(i.id); });
+  const ready = allItems(s).filter(i => isReady(s, i));
+  if (LIVE) {
+    const decisions = ready.map(i => ({ id: i.id, action: s.decisions[i.id].action, note: s.decisions[i.id].note.trim() }));
+    if (summaryNote(s)) decisions.push({ id: `sum-${s.turns.length}`, action: 'feedback', note: summaryNote(s) });
+    const res = await api(`/api/tabs/${s.id}/send`, 'POST', { message: msg, decisions });
+    if (!res) return;
+  }
+  ready.forEach(i => { s.sent[i.id] = { ...s.decisions[i.id] }; ui.open.delete(i.id); });
   if (summaryNote(s)) { s.summarySent[s.turns.length] = summaryNote(s); s.summary[s.turns.length] = ''; }
   s.log.push(msg);
   s.running = msg;
   s.extra = '';
   s.wrapup = false;
   s.status = 'working';
+  saveDraft(s);
   render();
-  $('#flow').scrollLeft = 0;
+  if ($('#flow')) $('#flow').scrollLeft = 0;
 }
 
 // 새로 선택한 카드를 그 기둥 머리의 가로선 바로 아래로 옮긴다. 그 기둥만 스크롤한다
@@ -554,6 +597,8 @@ function unpick() {
 // 그 밖의 글자 키: 선택한 카드의 입력창에 바로 입력 시작
 // Esc: 입력창에서 벗어나기, 그다음 선택 해제
 document.addEventListener('keydown', e => {
+  // 터미널 창 안의 키는 전부 claude 로 간다. Tab, Esc 도 거기서 쓰인다
+  if (e.target.closest?.('#term, dialog')) return;
   const typing = e.target.closest?.('textarea, input, select');
   if (e.key === 'Tab' && !e.ctrlKey && !e.altKey) {
     e.preventDefault();
@@ -595,6 +640,7 @@ document.addEventListener('keydown', e => {
 });
 
 function switchTab(dir) {
+  if (!sessions.length) return;
   const i = sessions.findIndex(s => s.id === ui.cur);
   ui.cur = sessions[(i + dir + sessions.length) % sessions.length].id;
   ui.active = null;
@@ -615,10 +661,13 @@ function step(dir) {
 }
 
 function act(e) {
-  const t = e.target.closest('[data-tab],[data-jump],[data-act],[data-toggle],[data-prompt],[data-drawer],[data-fs],#toggle-term,#btn-send,#btn-wrapup');
+  const t = e.target.closest('[data-close],[data-newtab],[data-resume],[data-tab],[data-jump],[data-act],[data-toggle],[data-prompt],[data-drawer],[data-fs],#toggle-term,#btn-send,#btn-wrapup');
   if (!t) return;
   const s = cur();
-  if (t.dataset.drawer) {
+  if (t.dataset.close) { closeTab(t.dataset.close); }
+  else if ('newtab' in t.dataset) { if (LIVE) openTab(); }
+  else if (t.dataset.resume) { resumeTab(t.dataset.resume); }
+  else if (t.dataset.drawer) {
     ui.drawer = ui.drawer === t.dataset.drawer ? null : t.dataset.drawer;
     renderDrawer();
   }
@@ -639,6 +688,7 @@ function act(e) {
   else if (t.dataset.act) {
     const d = s.decisions[t.dataset.id] ||= { action: '', note: '' };
     d.action = d.action === t.dataset.act ? '' : t.dataset.act;
+    saveDraft(s);
     render();
     document.querySelector(`[data-note="${t.dataset.id}"]`)?.focus();
   }
@@ -650,7 +700,7 @@ function act(e) {
   }
   else if (t.id === 'toggle-term') { ui.term = !ui.term; render(); }
   else if (t.id === 'btn-send') { send(); }
-  else if (t.id === 'btn-wrapup') { s.wrapup = !s.wrapup; render(); }
+  else if (t.id === 'btn-wrapup') { s.wrapup = !s.wrapup; saveDraft(s); render(); }
 }
 
 document.addEventListener('input', e => {
@@ -664,7 +714,10 @@ document.addEventListener('input', e => {
   } else if ('extra' in e.target.dataset) {
     s.extra = e.target.value;
     refreshLive(s, null);
+  } else {
+    return;
   }
+  saveDraft(s);
 });
 
 document.addEventListener('change', e => {
@@ -692,8 +745,268 @@ document.addEventListener('scroll', e => {
 if (location.hash.includes('term')) ui.term = true;
 if (location.hash.includes('drawer')) ui.drawer = 'flow';
 
-// 처음엔 미처리 사안만 펼쳐 둔다
-sessions.forEach(s => allItems(s).forEach(i => { if (statusOf(s, i) === 'todo') ui.open.add(i.id); }));
-applyFonts();
-render({ keepScroll: false });
-document.fonts?.ready.then(showFocus);
+// 실제 모드 ---------------------------------------------------------------
+
+async function api(path, method = 'GET', body) {
+  try {
+    const res = await fetch(path, { method, headers: { 'Content-Type': 'application/json' }, body: body && JSON.stringify(body) });
+    const data = await res.json();
+    if (!res.ok) { alert(data.error || `요청 실패: ${res.status}`); return null; }
+    return data;
+  } catch (err) {
+    alert(`서버에 닿지 않는다: ${err.message}`);
+    return null;
+  }
+}
+
+// 작성 중인 처리는 잠시 모았다가 서버에 남긴다. 패널을 다시 켜도 이어서 쓴다
+const draftTimers = {};
+function saveDraft(s) {
+  if (!LIVE || !s) return;
+  clearTimeout(draftTimers[s.id]);
+  draftTimers[s.id] = setTimeout(() => {
+    fetch(`/api/tabs/${s.id}/draft`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ decisions: s.decisions, summary: s.summary, extra: s.extra, wrapup: s.wrapup }),
+    }).catch(() => {});
+  }, 400);
+}
+
+// 처음 보는 사안 중 미처리인 것만 펼친다. 사용자가 접은 카드는 다시 펴지 않는다
+const seen = new Set();
+function openNew(s) {
+  allItems(s).forEach(i => {
+    const key = `${s.id}/${i.id}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    if (statusOf(s, i) === 'todo') ui.open.add(i.id);
+  });
+}
+
+function termSize() {
+  const t = ui.cur && terms[ui.cur];
+  return t ? { rows: t.term.rows, cols: t.term.cols } : { rows: 40, cols: 120 };
+}
+
+// 새 탭 설정 창. 드라이브마다 루트 Projects 폴더 안의 프로젝트를 보여 준다
+// 입력은 검색어. 목록에 없는 이름이면 새 폴더 만들기, 드라이브 문자로 시작하면 그 경로를 바로 연다
+// 권한 확인 생략은 열 때마다 켠 상태로 시작한다
+const picker = { roots: [], defaultRoot: '', options: [], sel: 0, createRoot: '' };
+const isPath = q => /^[a-zA-Z]:[\\/]/.test(q) || q.startsWith('\\\\');
+
+function pickerOptions(q) {
+  const key = q.trim().toLowerCase();
+  if (isPath(q.trim())) return [{ type: 'path', cwd: q.trim() }];
+  const opened = new Set(sessions.map(s => (s.cwd || '').toLowerCase()));
+  const dirs = picker.roots.flatMap(r => r.dirs.map(d => ({ type: 'dir', cwd: d.path, name: d.name, root: r.root, opened: opened.has(d.path.toLowerCase()) })));
+  const hits = key ? dirs.filter(d => d.name.toLowerCase().includes(key)) : dirs;
+  // 정확히 같은 이름이 만들 위치에 이미 있으면 새로 만들기는 보이지 않는다
+  const exists = dirs.some(d => d.root === picker.createRoot && d.name.toLowerCase() === key);
+  return key && !exists ? [...hits, { type: 'create', name: q.trim() }] : hits;
+}
+
+function renderPicker() {
+  const q = $('#newtab [name=q]').value;
+  picker.options = pickerOptions(q);
+  picker.sel = Math.min(picker.sel, Math.max(0, picker.options.length - 1));
+  let lastRoot = null;
+  const rows = picker.options.map((o, i) => {
+    const on = i === picker.sel ? 'on' : '';
+    if (o.type === 'path') return `<div class="nt-opt ${on}" data-opt="${i}">경로로 열기 <code>${esc(o.cwd)}</code></div>`;
+    if (o.type === 'create') {
+      const roots = picker.roots.length ? picker.roots.map(r => r.root) : [picker.defaultRoot];
+      const select = roots.length > 1
+        ? `<select data-create-root>${roots.map(r => `<option ${r === picker.createRoot ? 'selected' : ''}>${esc(r)}</option>`).join('')}</select>`
+        : `<code>${esc(roots[0])}</code>`;
+      return `<div class="nt-opt create ${on}" data-opt="${i}">+ 새 폴더 만들기 ${select}<code>\\${esc(o.name)}</code></div>`;
+    }
+    const head = o.root !== lastRoot ? `<div class="nt-root">${esc(o.root)}</div>` : '';
+    lastRoot = o.root;
+    return `${head}<div class="nt-opt ${on}" data-opt="${i}">${esc(o.name)}${o.opened ? '<small>열려 있음</small>' : ''}</div>`;
+  });
+  const empty = picker.roots.length ? '맞는 폴더 없음' : `드라이브 루트에 Projects 폴더가 없다. 이름을 입력하면 ${esc(picker.defaultRoot)} 에 만든다`;
+  $('#nt-list').innerHTML = rows.join('') || `<div class="nt-empty">${empty}</div>`;
+  $('#nt-list .nt-opt.on')?.scrollIntoView({ block: 'nearest' });
+}
+
+async function askNewTab() {
+  const data = await api('/api/projects');
+  if (!data) return null;
+  picker.roots = data.roots;
+  picker.defaultRoot = data.default_root;
+  picker.createRoot = data.default_root;
+  picker.sel = 0;
+  const dlg = $('#newtab');
+  const form = dlg.querySelector('form');
+  form.q.value = '';
+  form.skip.checked = true;
+  renderPicker();
+  dlg.showModal();
+  form.q.focus();
+  return new Promise(resolve => {
+    const finish = ok => {
+      const o = picker.options[picker.sel];
+      dlg.close();
+      if (!ok || !o) return resolve(null);
+      const base = { skip_permissions: form.skip.checked };
+      resolve(o.type === 'create' ? { ...base, create: { root: picker.createRoot, name: o.name } } : { ...base, cwd: o.cwd });
+    };
+    form.q.oninput = () => { picker.sel = 0; renderPicker(); };
+    form.q.onkeydown = e => {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        picker.sel = Math.max(0, Math.min(picker.options.length - 1, picker.sel + (e.key === 'ArrowDown' ? 1 : -1)));
+        renderPicker();
+      } else if (e.key === 'Enter' && !e.isComposing) {
+        e.preventDefault();
+        finish(true);
+      }
+    };
+    form.onsubmit = e => e.preventDefault();
+    $('#nt-list').onclick = e => {
+      const row = e.target.closest('[data-opt]');
+      if (!row || e.target.closest('select')) return;
+      picker.sel = Number(row.dataset.opt);
+      renderPicker();
+      form.q.focus();
+    };
+    $('#nt-list').ondblclick = e => { if (e.target.closest('[data-opt]') && !e.target.closest('select')) finish(true); };
+    $('#nt-list').onchange = e => { if (e.target.dataset.createRoot !== undefined) { picker.createRoot = e.target.value; renderPicker(); } };
+    dlg.querySelector('[data-nt=open]').onclick = () => finish(true);
+    dlg.querySelector('[data-nt=cancel]').onclick = () => finish(false);
+    dlg.oncancel = e => { e.preventDefault(); finish(false); };
+  });
+}
+
+async function openTab() {
+  const opts = await askNewTab();
+  if (!opts) return;
+  const t = await api('/api/tabs', 'POST', { ...opts, ...termSize() });
+  if (!t) return;
+  upsert(t);
+  ui.cur = t.id;
+  ui.active = null;
+  // 시작 확인 창과 첫 입력은 터미널에서 한다
+  ui.term = true;
+  render({ keepScroll: false });
+}
+
+async function resumeTab(id) {
+  const t = await api(`/api/tabs/${id}/resume`, 'POST', termSize());
+  if (!t) return;
+  upsert(t);
+  ui.term = true;
+  render();
+}
+
+async function closeTab(id) {
+  const s = sessions.find(x => x.id === id);
+  if (s?.alive && !confirm(`${s.project} 세션을 끝내고 탭을 닫는다`)) return;
+  if (await api(`/api/tabs/${id}`, 'DELETE')) removeTab(id);
+}
+
+function upsert(t) {
+  const i = sessions.findIndex(s => s.id === t.id);
+  const s = fromServer(t, i >= 0 ? sessions[i] : null);
+  if (i >= 0) sessions[i] = s; else sessions.push(s);
+  openNew(s);
+  return s;
+}
+
+function removeTab(id) {
+  sessions = sessions.filter(s => s.id !== id);
+  terms[id]?.dispose();
+  delete terms[id];
+  if (ui.cur === id) { ui.cur = sessions[0]?.id ?? null; ui.active = null; }
+  render({ keepScroll: false });
+}
+
+// 다시 그려도 입력하던 칸과 커서 자리를 되살린다
+function renderKeepFocus() {
+  const f = document.activeElement;
+  const sel = f?.dataset?.note ? `[data-note="${f.dataset.note}"]`
+    : f?.dataset?.summary ? `[data-summary="${f.dataset.summary}"]`
+    : f && 'extra' in (f.dataset || {}) ? '[data-extra]' : null;
+  const range = sel && [f.selectionStart, f.selectionEnd];
+  render();
+  const el = sel && document.querySelector(sel);
+  if (el) { el.focus(); el.setSelectionRange(...range); }
+}
+
+// 탭 상태 알림. 끊기면 다시 붙는다
+function listen() {
+  const ws = new WebSocket(`ws://${location.host}/ws/events`);
+  ws.onmessage = e => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'closed') { if (sessions.some(s => s.id === msg.id)) removeTab(msg.id); return; }
+    if (msg.type !== 'tab') return;
+    upsert(msg.tab);
+    if (!ui.cur) ui.cur = msg.tab.id;
+    if (msg.tab.id === ui.cur) renderKeepFocus(); else renderTabs();
+  };
+  ws.onclose = () => setTimeout(listen, 1000);
+}
+
+// 터미널 창: 탭마다 xterm 하나. 처음 볼 때 만들고 WebSocket 으로 PTY 에 붙인다
+const terms = {};
+function makeTerm(s) {
+  const host = document.createElement('div');
+  host.className = 'xterm-host';
+  $('#term-body').appendChild(host);
+  const term = new Terminal({
+    fontFamily: '"Cascadia Code", Consolas, monospace', fontSize: 13, scrollback: 5000,
+    theme: { background: getComputedStyle(document.documentElement).getPropertyValue('--term-bg').trim() || '#05080c' },
+  });
+  const fit = new FitAddon.FitAddon();
+  term.loadAddon(fit);
+  term.open(host);
+  const ws = new WebSocket(`ws://${location.host}/ws/term/${s.id}`);
+  const sendJSON = obj => { if (ws.readyState === 1) ws.send(JSON.stringify(obj)); };
+  ws.onmessage = e => term.write(e.data);
+  ws.onopen = () => sendJSON({ type: 'resize', rows: term.rows, cols: term.cols });
+  term.onData(data => sendJSON({ type: 'input', data }));
+  term.onResize(({ rows, cols }) => sendJSON({ type: 'resize', rows, cols }));
+  return { host, term, fit, ws, dispose() { ws.onclose = null; ws.close(); term.dispose(); host.remove(); } };
+}
+
+function showTerm(s) {
+  $('#term-title').textContent = s ? `${s.project} · ${s.agent}` : '';
+  $('#term-title').title = s?.cwd || '';
+  $('.term-note').textContent = '키 입력은 그대로 claude 로 간다';
+  $('#term-body').classList.add('live');
+  Object.entries(terms).forEach(([id, t]) => { t.host.hidden = !s || id !== s.id; });
+  if (!s || !ui.term) { ui.termShown = null; return; }
+  const t = terms[s.id] ||= makeTerm(s);
+  // 처음 보일 때만 터미널로 입력을 옮긴다. 다시 그릴 때마다 옮기면 카드 입력칸에서 포커스를 빼앗는다
+  const fresh = ui.termShown !== s.id;
+  ui.termShown = s.id;
+  requestAnimationFrame(() => { t.fit.fit(); if (fresh) t.term.focus(); });
+}
+
+window.addEventListener('resize', () => {
+  const t = ui.cur && terms[ui.cur];
+  if (t && ui.term) t.fit.fit();
+});
+
+async function boot() {
+  try {
+    const res = await fetch('/api/tabs');
+    if (res.ok) {
+      LIVE = true;
+      (await res.json()).forEach(upsert);
+    }
+  } catch { /* 목업 서버. API 가 없다 */ }
+  if (!LIVE) {
+    sessions = mockSessions();
+    // 처음엔 미처리 사안만 펼쳐 둔다
+    sessions.forEach(s => allItems(s).forEach(i => { if (statusOf(s, i) === 'todo') ui.open.add(i.id); }));
+  } else {
+    document.querySelector('.mock-tag').hidden = true;
+    listen();
+  }
+  ui.cur = sessions[0]?.id ?? null;
+  applyFonts();
+  render({ keepScroll: false });
+  document.fonts?.ready.then(showFocus);
+}
+boot();

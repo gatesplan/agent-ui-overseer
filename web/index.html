@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css">
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="themes/future-industry.css">
 </head>
@@ -34,6 +35,23 @@
 
 
 
+<dialog class="newtab" id="newtab">
+  <form>
+    <div class="ps-title">새 세션</div>
+    <label class="nt-row"><span>작업 폴더</span>
+      <input name="q" placeholder="검색, 새 폴더 이름, 또는 전체 경로" autocomplete="off" spellcheck="false"></label>
+    <div class="nt-list" id="nt-list"></div>
+    <label class="nt-check"><input type="checkbox" name="skip" checked>
+      <span><code>--dangerously-skip-permissions</code><small>권한 확인 없이 띄운다. 끄면 확인은 터미널 창에서 응답한다</small></span></label>
+    <div class="nt-actions">
+      <button type="button" data-nt="cancel">취소</button>
+      <button type="button" data-nt="open" class="primary">열기</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.js"></script>
 <script src="mock-data.js"></script>
 <script src="app.js"></script>
 </body>

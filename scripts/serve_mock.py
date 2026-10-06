@@ -5,7 +5,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-PORT = 47310
+PORT = 47311
 
 
 # 응답마다 캐시 금지 헤더를 붙이는 정적 파일 핸들러

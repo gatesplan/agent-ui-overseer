@@ -2,8 +2,12 @@ import importlib
 
 # 공개 이름 -> 모듈 폴더명. lnt doc이 생성한다
 _EXPORTS = {
+    'CaptureLog': 'capture_log',
+    'DecisionStore': 'decision_store',
     'Item': 'item',
+    'ProjectFinder': 'project_finder',
     'TranscriptReader': 'transcript_reader',
+    'TurnBuilder': 'turn_builder',
 }
 __all__ = list(_EXPORTS)
 

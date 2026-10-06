@@ -1,6 +1,6 @@
 ---
 sources:
-  item.py: c0b30acd4f60
+  item.py: 20630e502271
 ---
 # item
 
@@ -14,6 +14,7 @@ title: str                # 사안 제목. 출처 표기는 떼어낸 상태
 body: str                 # 제목 아래 본문
 known_kind: bool          # kind 가 규약 종류인지
 parent: str | None        # 파생 출처 사안 ID (예: "1-4")
+tag: str | None           # 보존 표시. D(결정 기록), W(용어). `[제안][D]` 에서 읽는다
 
 ### Methods
 

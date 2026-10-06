@@ -2,6 +2,7 @@ import importlib
 
 # 공개 이름 -> 모듈 폴더명. lnt doc이 생성한다
 _EXPORTS = {
+    'AgentTab': 'agent_tab',
     'CaptureHook': 'capture_hook',
 }
 __all__ = list(_EXPORTS)

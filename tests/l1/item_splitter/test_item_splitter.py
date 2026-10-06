@@ -36,3 +36,9 @@ def test_no_heading_is_all_preamble():
     preamble, items = ItemSplitter().split("그냥 짧은 대답")
     assert preamble == "그냥 짧은 대답"
     assert items == []
+
+
+def test_keep_tag_after_kind():
+    _, items = ItemSplitter().split("### [제안][D] 가격 덮어쓰기 규칙 보존 (← #2-2)\n결정: 덮어쓴다\n### [제안] [W] 사안\n")
+    assert (items[0].tag, items[0].title, items[0].parent) == ("D", "가격 덮어쓰기 규칙 보존", "2-2")
+    assert (items[1].tag, items[1].title) == ("W", "사안")

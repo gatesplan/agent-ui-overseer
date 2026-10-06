@@ -1,6 +1,9 @@
 # 실행 산출물: 캡처 기록, 로그
 data/
 
+# uv 가상환경
+.venv/
+
 # Python
 __pycache__/
 *.pyc
