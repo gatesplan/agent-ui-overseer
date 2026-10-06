@@ -166,15 +166,23 @@ function relatedOf(s, id) {
 // 전송 메시지
 function summaryNote(s) { return s.running ? '' : (s.summary[s.turns.length] || '').trim(); }
 
+// 덧붙인 말 없이 확인만 한 사안. 한 줄 `확인: #a, #b` 로 묶어 보낸다. 에이전트가 하나씩 답하며 늘어지지 않게
+function bareConfirm(s, i) {
+  const d = s.decisions[i.id];
+  return isReady(s, i) && d.action === 'confirm' && !d.note.trim();
+}
+
 function compose(s) {
   const lines = [];
   if (summaryNote(s)) lines.push(`종합 의견에 대해: ${summaryNote(s)}`);
-  for (const i of allItems(s).filter(i => isReady(s, i))) {
+  const confirmed = allItems(s).filter(i => bareConfirm(s, i)).map(i => `#${i.id}`);
+  for (const i of allItems(s).filter(i => isReady(s, i) && !bareConfirm(s, i))) {
     const d = s.decisions[i.id];
     const head = `${isHeld(s, i.id) ? '보류 해제: ' : ''}#${i.id} ${label(i)} ${i.title}`;
     const tail = d.action === 'hold' ? '보류' : `${LABEL[d.action]}${d.note.trim() ? `: ${d.note.trim()}` : ''}`;
     lines.push(`${head} → ${tail}`);
   }
+  if (confirmed.length) lines.push(`확인: ${confirmed.join(', ')} 사안 종료됨.`);
   const keep = heldItems(s).map(i => `#${i.id}`);
   if (lines.length && keep.length) lines.push(`보류 유지: ${keep.join(', ')}`);
   if (s.wrapup) lines.push(WRAPUP);
@@ -329,7 +337,9 @@ function column(s, t, isCur) {
 // 전송 시안. 처리 안 된 사안도 자리를 보여 줘서 입력에 따라 채워지는 게 보이게 한다
 function draftHTML(s) {
   const lines = summaryNote(s) ? [`<div class="dl extra">종합 의견에 대해: ${esc(summaryNote(s))}</div>`] : [];
-  lines.push(...roundItems(s).map(i => {
+  // 보낼 때처럼 확인만 한 사안은 한 줄로 묶어 보인다
+  const confirmed = roundItems(s).filter(i => bareConfirm(s, i)).map(i => `#${i.id}`);
+  lines.push(...roundItems(s).filter(i => !bareConfirm(s, i)).map(i => {
     const kind = `<span class="dk k-${esc(i.kind)}">[${esc(i.kind)}]</span>`;
     const head = `${isHeld(s, i.id) ? '보류 해제: ' : ''}#${i.id} ${kind}${i.tag ? `<span class="dg">[${esc(i.tag)}]</span>` : ''} ${esc(i.title)}`;
     const d = s.decisions[i.id];
@@ -340,6 +350,7 @@ function draftHTML(s) {
     const tail = d?.action ? `${LABEL[d.action]}: 작성 중` : '미처리';
     return `<div class="dl wait"><span class="dh">${head}</span> → <span class="dt">${tail}</span></div>`;
   }));
+  if (confirmed.length) lines.push(`<div class="dl ok"><span class="dt a-confirm">확인</span>: ${confirmed.join(', ')} 사안 종료됨.</div>`);
   const keep = heldItems(s).map(i => `#${i.id}`);
   if (keep.length) lines.push(`<div class="dl keep">보류 유지: ${keep.join(', ')}</div>`);
   if (s.wrapup) lines.push(`<div class="dl wrap">${esc(WRAPUP)}</div>`);
