@@ -26,9 +26,11 @@
   --font-brand: var(--font-body);
   --font-mono: "Cascadia Code", Consolas, monospace;
   --radius: 8px;
-  --fs-cur: 14px;
-  --fs-prev: 13px;
-  --fs-draft: 13px;
+  --fs-cur: 20px;
+  --fs-prev: 14px;
+  --fs-draft: 14px;
+  /* 턴 머리는 카드 글자 크기와 따로 둔다. 기둥마다 머리 높이가 같아야 카드 줄이 맞는다 */
+  --fs-head: 14px;
   /* 기둥 너비는 그 기둥의 글자 크기를 따른다. NEXT INPUT 은 현재 턴 기둥과 같은 너비 */
   --col-w-prev: calc(var(--fs-prev) * 25.7);
   --col-w-cur: calc(var(--fs-cur) * 25.7);
@@ -122,7 +124,7 @@ code { font-family: var(--font-mono); font-size: .9em; padding: 0 4px; backgroun
 .card.active .unpick { display: grid; }
 
 .col { position: relative; z-index: 1; flex: none; display: flex; flex-direction: column; min-height: 0; }
-.col-head { flex: none; margin-bottom: 14px; padding-top: 10px; border-top: 1px solid var(--line); }
+.col-head { flex: none; font-size: var(--fs-head); margin-bottom: 14px; padding-top: 10px; border-top: 1px solid var(--line); }
 .col-title { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 .col-title b { font: 700 1.07em var(--font-brand); letter-spacing: .08em; }
 .col-title span { font-size: 0.857em; color: var(--muted); }
@@ -131,8 +133,8 @@ code { font-family: var(--font-mono); font-size: .9em; padding: 0 4px; backgroun
   border-left: 2px solid var(--line-strong); background: color-mix(in srgb, var(--panel) 60%, transparent);
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-wrap;
 }
-/* 두 줄 넘는 부분은 높이로 자른다. line-clamp 만으로는 pre-wrap 줄이 비친다 */
-.col-prompt:not(.open) { max-height: calc(3em + 12px); }
+/* 접힌 요약은 한 줄이어도 두 줄 높이로 둔다. 두 줄 넘는 부분은 높이로 자른다. line-clamp 만으로는 pre-wrap 줄이 비친다 */
+.col-prompt:not(.open) { height: calc(3em + 12px); }
 /* overflow 는 padding 까지 그린다. 아래 여백을 투명 border 로 둬서 셋째 줄이 비치지 않게 한다 */
 .col-prompt.open { display: block; }
 .col-prompt::before { content: "> "; color: var(--term-prompt); }
@@ -308,6 +310,7 @@ kbd.tag {
 }
 .more:hover { color: var(--accent); }
 .more.open { color: var(--accent); }
+.more.none { visibility: hidden; }
 
 /* 종합 의견 카드 */
 .card.summary { --kc: var(--accent); border-style: dashed; }

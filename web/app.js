@@ -19,8 +19,8 @@ const TAGS = { W: '용어', D: '결정 기록' };
 const WRAPUP = '정리: 이 세션에서 다음 세션에도 유효한 용어와 결정을 [W], [D] 사안으로 올려 줘. 근거 사안 ID를 붙이고, 내가 결정하지 않은 것은 올리지 마.';
 // 턴 안 정렬: 보고, 질문, 제안. 규약 밖 종류는 맨 뒤
 const KIND_ORDER = { 보고: 0, 질문: 1, 제안: 2 };
-const FONT_KEYS = { cur: '현재 카드', prev: '이전 카드', draft: '시안' };
-const FONT_DEFAULT = { cur: 14, prev: 13, draft: 13 };
+const FONT_KEYS = { cur: '현재 카드', prev: '이전 카드', draft: '시안', head: '턴 머리' };
+const FONT_DEFAULT = { cur: 20, prev: 14, draft: 14, head: 14 };
 
 const blank = { decisions: {}, sent: {}, log: [], extra: '', wrapup: false, running: null, turns: [], summary: {}, summarySent: {} };
 const sessions = window.MOCK.sessions.map(s => ({
@@ -232,11 +232,12 @@ function card(s, item, isCur) {
 }
 
 // 턴 머리의 입력문은 두 줄까지만. ⋮ 를 누르면 펼친다
+// 짧아서 ⋮ 가 없어도 그 자리를 비워 둔다. 기둥마다 머리 높이가 같아야 카드 줄이 맞는다
 function promptBlock(turn, text) {
   const open = ui.promptOpen.has(turn);
   const long = text.split('\n').length > 2 || text.length > 70;
   return `<div class="col-prompt ${open ? 'open' : ''}">${esc(text)}</div>
-    ${long ? `<button class="more ${open ? 'open' : ''}" data-prompt="${turn}" title="${open ? '접기' : '펼치기'}">⋮</button>` : ''}`;
+    ${long ? `<button class="more ${open ? 'open' : ''}" data-prompt="${turn}" title="${open ? '접기' : '펼치기'}">⋮</button>` : '<span class="more none">⋮</span>'}`;
 }
 
 // 종합 의견 카드: 응답에서 첫 사안 앞에 쓴 글. 피드백은 선택이고 승인 조건에 들지 않는다
@@ -450,12 +451,18 @@ function align(id) {
     let want = rel[0].getBoundingClientRect().top - view.top + box.scrollTop - y;
     // 위로 모자라면 위 여백을, 아래로 모자라면 아래 여백을 늘려 맞춘다
     if (want < 0) { box.style.paddingTop = `${-want}px`; want = 0; }
+    padFor(box, want);
     box.scrollTop = want;
-    if (box.scrollTop < want) {
-      box.style.paddingBottom = `${want - box.scrollTop + 28}px`;
-      box.scrollTop = want;
-    }
   }
+}
+
+// 기둥을 want 까지 스크롤할 수 있게 아래 여백을 늘린다
+// 카드가 적어 기둥이 넘치지 않을 때도 맞도록 여백을 카드 끝에서부터 잰다
+function padFor(box, want) {
+  const view = box.getBoundingClientRect();
+  const end = Math.max(...[...box.children].map(c => c.getBoundingClientRect().bottom)) - view.top + box.scrollTop;
+  const need = want + box.clientHeight - end;
+  if (need > parseFloat(getComputedStyle(box).paddingBottom)) box.style.paddingBottom = `${need}px`;
 }
 
 function flash(el) {
@@ -488,8 +495,7 @@ function raise(id) {
   const box = card.closest('.col-items');
   const over = card.getBoundingClientRect().top - box.getBoundingClientRect().top;
   if (!over) return;
-  const room = box.scrollHeight - box.clientHeight - box.scrollTop;
-  if (room < over) box.style.paddingBottom = `${parseFloat(getComputedStyle(box).paddingBottom) + over - room}px`;
+  padFor(box, box.scrollTop + over);
   box.scrollBy({ top: over, behavior: 'smooth' });
 }
 
