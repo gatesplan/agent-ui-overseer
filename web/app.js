@@ -182,7 +182,7 @@ function compose(s) {
     const tail = d.action === 'hold' ? '보류' : `${LABEL[d.action]}${d.note.trim() ? `: ${d.note.trim()}` : ''}`;
     lines.push(`${head} → ${tail}`);
   }
-  if (confirmed.length) lines.push(`확인: ${confirmed.join(', ')} 안건 종료됨.`);
+  if (confirmed.length) lines.push(`확인: ${confirmed.join(', ')} 사안 종료됨.`);
   const keep = heldItems(s).map(i => `#${i.id}`);
   if (lines.length && keep.length) lines.push(`보류 유지: ${keep.join(', ')}`);
   if (s.wrapup) lines.push(WRAPUP);
@@ -350,7 +350,7 @@ function draftHTML(s) {
     const tail = d?.action ? `${LABEL[d.action]}: 작성 중` : '미처리';
     return `<div class="dl wait"><span class="dh">${head}</span> → <span class="dt">${tail}</span></div>`;
   }));
-  if (confirmed.length) lines.push(`<div class="dl ok"><span class="dt a-confirm">확인</span>: ${confirmed.join(', ')} 안건 종료됨.</div>`);
+  if (confirmed.length) lines.push(`<div class="dl ok"><span class="dt a-confirm">확인</span>: ${confirmed.join(', ')} 사안 종료됨.</div>`);
   const keep = heldItems(s).map(i => `#${i.id}`);
   if (keep.length) lines.push(`<div class="dl keep">보류 유지: ${keep.join(', ')}</div>`);
   if (s.wrapup) lines.push(`<div class="dl wrap">${esc(WRAPUP)}</div>`);
