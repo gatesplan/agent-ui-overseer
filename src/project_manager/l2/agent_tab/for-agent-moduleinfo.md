@@ -1,6 +1,6 @@
 ---
 sources:
-  agent_tab.py: ff2a279da64d
+  agent_tab.py: c4562ce0364b
 ---
 # agent_tab
 
@@ -24,7 +24,13 @@ __init__(tab_id: str, cwd: str, claude_args: str, store: DecisionStore, captures
 
 start(resume: bool = False, rows: int = 40, cols: int = 120) -> None
     `cmd.exe /c claude <claude_args>` 를 띄운다. resume 이면 기록된 마지막 세션으로 `--resume <session_id>`.
-    부모 Claude Code 세션의 표식 환경변수(SESSION_MARKERS)를 지운다. 남으면 자식이 하위 세션으로 떠서 대화 기록 저장이 꺼진다.
+    환경은 child_env 로 만든다.
+
+child_env(environ: dict[str, str], tab_id: str) -> dict[str, str]    # staticmethod
+    자식 claude 에 줄 환경. environ 은 고치지 않는다.
+    - 부모 Claude Code 세션의 표식(SESSION_MARKERS)을 지운다. 남으면 자식이 하위 세션으로 떠서 대화 기록 저장이 꺼진다
+    - 서버를 uv run 으로 띄우며 붙은 가상환경(UV_RUN_VARS, PATH 의 VIRTUAL_ENV\Scripts)을 지운다. 남으면 자식 세션의 python 이 패널 .venv 로 잡힌다
+    - OVERSEER_TAB 을 넣는다
 
 poll() -> bool
     새 훅 기록이 붙었거나 프로세스가 끝났으면 True.

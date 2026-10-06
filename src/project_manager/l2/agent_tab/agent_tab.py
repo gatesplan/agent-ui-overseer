@@ -18,6 +18,8 @@ SESSION_MARKERS = (
 )
 # 붙여넣은 뒤 Enter 까지 기다리는 시간. 바로 치면 붙여넣기 처리 전에 제출될 수 있다
 SUBMIT_DELAY = 0.3
+# uv run 이 붙이는 변수. PATH 맨 앞의 가상환경 경로는 child_env 가 따로 뺀다
+UV_RUN_VARS = ('VIRTUAL_ENV', 'UV', 'UV_RUN_RECURSION_DEPTH', '_')
 
 
 # 패널 탭 하나. claude 프로세스, 훅 기록, 결정 저장을 묶고 화면에 줄 상태를 만든다
@@ -41,12 +43,25 @@ class AgentTab:
         session_id = self.builder.build(self.log.events)['session_id']
         if resume and session_id:
             argv += ['--resume', session_id]
-        env = {k: v for k, v in os.environ.items() if k not in SESSION_MARKERS}
-        env['OVERSEER_TAB'] = self.id
+        env = self.child_env(dict(os.environ), self.id)
         self.pty = PtySession(argv, self.cwd, env, rows, cols)
         self.pty.listeners = self.listeners
         self.pty.start()
         self._was_alive = True
+
+    # 자식 claude 에 줄 환경. 서버가 물려받은 것 중 자식 세션을 바꿔 놓는 것을 걷어 낸다
+    # - 부모 Claude Code 세션 표식
+    # - 서버를 uv run 으로 띄우며 생긴 패널 가상환경. 남으면 자식 세션의 python 이 패널 .venv 로 잡힌다
+    @staticmethod
+    def child_env(environ: dict[str, str], tab_id: str) -> dict[str, str]:
+        env = {k: v for k, v in environ.items() if k.upper() not in SESSION_MARKERS + UV_RUN_VARS}
+        venv = environ.get('VIRTUAL_ENV')
+        if venv:
+            scripts = {os.path.normcase(os.path.join(venv, d)) for d in ('Scripts', 'bin')}
+            for key in [k for k in env if k.upper() == 'PATH']:
+                env[key] = os.pathsep.join(p for p in env[key].split(os.pathsep) if os.path.normcase(p.rstrip('\\/')) not in scripts)
+        env['OVERSEER_TAB'] = tab_id
+        return env
 
     @property
     def alive(self) -> bool:
