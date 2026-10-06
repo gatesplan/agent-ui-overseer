@@ -1,6 +1,6 @@
 ---
 sources:
-  project_finder.py: 388aa5551d8a
+  project_finder.py: d33c04caca65
 ---
 # project_finder
 
@@ -20,7 +20,9 @@ roots() -> list[Path]
 default_root() -> Path
     새 폴더를 만들 기본 위치. 첫 루트. 하나도 없으면 정한 첫 루트, 그것도 없으면 첫 드라이브의 Projects(만들 때 생긴다).
 scan() -> list[dict]
-    [{root, dirs: [{name, path}]}]. 폴더는 최근 수정 순. 점으로 시작하는 폴더는 뺀다.
+    [{root, dirs: [{name, path, group}]}]. 폴더는 최근 수정 순. 점으로 시작하는 폴더는 뺀다.
+    프로젝트 표식(PROJECT_MARKERS: .git, .claude, CLAUDE.md, pyproject.toml 등)이 없는 폴더 바로 아래에 표식 있는 폴더가 있으면
+    묶음 폴더로 보고, 그 프로젝트들을 묶음 폴더 바로 뒤에 group(묶음 이름)을 붙여 넣는다. 한 단계 아래까지만 본다.
 create(root: str, name: str) -> Path
     raise ValueError    # 이름에 경로 구분자나 금지 글자가 있거나, root 가 Projects 폴더가 아닐 때
     root 안에 name 폴더를 만든다. 이미 있으면 그대로 돌려준다.

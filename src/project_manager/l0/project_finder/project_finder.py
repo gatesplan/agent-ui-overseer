@@ -5,6 +5,8 @@ from pathlib import Path
 
 # 폴더 이름에 쓸 수 없는 글자(Windows)
 BAD_NAME = re.compile(r'[\\/:*?"<>|]')
+# 프로젝트 폴더로 보는 표식. 하나라도 있으면 프로젝트
+PROJECT_MARKERS = ('.git', '.claude', 'CLAUDE.md', 'pyproject.toml', 'package.json', 'Cargo.toml', 'go.mod')
 
 
 # 새 세션 창의 폴더 목록. 프로젝트 루트(기본: 드라이브마다 루트의 Projects 폴더) 안의 폴더를 보여 주고 새 폴더를 만든다
@@ -27,17 +29,30 @@ class ProjectFinder:
             return roots[0]
         return self.fixed[0] if self.fixed else Path(self.drives[0]) / self.folder
 
-    # [{root, dirs: [{name, path}]}]. 폴더는 최근 수정 순, 점으로 시작하는 폴더는 뺀다
+    # [{root, dirs: [{name, path, group}]}]. 폴더는 최근 수정 순, 점으로 시작하는 폴더는 뺀다
+    # 프로젝트 표식이 없는 폴더 바로 아래에 표식 있는 폴더가 있으면 묶음 폴더로 보고, 그 프로젝트들을 바로 뒤에 group 을 붙여 넣는다
     def scan(self) -> list[dict]:
         result = []
         for root in self.roots():
-            try:
-                entries = [e for e in os.scandir(root) if e.is_dir() and not e.name.startswith('.')]
-            except OSError:
-                continue
-            entries.sort(key=lambda e: e.stat().st_mtime, reverse=True)
-            result.append({'root': str(root), 'dirs': [{'name': e.name, 'path': e.path} for e in entries]})
+            dirs = []
+            for entry in self._subdirs(root):
+                dirs.append({'name': entry.name, 'path': entry.path, 'group': None})
+                if self._is_project(entry.path):
+                    continue
+                dirs += [{'name': sub.name, 'path': sub.path, 'group': entry.name}
+                         for sub in self._subdirs(entry.path) if self._is_project(sub.path)]
+            result.append({'root': str(root), 'dirs': dirs})
         return result
+
+    def _subdirs(self, path) -> list[os.DirEntry]:
+        try:
+            entries = [e for e in os.scandir(path) if e.is_dir() and not e.name.startswith('.')]
+        except OSError:
+            return []
+        return sorted(entries, key=lambda e: e.stat().st_mtime, reverse=True)
+
+    def _is_project(self, path: str) -> bool:
+        return any(os.path.exists(os.path.join(path, marker)) for marker in PROJECT_MARKERS)
 
     def create(self, root: str, name: str) -> Path:
         name = name.strip()

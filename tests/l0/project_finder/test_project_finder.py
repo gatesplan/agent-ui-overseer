@@ -21,6 +21,7 @@ def test_scan_lists_projects_roots_recent_first(tmp_path):
     finder = ProjectFinder(drives=[a, b])
     assert finder.roots() == [root]
     assert [d['name'] for d in finder.scan()[0]['dirs']] == ['new', 'old']
+    assert all(d['group'] is None for d in finder.scan()[0]['dirs'])
 
 
 def test_fixed_roots_replace_drive_scan(tmp_path):
@@ -53,3 +54,20 @@ def test_create_inside_root_and_default_root_when_none(tmp_path):
         finder.create(str(finder.default_root()), '../밖')
     with pytest.raises(ValueError):
         finder.create(str(tmp_path), 'x')
+
+
+def test_group_folder_lists_projects_inside(tmp_path):
+    a = drive(tmp_path, 'A')
+    root = tmp_path / 'A' / 'Projects'
+    (root / 'solo' / '.git').mkdir(parents=True)
+    (root / 'gatesplan' / 'mathgate' / '.git').mkdir(parents=True)
+    (root / 'gatesplan' / 'auth').mkdir()
+    (root / 'gatesplan' / 'auth' / 'CLAUDE.md').write_text('x', encoding='utf-8')
+    (root / 'gatesplan' / 'labs').mkdir()                      # 표식 없음: 묶음 안에서는 보이지 않는다
+    (root / 'solo' / 'inner' / '.git').mkdir(parents=True)     # 프로젝트 안은 들여다보지 않는다
+    dirs = ProjectFinder(drives=[a]).scan()[0]['dirs']
+    entries = {(d['group'], d['name']) for d in dirs}
+    assert entries == {(None, 'solo'), (None, 'gatesplan'), ('gatesplan', 'mathgate'), ('gatesplan', 'auth')}
+    # 묶음 폴더 바로 뒤에 그 안의 프로젝트가 온다
+    names = [d['name'] for d in dirs]
+    assert names.index('gatesplan') < names.index('mathgate') and names.index('gatesplan') < names.index('auth')

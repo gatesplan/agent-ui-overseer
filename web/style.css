@@ -115,6 +115,9 @@ code { font-family: var(--font-mono); font-size: .9em; padding: 0 4px; backgroun
 .nt-opt:hover { background: var(--panel-2); }
 .nt-opt.on { background: color-mix(in srgb, var(--accent) 18%, transparent); box-shadow: inset 2px 0 var(--accent); }
 .nt-opt small { margin-left: auto; font-size: 0.786em; color: var(--muted); }
+/* 묶음 폴더 안의 프로젝트: 묶음 이름을 흐리게 앞에 두고 들여 쓴다 */
+.nt-opt.nested { padding-left: 26px; }
+.nt-group { color: var(--muted); margin-right: 2px; }
 .nt-opt.create { color: var(--accent); border-top: 1px dashed var(--line-strong); }
 .nt-opt select { color: var(--text); background: var(--bg); border: 1px solid var(--line-strong); font: 0.857em var(--font-mono); }
 .nt-empty { padding: 12px; color: var(--muted); font-size: 0.857em; }

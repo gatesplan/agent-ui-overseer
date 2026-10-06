@@ -981,10 +981,11 @@ function pickerOptions(q) {
   const key = q.trim().toLowerCase();
   if (isPath(q.trim())) return [{ type: 'path', cwd: q.trim() }];
   const opened = new Set(sessions.map(s => (s.cwd || '').toLowerCase()));
-  const dirs = picker.roots.flatMap(r => r.dirs.map(d => ({ type: 'dir', cwd: d.path, name: d.name, root: r.root, opened: opened.has(d.path.toLowerCase()) })));
-  const hits = key ? dirs.filter(d => d.name.toLowerCase().includes(key)) : dirs;
+  const dirs = picker.roots.flatMap(r => r.dirs.map(d => ({ type: 'dir', cwd: d.path, name: d.name, group: d.group, root: r.root, opened: opened.has(d.path.toLowerCase()) })));
+  // 묶음 폴더 안의 프로젝트는 묶음 이름으로도 찾는다
+  const hits = key ? dirs.filter(d => `${d.group || ''}/${d.name}`.toLowerCase().includes(key)) : dirs;
   // 정확히 같은 이름이 만들 위치에 이미 있으면 새로 만들기는 보이지 않는다
-  const exists = dirs.some(d => d.root === picker.createRoot && d.name.toLowerCase() === key);
+  const exists = dirs.some(d => !d.group && d.root === picker.createRoot && d.name.toLowerCase() === key);
   return key && !exists ? [...hits, { type: 'create', name: q.trim() }] : hits;
 }
 
@@ -1005,7 +1006,8 @@ function renderPicker() {
     }
     const head = o.root !== lastRoot ? `<div class="nt-root">${esc(o.root)}</div>` : '';
     lastRoot = o.root;
-    return `${head}<div class="nt-opt ${on}" data-opt="${i}">${esc(o.name)}${o.opened ? '<small>열려 있음</small>' : ''}</div>`;
+    const name = o.group ? `<span class="nt-group">${esc(o.group)} /</span>${esc(o.name)}` : esc(o.name);
+    return `${head}<div class="nt-opt ${o.group ? 'nested' : ''} ${on}" data-opt="${i}">${name}${o.opened ? '<small>열려 있음</small>' : ''}</div>`;
   });
   const empty = picker.roots.length ? '맞는 폴더 없음' : `드라이브 루트에 Projects 폴더가 없다. 이름을 입력하면 ${esc(picker.defaultRoot)} 에 만든다`;
   $('#nt-list').innerHTML = rows.join('') || `<div class="nt-empty">${empty}</div>`;
