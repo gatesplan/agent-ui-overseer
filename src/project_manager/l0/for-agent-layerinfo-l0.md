@@ -29,6 +29,7 @@ ProjectFinder.create(root: str, name: str) -> Path  # project_finder.py
 ## transcript_reader
 TranscriptReader.__init__(path: str | Path)  # transcript_reader.py
 TranscriptReader.last_turn_text() -> str  # transcript_reader.py
+TranscriptReader.turn_prompts() -> list[str]  # transcript_reader.py
 
 ## turn_builder
 TurnBuilder.build(events: list[dict]) -> dict  # turn_builder.py

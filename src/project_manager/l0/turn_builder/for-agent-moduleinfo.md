@@ -1,6 +1,6 @@
 ---
 sources:
-  turn_builder.py: 6e5df5383565
+  turn_builder.py: aa6143158bd5
 ---
 # turn_builder
 
@@ -12,14 +12,20 @@ sources:
 
 build(events: list[dict]) -> dict
     반환: {turns, pending, session_id}
-    turns: 응답 텍스트가 있는 turn 기록마다 하나. {turn, prompt, text, preamble, items, session_id, at, after}
-      턴 번호는 1부터, 사안 ID 는 `턴-순번`(사안 순서는 응답에 나온 순서)
-      prompt: 앞 턴 뒤로 들어온 입력. 여럿이면 빈 줄로 잇는다
+    turns: {turn, prompt, text, preamble, items, parts, session_id, at, after}
+      턴 번호는 1부터, 사안 ID 는 `턴-순번`(응답에 나온 순서)
+      prompt: 이 턴이 받은 입력. turn 기록의 prompts(기록 파일에서 읽음)를 쓰고, 없으면 그때까지 온 입력 훅 기록 전부
+      parts: 이 턴에 묶인 응답 수
       after: 이 턴 앞에 /clear 나 compact 가 있었으면 'clear' | 'compact'
-    pending: 마지막 턴 뒤에 들어온 입력. 에이전트가 처리 중이라는 뜻. 없으면 None
+    pending: 아직 어느 턴에도 들어가지 않은 입력. 에이전트가 처리 중이라는 뜻. 없으면 None
     session_id: 가장 최근 기록의 claude 세션 ID. --resume 에 쓴다
 
-## 설계 이유
+## 턴 경계
 
-- 응답이 빈 turn(중단 등)은 턴으로 세지 않는다. 사안 ID 가 비지 않게 하려는 것.
+- 패널의 턴은 사용자가 한 번에 처리할 묶음이다. 에이전트가 사용자에게 돌려주지 않고 이어 간 응답은 같은 턴이다.
+- 입력 훅(prompt 기록)은 대기열에 넣는 순간 불린다. 작업 중에 넣은 입력은 앞 응답의 turn 기록보다 먼저 온다.
+  그래서 턴 입력은 turn 기록의 prompts 로 정하고, 입력 훅 기록은 맞춰 지운다(남은 것이 pending).
+- 응답이 끝났을 때 남은 입력이 있으면 에이전트는 쉬지 않고 그것을 처리한다. 다음 응답을 같은 턴에 붙이고
+  사안 ID 를 이어 매긴다(1-6, 1-7 …). 입력문, 응답, 종합 의견도 이어 붙인다.
+- 응답이 빈 turn(중단 등)은 턴으로 세지 않는다. 중단된 입력은 다음 응답의 prompts 에 함께 들어온다.
 - 사안 ID 는 탭 안에서 이어진다. /clear 로 claude 세션이 바뀌어도 번호는 이어 간다.

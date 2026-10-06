@@ -1,6 +1,6 @@
 ---
 sources:
-  capture_hook.py: fc6cfd353856
+  capture_hook.py: abe3fc696244
 ---
 # capture_hook
 
@@ -21,7 +21,8 @@ run(hook_input: dict, tab_id: str) -> str
     hook_input 은 훅 stdin JSON. hook_event_name 으로 나눈다. 반환값은 훅 stdout 으로 쓴다.
     SessionStart: {event: session_start, source, cwd} 기록. 규약 본문 반환(세션 컨텍스트에 들어간다)
     UserPromptSubmit: {event: prompt, prompt} 기록
-    Stop: {event: turn, source, text, preamble, items} 기록. 응답은 `last_assistant_message`(2.1.x) 우선, 없으면 transcript
+    Stop: {event: turn, source, text, preamble, items, prompts} 기록. 응답은 `last_assistant_message`(2.1.x) 우선, 없으면 transcript
+      prompts: 이 턴이 실제로 받은 입력(TranscriptReader.turn_prompts). 기록 파일이 없으면 None
     모든 기록에 at, session_id 가 붙는다. 턴 조립은 TurnBuilder 몫.
 
 ## 설계 이유

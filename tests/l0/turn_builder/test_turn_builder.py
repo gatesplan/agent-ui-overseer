@@ -21,6 +21,44 @@ def test_turns_get_numbered_ids_and_prompts():
     assert built['session_id'] == 's1'
 
 
+def test_queued_prompt_response_joins_the_same_turn():
+    # 작업 중에 넣은 입력은 입력 훅이 먼저 불린다. 응답이 끝날 때 대기열이 남아 있으면 다음 응답은 같은 턴이다
+    events = [
+        {'event': 'prompt', 'prompt': '상태 확인'},
+        {'event': 'prompt', 'prompt': '계속해봐'},
+        {'event': 'prompt', 'prompt': '이거 UI 때문이야?'},
+        {**turn('### [보고] a\n### [제안] b', [{'kind': '보고', 'title': 'a'}, {'kind': '제안', 'title': 'b'}]),
+         'preamble': '앞말 1', 'prompts': ['상태 확인', '계속해봐']},
+    ]
+    built = TurnBuilder().build(events)
+    assert built['turns'][0]['prompt'] == '상태 확인\n\n계속해봐'
+    assert built['pending'] == '이거 UI 때문이야?'
+
+    second = {**turn('### [보고] c', [{'kind': '보고', 'title': 'c'}]), 'preamble': '앞말 2', 'prompts': ['이거  UI 때문이야?']}
+    built = TurnBuilder().build(events + [second])
+    assert len(built['turns']) == 1
+    t = built['turns'][0]
+    assert [i['id'] for i in t['items']] == ['1-1', '1-2', '1-3']
+    assert t['prompt'] == '상태 확인\n\n계속해봐\n\n이거  UI 때문이야?'
+    assert t['preamble'] == '앞말 1\n\n앞말 2'
+    assert t['parts'] == 2
+    assert built['pending'] is None
+
+    # 응답이 끝난 뒤 들어온 입력은 새 턴
+    built = TurnBuilder().build(events + [second, {'event': 'prompt', 'prompt': '다음'}, {**turn('d'), 'prompts': ['다음']}])
+    assert [x['turn'] for x in built['turns']] == [1, 2]
+    assert built['turns'][1]['prompt'] == '다음'
+
+
+def test_unmatched_older_prompts_are_dropped_when_later_one_matches():
+    events = [
+        {'event': 'prompt', 'prompt': '/clear'},
+        {'event': 'prompt', 'prompt': '진짜 입력'},
+        {**turn('응답'), 'prompts': ['진짜 입력']},
+    ]
+    assert TurnBuilder().build(events)['pending'] is None
+
+
 def test_pending_prompt_and_clear_mark_and_empty_turn_skipped():
     events = [
         {'event': 'prompt', 'prompt': '첫'},

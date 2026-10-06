@@ -35,10 +35,13 @@ class CaptureHook:
         return ''
 
     def _turn(self, hook_input: dict) -> dict:
-        text, source = self._text(hook_input, hook_input.get('transcript_path'))
+        transcript_path = hook_input.get('transcript_path')
+        text, source = self._text(hook_input, transcript_path)
         preamble, items = self.splitter.split(text)
-        logger.info(f"turn 캡처: source={source}, items={len(items)}, text_len={len(text)}")
-        return {'source': source, 'text': text, 'preamble': preamble, 'items': [item.to_dict() for item in items]}
+        # 이 턴이 실제로 받은 입력. 기록 파일이 없으면 None 이고 입력 훅 기록으로 대신한다
+        prompts = TranscriptReader(transcript_path).turn_prompts() if transcript_path and Path(transcript_path).exists() else None
+        logger.info(f"turn 캡처: source={source}, items={len(items)}, text_len={len(text)}, prompts={None if prompts is None else len(prompts)}")
+        return {'source': source, 'text': text, 'preamble': preamble, 'items': [item.to_dict() for item in items], 'prompts': prompts}
 
     def _text(self, hook_input: dict, transcript_path: str | None) -> tuple[str, str]:
         # 2.1.x 의 Stop 훅은 마지막 응답을 직접 준다. 없는 버전만 기록 파일에서 읽는다

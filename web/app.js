@@ -59,6 +59,8 @@ const ui = {
   cur: null, active: null, term: false, open: new Set(), promptOpen: new Set(), drawer: null,
   theme: pref('overseer.theme', 'future-industry'),
   refs: pref('overseer.refs', '1') === '1',
+  // 현재 턴 기둥을 가로 두 배로
+  wide: pref('overseer.wide', '0') === '1',
   fs: Object.fromEntries(Object.keys(FONT_KEYS).map(k => [k, Number(pref(`overseer.fs.${k}`, FONT_DEFAULT[k]))])),
 };
 const $ = sel => document.querySelector(sel);
@@ -281,7 +283,7 @@ function column(s, t, isCur) {
   const todo = t.items.filter(i => statusOf(s, i) === 'todo').length;
   return `<section class="col ${isCur ? 'col-cur' : 'col-prev'}" data-col="${t.turn}">
     <header class="col-head">
-      <div class="col-title"><b>TURN ${pad(t.turn)}${t.wrapup ? '<i class="wrap-tag">정리</i>' : ''}${t.after ? `<i class="wrap-tag" title="이 턴 앞에서 에이전트 맥락이 바뀌었다">${esc(t.after)}</i>` : ''}</b><span>사안 ${t.items.length}${todo ? ` · 미처리 ${todo}` : ''}</span></div>
+      <div class="col-title"><b>TURN ${pad(t.turn)}${t.wrapup ? '<i class="wrap-tag">정리</i>' : ''}${t.after ? `<i class="wrap-tag" title="이 턴 앞에서 에이전트 맥락이 바뀌었다">${esc(t.after)}</i>` : ''}${t.parts > 1 ? `<i class="wrap-tag" title="작업 중에 넣은 입력까지 이어서 처리해 응답이 ${t.parts}번 나온 턴">응답 ${t.parts}</i>` : ''}</b><span>사안 ${t.items.length}${todo ? ` · 미처리 ${todo}` : ''}</span></div>
       ${promptBlock(t.turn, t.prompt)}
     </header>
     <div class="col-items">${summaryCard(s, t, isCur)}${sorted(t.items).map(i => card(s, i, isCur)).join('')}</div>
@@ -365,7 +367,7 @@ function renderMain(s) {
   return `<section class="pane">
     <header class="pane-bar"><span class="pane-name">흐름</span><span class="pane-info">턴 ${s.turns.length} · 사안 ${allItems(s).length}</span>
       <button class="pane-gear ${ui.drawer === 'flow' ? 'on' : ''}" data-drawer="flow" title="흐름 설정">${GEAR}</button></header>
-    <div class="flow" id="flow"><div class="flow-inner" id="flow-inner">
+    <div class="flow" id="flow"><div class="flow-inner ${ui.wide ? 'wide' : ''}" id="flow-inner">
       ${s.turns.map((t, i) => column(s, t, i === last)).join('')}${arrow(s)}${nextColumn(s)}
     </div></div>
   </section>`;
@@ -387,7 +389,9 @@ function drawerHTML() {
     <span class="stepper"><button data-fs="${k}" data-delta="-1">−</button><b>${ui.fs[k]}</b><button data-fs="${k}" data-delta="1">+</button></span></div>`).join('');
   return `<div class="ps-title">흐름 설정<button class="x" data-drawer="flow" title="닫기">×</button></div>${fonts}
     <label class="ps-row"><span>언급도 관련으로 보기 <small>본문에서 #ID 로 언급한 사안도 함께 밝힌다</small></span>
-      <input type="checkbox" data-pref="refs" ${ui.refs ? 'checked' : ''}></label>`;
+      <input type="checkbox" data-pref="refs" ${ui.refs ? 'checked' : ''}></label>
+    <label class="ps-row"><span>현재 턴 카드 넓게 <small>현재 턴 기둥을 가로 두 배로 넓힌다</small></span>
+      <input type="checkbox" data-pref="wide" ${ui.wide ? 'checked' : ''}></label>`;
 }
 
 function renderDrawer() {
@@ -595,6 +599,7 @@ function unpick() {
 // Tab / Shift+Tab: 세션 탭 이동, Ctrl+Shift+Enter: 승인 및 작업 (입력 중에도 동작)
 // 위아래 방향키: 같은 기둥 안 카드 이동, Home: 현재 턴 종합 의견, 숫자키: 선택한 카드의 처리 버튼
 // 그 밖의 글자 키: 선택한 카드의 입력창에 바로 입력 시작
+// Ctrl+Enter: 카드 입력칸에서 입력을 마치고 다음 카드로
 // Esc: 입력창에서 벗어나기, 그다음 선택 해제
 document.addEventListener('keydown', e => {
   // 터미널 창 안의 키는 전부 claude 로 간다. Tab, Esc 도 거기서 쓰인다
@@ -608,6 +613,13 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && e.ctrlKey && e.shiftKey) {
     e.preventDefault();
     send();
+    return;
+  }
+  // 카드 입력칸에서 Ctrl+Enter: 입력을 마치고 같은 기둥의 다음 카드로
+  if (e.key === 'Enter' && e.ctrlKey && !e.shiftKey && !e.altKey && typing?.closest('.card')) {
+    e.preventDefault();
+    typing.blur();
+    step(1);
     return;
   }
   if (e.key === 'Escape') {
@@ -721,7 +733,12 @@ document.addEventListener('input', e => {
 });
 
 document.addEventListener('change', e => {
-  if (e.target.dataset.pref === 'refs') {
+  if (e.target.dataset.pref === 'wide') {
+    ui.wide = e.target.checked;
+    savePref('overseer.wide', ui.wide ? '1' : '0');
+    $('#flow-inner')?.classList.toggle('wide', ui.wide);
+    requestAnimationFrame(showFocus);
+  } else if (e.target.dataset.pref === 'refs') {
     ui.refs = e.target.checked;
     savePref('overseer.refs', ui.refs ? '1' : '0');
     showFocus();

@@ -332,6 +332,8 @@ kbd.tag {
 /* 기둥별 글자: 현재 턴, 이전 턴, NEXT INPUT */
 .col-prev { width: var(--col-w-prev); font-size: var(--fs-prev); }
 .col-cur { width: var(--col-w-cur); font-size: var(--fs-cur); }
+/* 흐름 설정의 넓게 보기: 현재 턴 기둥만 가로 두 배. NEXT INPUT 은 그대로 */
+.flow-inner.wide .col-cur { width: calc(var(--col-w-cur) * 2); }
 .col-next { width: var(--col-w-cur); font-size: var(--fs-draft); }
 .more {
   display: block; margin: 2px auto 0; padding: 0 10px; border: 0; background: none;
