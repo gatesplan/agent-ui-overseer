@@ -1,6 +1,6 @@
 ---
 sources:
-  capture_hook.py: 6b33ea72d937
+  capture_hook.py: a932a2920ebf
 ---
 # capture_hook
 
@@ -24,6 +24,7 @@ run(hook_input: dict, tab_id: str) -> str
     SessionStart: {event: session_start, source, cwd, transcript_rows, records_seen} 기록. 규약 본문 반환(세션 컨텍스트에 들어간다)
     UserPromptSubmit: {event: prompt, prompt, records_seen} 기록. 이 세션이 받은 뒤 다른 탭에서 생긴 기록이 있으면 변경 고지를 돌려준다(입력과 함께 컨텍스트에 들어간다).
       records_seen 이 없는 세션(이 기능 전에 뜬 세션)은 지금 끝부터 센다
+      그 세션의 시작 기록이 아예 없으면(시작 훅 실패) 규약과 기록 목록을 이 입력과 함께 넣고 {event: session_start, source: recovered} 를 남긴다
     Stop: {event: turn, source, text, preamble, items, prompts} 기록. 응답은 `last_assistant_message`(2.1.x) 우선, 없으면 transcript
       prompts: 이 턴이 실제로 받은 입력(TranscriptReader.turn_prompts). 기록 파일이 없으면 None
       usage: 이 턴의 토큰 사용량 {model, calls, tools, input_tokens, cache_creation_input_tokens, cache_read_input_tokens, output_tokens}

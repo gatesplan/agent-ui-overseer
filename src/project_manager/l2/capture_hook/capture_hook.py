@@ -39,7 +39,15 @@ class CaptureHook:
                                   'records_seen': self._records_last(hook_input.get('cwd'))})
             return '\n\n'.join(p for p in (self._protocol(), self._briefing(hook_input.get('cwd'))) if p)
         if event == 'UserPromptSubmit':
-            notice, seen = self._notice(hook_input.get('cwd'), tab_id, session_id)
+            cwd = hook_input.get('cwd')
+            if not self._started(tab_id, session_id):
+                # 시작 훅이 실패해 규약을 못 받은 세션. 이번 입력에 규약과 기록 목록을 넣고 시작 기록을 남긴다
+                seen = self._records_last(cwd)
+                self._append(tab_id, {**base, 'event': 'session_start', 'source': 'recovered', 'cwd': cwd, 'records_seen': seen})
+                self._append(tab_id, {**base, 'event': 'prompt', 'prompt': hook_input.get('prompt') or '', 'records_seen': seen})
+                logger.info(f"세션 시작 기록이 없어 규약을 입력과 함께 넣는다: tab={tab_id}, session={session_id}")
+                return '\n\n'.join(p for p in (self._protocol(), self._briefing(cwd)) if p)
+            notice, seen = self._notice(cwd, tab_id, session_id)
             self._append(tab_id, {**base, 'event': 'prompt', 'prompt': hook_input.get('prompt') or '', 'records_seen': seen})
             return notice
         if event == 'Stop':
@@ -101,6 +109,20 @@ class CaptureHook:
     # 이 세션에서 훅이 지난번에 남긴 기록 파일 길이. 이번 턴은 그 뒤에서 시작한다
     def _since(self, tab_id: str, session_id: str) -> int | None:
         return self._last_value(tab_id, session_id, 'transcript_rows')
+
+    # 이 세션의 시작 기록이 있는지. 없으면 시작 훅이 실패해 규약을 못 받은 것이다
+    def _started(self, tab_id: str, session_id: str) -> bool:
+        path = self.store_dir / f'{tab_id}.jsonl'
+        if not path.exists():
+            return False
+        for line in path.open(encoding='utf-8'):
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if row.get('event') == 'session_start' and row.get('session_id') == session_id:
+                return True
+        return False
 
     # 이 세션의 훅 기록에서 key 의 마지막 값
     def _last_value(self, tab_id: str, session_id: str, key: str):

@@ -100,4 +100,24 @@ def test_prompt_in_session_started_before_feature_gets_no_backlog(tmp_path):
     cwd = str(tmp_path / 'proj')
     records.add(RecordStore.project_key(cwd), 'D', '예전 결정', tab_id='other', item_id='1-1')
     hook = CaptureHook(tmp_path / 'cap', records=records)
+    # 이 기능 전 버전의 시작 기록(records_seen 없음)
+    (tmp_path / 'cap').mkdir(exist_ok=True)
+    (tmp_path / 'cap' / 'tab.jsonl').write_text('{"event": "session_start", "session_id": "old"}\n', encoding='utf-8')
     assert hook.run({'hook_event_name': 'UserPromptSubmit', 'session_id': 'old', 'prompt': 'x', 'cwd': cwd}, 'tab') == ''
+
+
+def test_prompt_recovers_protocol_when_session_start_failed(tmp_path):
+    from project_manager.l0.record_store import RecordStore
+    protocol = tmp_path / 'protocol.md'
+    protocol.write_text('## 규약', encoding='utf-8')
+    records = RecordStore(tmp_path / 'o.db')
+    cwd = str(tmp_path / 'proj')
+    records.add(RecordStore.project_key(cwd), 'D', '로그는 INFO')
+    hook = CaptureHook(tmp_path / 'cap', protocol, records=records)
+    prompt = {'hook_event_name': 'UserPromptSubmit', 'session_id': 's', 'prompt': '이슈 확인', 'cwd': cwd}
+    out = hook.run(prompt, 'tab')
+    assert out.startswith('## 규약') and '- D-1 로그는 INFO' in out
+    rows = [json.loads(line) for line in (tmp_path / 'cap' / 'tab.jsonl').read_text(encoding='utf-8').splitlines()]
+    assert [(r['event'], r.get('source')) for r in rows] == [('session_start', 'recovered'), ('prompt', None)]
+    # 한 번만 넣는다
+    assert hook.run(prompt, 'tab') == ''
