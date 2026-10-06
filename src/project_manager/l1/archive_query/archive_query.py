@@ -6,7 +6,7 @@ from project_manager.l0.decision_store import DecisionStore
 from project_manager.l0.record_store import RecordStore
 from project_manager.l0.turn_builder import TurnBuilder
 
-LABEL = {'answer': '답변', 'approve': '승인', 'hold': '보류', 'reject': '기각', 'confirm': '확인', 'feedback': '피드백', 'close': '닫음'}
+LABEL = {'answer': '답변', 'approve': '승인', 'revise': '수정', 'hold': '보류', 'reject': '기각', 'confirm': '확인', 'feedback': '피드백', 'close': '닫음'}
 BASIS = re.compile(r'^근거:(.*)$', re.M)
 # 결과 본문을 이 길이로 자른다. 에이전트 컨텍스트를 아끼려는 것
 BODY_LIMIT = 600

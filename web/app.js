@@ -3,15 +3,17 @@
 'use strict';
 
 // close: 보류함에서 닫음. 에이전트에게 보내지 않는 패널 처리
-const LABEL = { answer: '답변', approve: '승인', hold: '보류', reject: '기각', confirm: '확인', close: '닫음' };
+const LABEL = { answer: '답변', approve: '승인', revise: '수정', hold: '보류', reject: '기각', confirm: '확인', close: '닫음' };
 // 사안 종류별 처리 버튼. 두 번째 값은 의견 필수 여부
 const ACTIONS = {
   질문: [['answer', true], ['hold', false], ['reject', true]],
-  제안: [['approve', false], ['hold', false], ['reject', true]],
+  // 수정: 방향은 맞고 수정안을 반영해 다시 제안받는다. 기각(이 방향은 아님)과 기록을 나눈다
+  제안: [['approve', false], ['revise', true], ['hold', false], ['reject', true]],
   보고: [['confirm', false], ['answer', true]],
 };
 const PLACEHOLDER = {
-  answer: '답변 (필수)', approve: '조건이나 덧붙일 말 (선택)', hold: '보류 메모 (선택, 전송 안 함)',
+  answer: '답변 (필수)', approve: '조건이나 고칠 점 (선택). 반영해서 바로 진행한다', hold: '보류 메모 (선택, 전송 안 함)',
+  revise: '수정안 (필수). 반영한 제안을 다시 받는다',
   reject: '기각 사유 (필수). 사유가 없으면 에이전트가 다음 판단을 못 한다', confirm: '덧붙일 말 (선택)',
 };
 // 보존 표시. 사안 종류 라벨 뒤에 붙는다. 승인하거나 답하면 영속 지식에 들어간다

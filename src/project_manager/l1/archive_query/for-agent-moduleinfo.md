@@ -1,6 +1,6 @@
 ---
 sources:
-  archive_query.py: 61f84144048d
+  archive_query.py: 4b605c5c020e
 ---
 # archive_query
 

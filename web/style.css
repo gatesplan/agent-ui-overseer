@@ -223,6 +223,7 @@ code { font-family: var(--font-mono); font-size: .9em; padding: 0 4px; backgroun
 .state.s-answer, .state.s-approve, .state.s-confirm { color: var(--ok); }
 .state.s-hold { color: var(--hold); }
 .state.s-reject { color: var(--rej); }
+.state.s-revise { color: var(--accent); }
 .state.s-close { color: var(--muted); }
 /* 보류함 */
 .held { margin-bottom: 4px; border: 1px solid var(--line); background: color-mix(in srgb, var(--bg) 70%, var(--panel)); }
@@ -252,6 +253,7 @@ code { font-family: var(--font-mono); font-size: .9em; padding: 0 4px; backgroun
 .seg .a-answer, .seg .a-approve, .seg .a-confirm { --ac: var(--ok); }
 .seg .a-hold { --ac: var(--hold); }
 .seg .a-reject { --ac: var(--rej); }
+.seg .a-revise { --ac: var(--accent); }
 .seg button:hover { --bc: var(--ac); color: var(--text); }
 .seg kbd {
   display: inline-block; min-width: 16px; margin-left: 6px; padding: 0 3px;
@@ -308,6 +310,7 @@ kbd.hk {
 .dl.ok .dt.a-answer, .dl.ok .dt.a-approve, .dl.ok .dt.a-confirm { color: var(--ok); }
 .dl.ok .dt.a-hold, .dl.keep { color: var(--hold); }
 .dl.ok .dt.a-reject { color: var(--rej); }
+.dl.ok .dt.a-revise { color: var(--accent); }
 .dl.extra { color: var(--text); white-space: pre-wrap; }
 .dl .dg { font-weight: 700; color: var(--keep); }
 .dl.wrap { color: var(--keep); }
@@ -326,6 +329,7 @@ kbd.tag {
 .bs .bd.a-answer, .bs .bd.a-approve, .bs .bd.a-confirm { color: var(--ok); }
 .bs .bd.a-hold { color: var(--hold); }
 .bs .bd.a-reject { color: var(--rej); }
+.bs .bd.a-revise { color: var(--accent); }
 .bs.warn, .bs.warn .bd { color: var(--rej); }
 .wrap-tag {
   margin-left: 10px; padding: 0 6px; font: 600 0.75em var(--font-body); font-style: normal; letter-spacing: .04em;

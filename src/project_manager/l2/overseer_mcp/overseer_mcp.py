@@ -22,7 +22,7 @@ class OverseerMcp:
         self.server.add_tool(self.record, name='record', annotations=READ_ONLY,
                              description='기록 하나(예: D-3)를 자세히 본다. 대체 이력 전체, 원래 사안 본문, 근거 사안과 그에 대한 사용자 결정.')
         self.server.add_tool(self.decisions, name='decisions', annotations=READ_ONLY,
-                             description='이 프로젝트의 지난 사안과 사용자 결정(답변, 승인, 보류, 기각, 확인)을 최근 순으로 찾는다. '
+                             description='이 프로젝트의 지난 사안과 사용자 결정(답변, 승인, 수정, 보류, 기각, 확인)을 최근 순으로 찾는다. '
                                          'action="reject" 면 기각된 것과 그 사유만. 같은 제안을 다시 내기 전에 확인한다.')
 
     def records(self, query: str = '', kind: str = '', include_replaced: bool = False) -> str:
