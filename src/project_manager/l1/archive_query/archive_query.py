@@ -24,7 +24,8 @@ class ArchiveQuery:
 
     # 결정 기록과 용어 목록. query 는 내용, 메모에서 찾는 글자(대소문자 무시). kind: D | W | 빈 값(둘 다)
     def list_records(self, query: str = '', kind: str = '', include_replaced: bool = False) -> str:
-        rows = self.records.records(self.project, active_only=not include_replaced)
+        # 상위 폴더 기록도 함께. ref 에 폴더 이름이 붙어 있다(gatesplan/D-1)
+        rows = self.records.records_in_scope(self.project, active_only=not include_replaced)
         key = query.strip().lower()
         rows = [r for r in rows if (not kind or r['kind'] == kind.upper())
                 and (not key or key in f"{r['text']} {r['note']} {r['body']}".lower())]
@@ -42,13 +43,15 @@ class ArchiveQuery:
         rec = self.records.find(self.project, ref)
         if not rec:
             return f'{ref} 기록이 없다.'
-        lines = [f"# {rec['ref']} ({'유효' if rec['status'] == 'active' else '대체됨'})", rec['text']]
+        lines = [f"# {self._ref(rec)} ({'유효' if rec['status'] == 'active' else '대체됨'})", rec['text']]
+        if rec['project'] != self.project:
+            lines.append(f"상위 폴더 {rec['project']} 에서 정한 기록. 이 프로젝트에도 적용된다")
         if rec['note']:
             lines.append(f"승인 메모: {rec['note']}")
         chain = self._chain(rec)
         if len(chain) > 1:
             lines += ['', '## 대체 이력 (오래된 것부터)']
-            lines += [f"- {r['ref']} {r['text']}{' ← 지금' if r['id'] == rec['id'] else ''}{' [유효]' if r['status'] == 'active' else ''}"
+            lines += [f"- {self._ref(r)} {r['text']}{' ← 지금' if r['id'] == rec['id'] else ''}{' [유효]' if r['status'] == 'active' else ''}"
                       for r in chain]
         item = self._item(rec['tab_id'], rec['item_id']) if rec['tab_id'] else None
         if item:
@@ -88,7 +91,7 @@ class ArchiveQuery:
 
     # 대체 관계를 따라 가장 오래된 기록부터 지금 유효한 기록까지
     def _chain(self, rec: dict) -> list[dict]:
-        by_id = {r['id']: r for r in self.records.records(self.project)}
+        by_id = {r['id']: r for r in self.records.records(rec['project'])}
         first = rec
         while first.get('replaces') in by_id:
             first = by_id[first['replaces']]
@@ -105,8 +108,14 @@ class ArchiveQuery:
         decision = f"{LABEL.get(d['action'], d['action'])}{': ' + d['note'] if d['note'] else ''}" if d else '사용자 결정 없음'
         return f"- #{item_id} [{item['kind']}] {item['title']} → {decision}"
 
+    # 이 프로젝트와 상위 폴더에서 연 탭. 묶음 폴더 세션에서 내린 결정도 찾게 한다
     def _tabs(self) -> list[dict]:
-        return [t for t in self.store.tabs() if RecordStore.project_key(t['cwd']) == self.project]
+        scopes = set(self.records.scopes(self.project))
+        return [t for t in self.store.tabs() if RecordStore.project_key(t['cwd']) in scopes]
+
+    # 보는 프로젝트 기준의 기록 ID. 상위 폴더 기록이면 폴더 이름을 붙인다
+    def _ref(self, rec: dict) -> str:
+        return rec['ref'] if rec['project'] == self.project else f"{Path(rec['project']).name}/{rec['ref']}"
 
     def _items(self, tab_id: str) -> dict[str, dict]:
         if tab_id not in self._cache:

@@ -51,3 +51,28 @@ def test_notice_lists_records_after_seen_point_from_other_tabs(tmp_path):
     assert '- 변경: D-1 가격은 새 값으로 → D-2 가격은 유지' in text
     assert '내 탭 결정' not in text
     assert store.notice(p, store.last_id(p), exclude_tab='a') == ''
+
+
+def test_parent_folder_records_apply_to_child_projects(tmp_path):
+    store = RecordStore(tmp_path / 'o.db')
+    group = RecordStore.project_key(str(tmp_path / 'gatesplan'))
+    child = RecordStore.project_key(str(tmp_path / 'gatesplan' / 'mathgate'))
+    sibling = RecordStore.project_key(str(tmp_path / 'other'))
+    store.add(group, 'D', '약관 원문은 마크다운', tab_id='g', item_id='1-1')
+    store.add(child, 'D', '채점은 서버에서', tab_id='m', item_id='1-1')
+    store.add(sibling, 'D', '관계없는 결정', tab_id='o', item_id='1-1')
+
+    refs = [r['ref'] for r in store.records_in_scope(child)]
+    assert refs == ['D-1', 'gatesplan/D-1']
+    text = store.briefing(child)
+    assert '- D-1 채점은 서버에서' in text and '- gatesplan/D-1 약관 원문은 마크다운' in text
+    assert '관계없는 결정' not in text
+    # 상위 폴더 기록은 폴더 이름으로 찾는다
+    assert store.find(child, 'gatesplan/D-1')['text'] == '약관 원문은 마크다운'
+    assert store.find(child, 'D-1')['text'] == '채점은 서버에서'
+    # 상위 폴더에서는 하위 기록이 보이지 않는다
+    assert [r['ref'] for r in store.records_in_scope(group)] == ['D-1']
+    # 변경 고지도 상위 폴더 기록까지
+    seen = store.last_id(child)
+    store.add(group, 'W', '판: 문서 버전', tab_id='g', item_id='2-1')
+    assert '- 추가: gatesplan/W-1 판: 문서 버전' in store.notice(child, seen, exclude_tab='m')

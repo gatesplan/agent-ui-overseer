@@ -53,3 +53,20 @@ def test_decisions_search_and_rejected_only(tmp_path):
     assert '#1-1' not in rejected
     assert '#1-1' in q.decisions(query='가격')
     assert q.decisions(query='없는말') == '맞는 사안이 없다.'
+
+
+def test_child_project_sees_parent_records_and_decisions(tmp_path):
+    captures = tmp_path / 'captures'
+    captures.mkdir()
+    group, child = tmp_path / 'gatesplan', tmp_path / 'gatesplan' / 'mathgate'
+    items = [{'kind': '제안', 'title': '약관을 각 서비스에 복사', 'body': ''}]
+    (captures / 'g.jsonl').write_text(json.dumps({'event': 'turn', 'session_id': 's', 'text': 'x', 'items': items}, ensure_ascii=False) + '\n',
+                                      encoding='utf-8')
+    store, records = DecisionStore(tmp_path / 'o.db'), RecordStore(tmp_path / 'o.db')
+    store.add_tab('g', str(group))
+    store.add_message('g', 'm', [('1-1', 'reject', '중앙에서 관리')])
+    records.add(RecordStore.project_key(str(group)), 'D', '약관은 auth 가 중앙 관리')
+    q = ArchiveQuery(store, records, captures, str(child))
+    assert q.list_records() == '- gatesplan/D-1 약관은 auth 가 중앙 관리'
+    assert q.record('gatesplan/D-1').startswith('# gatesplan/D-1 (유효)')
+    assert '약관을 각 서비스에 복사 → 기각: 중앙에서 관리' in q.decisions(action='reject')

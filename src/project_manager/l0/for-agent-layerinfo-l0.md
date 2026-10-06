@@ -42,6 +42,8 @@ RecordStore.__init__(path: str | Path)  # record_store.py
 RecordStore.project_key(path: str) -> str  # record_store.py
 RecordStore.add(project: str, kind: str, text: str, body: str='', note: str='', tab_id: str | None=None, item_id: str | None=None, replaces: str | None=None) -> dict  # record_store.py
 RecordStore.records(project: str, active_only: bool=False) -> list[dict]  # record_store.py
+RecordStore.records_in_scope(project: str, active_only: bool=False) -> list[dict]  # record_store.py
+RecordStore.scopes(project: str) -> list[str]  # record_store.py
 RecordStore.find(project: str, ref: str) -> dict | None  # record_store.py
 RecordStore.briefing(project: str) -> str  # record_store.py
 RecordStore.last_id(project: str) -> int  # record_store.py

@@ -507,13 +507,16 @@ function recordsHTML(s) {
       <div class="rec-meta">${[status, source, (r.created_at || '').slice(0, 10)].filter(Boolean).join(' · ')}</div>
     </div>`;
   };
-  const section = (kind, title) => {
-    const list = records.filter(r => r.kind === kind).sort((a, b) => (a.status !== 'active') - (b.status !== 'active') || a.num - b.num);
-    return `<div class="rec-sec">${title} <small>${list.filter(r => r.status === 'active').length}</small></div>${list.map(row).join('') || '<div class="rec-empty">없음</div>'}`;
+  const order = (a, b) => (a.status !== 'active') - (b.status !== 'active') || a.kind.localeCompare(b.kind) || a.num - b.num;
+  const section = (title, list, empty = true) => {
+    if (!list.length && !empty) return '';
+    return `<div class="rec-sec">${title} <small>${list.filter(r => r.status === 'active').length}</small></div>${list.sort(order).map(row).join('') || '<div class="rec-empty">없음</div>'}`;
   };
+  const own = records.filter(r => !r.inherited);
   return `<div class="ps-title">결정 기록과 용어<button class="x" data-drawer="records" title="닫기">×</button></div>
     <div class="rec-intro">${esc(s?.project || '')} 에서 승인한 보존 사안. 유효한 것은 세션 시작 때 에이전트에게 들어간다</div>
-    ${section('D', '결정 기록')}${section('W', '용어')}`;
+    ${section('결정 기록', own.filter(r => r.kind === 'D'))}${section('용어', own.filter(r => r.kind === 'W'))}
+    ${section('상위 폴더 기록 <small>이 프로젝트에도 적용</small>', records.filter(r => r.inherited), false)}`;
 }
 
 // 오른쪽에서 밀려 나오는 설정창. flow: 흐름 영역 설정, global: 전역 설정, records: 아카이브 보기

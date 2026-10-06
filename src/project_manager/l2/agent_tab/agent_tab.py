@@ -197,7 +197,7 @@ class AgentTab:
             'status': self._status(built, running, permission or attention), 'alive': self.alive, 'running': running,
             'permission': permission, 'attention': attention,
             # 이 프로젝트의 결정 기록과 용어. 대체된 것도 넣는다(카드의 대체 대상 표시)
-            'records': self.records.records(self.project) if self.records else [],
+            'records': self.records.records_in_scope(self.project) if self.records else [],
             'turns': built['turns'], 'session_id': built['session_id'],
             # 종합 의견 피드백은 `sum-<턴>` 으로 저장한다
             'sent': {k: v for k, v in sent.items() if not k.startswith('sum-')},

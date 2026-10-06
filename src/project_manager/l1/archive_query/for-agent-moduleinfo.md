@@ -1,6 +1,6 @@
 ---
 sources:
-  archive_query.py: 4b605c5c020e
+  archive_query.py: 8c5f2d1f0028
 ---
 # archive_query
 
@@ -11,7 +11,8 @@ sources:
 
 ### __init__
 __init__(store: DecisionStore, records: RecordStore, captures_dir: Path, project_cwd: str)
-    프로젝트는 project_cwd 의 project_key. 그 프로젝트 폴더로 연 탭(닫은 탭 포함)의 사안만 본다.
+    프로젝트는 project_cwd 의 project_key. 그 프로젝트와 상위 폴더에서 연 탭(닫은 탭 포함)의 사안을 본다.
+    기록도 상위 폴더 것까지 보고, 상위 폴더 기록은 `gatesplan/D-1` 처럼 폴더 이름을 붙여 보인다.
 
 ### Methods
 
