@@ -1,6 +1,6 @@
 ---
 sources:
-  overseer_server.py: 100abb1caf87
+  overseer_server.py: 474877a566ed
 ---
 # overseer_server
 
@@ -34,6 +34,7 @@ PUT    /api/tabs/{id}/draft     작성 중 초안 저장
 /ws/term/{id}   붙으면 남은 출력부터 보낸다. 화면 → 서버: {type: 'input', data} | {type: 'resize', rows, cols}
                 입력이 들어오면 떠 있던 확인 알림을 내린다(AgentTab.acknowledge)
 
+탭에 붙이는 MCP 서버는 이 서버와 같은 파이썬(sys.executable)으로 scripts/overseer_mcp.py 를 띄운다.
 cli 는 OVERSEER_PORT, OVERSEER_DATA 를 환경에 넣는다. 자식 claude 의 훅이 이것으로 서버와 기록 폴더를 찾는다.
 
 ## 설계 이유

@@ -1,6 +1,12 @@
 # l1
 
 <!-- lnt:generated:start -->
+## archive_query
+ArchiveQuery.__init__(store: DecisionStore, records: RecordStore, captures_dir: Path, project_cwd: str)  # archive_query.py
+ArchiveQuery.list_records(query: str='', kind: str='', include_replaced: bool=False) -> str  # archive_query.py
+ArchiveQuery.record(ref: str) -> str  # archive_query.py
+ArchiveQuery.decisions(query: str='', action: str='', limit: int=20) -> str  # archive_query.py
+
 ## item_splitter
 ItemSplitter.split(text: str) -> tuple[str, list[Item]]  # item_splitter.py
 

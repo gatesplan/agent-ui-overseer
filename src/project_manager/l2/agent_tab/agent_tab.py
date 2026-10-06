@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import re
 import shlex
@@ -25,6 +26,8 @@ SUBMIT_DELAY = 0.3
 UV_RUN_VARS = ('VIRTUAL_ENV', 'UV', 'UV_RUN_RECURSION_DEPTH', '_')
 # 보존 사안 본문의 대체 대상: `대체: D-3`
 REPLACES = re.compile(r'^대체:\s*([DW]-\d+)', re.M)
+# claude 에 붙이는 결정 아카이브 조회 MCP 서버 이름. 도구는 mcp__overseer__records 처럼 보인다
+MCP_NAME = 'overseer'
 # 보존 사안을 아카이브에 넣는 처리
 KEEP_ACTIONS = ('approve', 'answer')
 
@@ -33,8 +36,11 @@ KEEP_ACTIONS = ('approve', 'answer')
 class AgentTab:
     # records: 프로젝트 결정 아카이브. 승인된 보존 사안을 옮긴다. 없으면 옮기지 않는다
     def __init__(self, tab_id: str, cwd: str, claude_args: str, store: DecisionStore, captures_dir: Path,
-                 records: RecordStore | None = None):
+                 records: RecordStore | None = None, mcp: dict | None = None):
         self.id = tab_id
+        # 결정 아카이브 조회 MCP 서버 실행 명령 {command, args}. 있으면 claude 에 --mcp-config 로 붙인다
+        self.mcp = mcp
+        self.data_dir = captures_dir.parent
         self.cwd = cwd
         self.claude_args = claude_args
         self.store = store
@@ -55,6 +61,9 @@ class AgentTab:
 
     def start(self, resume: bool = False, rows: int = 40, cols: int = 120) -> None:
         argv = ['cmd.exe', '/c', 'claude', *shlex.split(self.claude_args)]
+        if self.mcp:
+            # 읽기 전용 도구라 권한 확인 없이 쓰게 한다
+            argv += ['--mcp-config', str(self._mcp_config()), '--allowedTools', f'mcp__{MCP_NAME}']
         session_id = self.builder.build(self.log.events)['session_id']
         if resume and session_id:
             argv += ['--resume', session_id]
@@ -63,6 +72,15 @@ class AgentTab:
         self.pty.listeners = self.listeners
         self.pty.start()
         self._was_alive = True
+
+    # 탭마다 MCP 설정 파일을 쓴다. 조회할 프로젝트와 기록 폴더를 서버 환경으로 넘긴다
+    def _mcp_config(self) -> Path:
+        path = self.data_dir / 'mcp' / f'{self.id}.json'
+        path.parent.mkdir(parents=True, exist_ok=True)
+        server = {'type': 'stdio', 'command': self.mcp['command'], 'args': list(self.mcp.get('args', [])),
+                  'env': {'OVERSEER_DATA': str(self.data_dir), 'OVERSEER_PROJECT': self.cwd}}
+        path.write_text(json.dumps({'mcpServers': {MCP_NAME: server}}, ensure_ascii=False, indent=2), encoding='utf-8')
+        return path
 
     # 자식 claude 에 줄 환경. 서버가 물려받은 것 중 자식 세션을 바꿔 놓는 것을 걷어 낸다
     # - 부모 Claude Code 세션 표식

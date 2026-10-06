@@ -12,12 +12,14 @@
 - turn_builder: [설명 필요]
 
 ## l1
+- archive_query: [설명 필요]
 - item_splitter: [설명 필요]
 - pty_session: [설명 필요]
 
 ## l2
 - agent_tab: [설명 필요]
 - capture_hook: [설명 필요]
+- overseer_mcp: [설명 필요]
 
 ## l3
 - tab_manager: [설명 필요]

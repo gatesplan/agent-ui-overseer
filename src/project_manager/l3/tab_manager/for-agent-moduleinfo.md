@@ -1,6 +1,6 @@
 ---
 sources:
-  tab_manager.py: 78da3e070cbe
+  tab_manager.py: 3037ad13ce0f
 ---
 # tab_manager
 
@@ -12,7 +12,7 @@ sources:
 tabs: dict[str, AgentTab]
 
 ### __init__
-__init__(store: DecisionStore, captures_dir: Path, claude_args: str = '', records: RecordStore | None = None)
+__init__(store: DecisionStore, captures_dir: Path, claude_args: str = '', records: RecordStore | None = None, mcp: dict | None = None)
     claude_args 는 새로 여는 탭에 쓴다. 복원한 탭은 DB 에 남은 자기 인자를 쓴다.
 
 ### Methods

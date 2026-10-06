@@ -1,6 +1,6 @@
 ---
 sources:
-  agent_tab.py: 40e398a2685b
+  agent_tab.py: 9d3408b01a96
 ---
 # agent_tab
 
@@ -17,7 +17,9 @@ listeners: list              # 터미널 창 출력 콜백. PTY 를 다시 띄�
 alive: bool
 
 ### __init__
-__init__(tab_id: str, cwd: str, claude_args: str, store: DecisionStore, captures_dir: Path, records: RecordStore | None = None)
+__init__(tab_id: str, cwd: str, claude_args: str, store: DecisionStore, captures_dir: Path, records: RecordStore | None = None, mcp: dict | None = None)
+    mcp: 결정 아카이브 조회 MCP 서버 실행 명령 {command, args}. 있으면 start 가 탭별 설정 파일(data/mcp/<탭>.json)을 쓰고
+    `--mcp-config <파일> --allowedTools mcp__overseer` 를 붙인다(읽기 전용이라 권한 확인 없이).
     훅 기록을 한 번 읽고 sync_records 를 한 번 한다. 프로세스는 start 로 띄운다.
 
 ### Methods

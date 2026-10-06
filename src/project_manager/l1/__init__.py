@@ -2,6 +2,7 @@ import importlib
 
 # 공개 이름 -> 모듈 폴더명. lnt doc이 생성한다
 _EXPORTS = {
+    'ArchiveQuery': 'archive_query',
     'ItemSplitter': 'item_splitter',
     'PtySession': 'pty_session',
 }

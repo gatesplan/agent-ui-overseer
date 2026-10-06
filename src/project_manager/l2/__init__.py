@@ -4,6 +4,7 @@ import importlib
 _EXPORTS = {
     'AgentTab': 'agent_tab',
     'CaptureHook': 'capture_hook',
+    'OverseerMcp': 'overseer_mcp',
 }
 __all__ = list(_EXPORTS)
 

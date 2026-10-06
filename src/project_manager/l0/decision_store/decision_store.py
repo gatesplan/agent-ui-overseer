@@ -54,6 +54,16 @@ class DecisionStore:
         with self.db:
             self.db.execute('update tabs set closed_at = ? where id = ?', (self._now(), tab_id))
 
+    # 닫은 탭까지 전부. 프로젝트 기록 조회에서 지난 세션의 사안을 찾을 때 쓴다
+    def tabs(self) -> list[dict]:
+        return [dict(r) for r in self.db.execute('select * from tabs order by created_at').fetchall()]
+
+    # 사안 하나에 보낸 결정 이력. 보류에서 승인으로 바뀐 것까지
+    def history(self, tab_id: str, item_id: str) -> list[dict]:
+        rows = self.db.execute('select action, note, created_at from decisions where tab_id = ? and item_id = ? order by id',
+                               (tab_id, item_id)).fetchall()
+        return [dict(r) for r in rows]
+
     def open_tabs(self) -> list[dict]:
         rows = self.db.execute('select * from tabs where closed_at is null order by created_at').fetchall()
         return [dict(r) for r in rows]

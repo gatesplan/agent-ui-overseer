@@ -9,6 +9,8 @@ CaptureLog.poll() -> bool  # capture_log.py
 DecisionStore.__init__(path: str | Path)  # decision_store.py
 DecisionStore.add_tab(tab_id: str, cwd: str, claude_args: str='') -> None  # decision_store.py
 DecisionStore.close_tab(tab_id: str) -> None  # decision_store.py
+DecisionStore.tabs() -> list[dict]  # decision_store.py
+DecisionStore.history(tab_id: str, item_id: str) -> list[dict]  # decision_store.py
 DecisionStore.open_tabs() -> list[dict]  # decision_store.py
 DecisionStore.add_message(tab_id: str, text: str, decisions: list[tuple[str, str, str]]) -> int  # decision_store.py
 DecisionStore.sent(tab_id: str) -> dict[str, dict]  # decision_store.py

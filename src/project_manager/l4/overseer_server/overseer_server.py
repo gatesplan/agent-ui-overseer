@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import json
 import os
+import sys
 from pathlib import Path
 
 from aiohttp import WSMsgType, web
@@ -22,7 +23,9 @@ class OverseerServer:
     def __init__(self, data_dir: Path, claude_args: str = '', project_roots: list[str] | None = None):
         self.store = DecisionStore(data_dir / 'overseer.db')
         self.records = RecordStore(data_dir / 'overseer.db')
-        self.tabs = TabManager(self.store, data_dir / 'captures', claude_args, self.records)
+        # 결정 아카이브 조회 MCP 서버. 이 서버와 같은 파이썬으로 띄운다
+        mcp = {'command': sys.executable, 'args': [str(ROOT / 'scripts' / 'overseer_mcp.py')]}
+        self.tabs = TabManager(self.store, data_dir / 'captures', claude_args, self.records, mcp)
         self.finder = ProjectFinder(roots=project_roots)
         self.clients: set[web.WebSocketResponse] = set()
         self.app = web.Application(middlewares=[self._no_cache])

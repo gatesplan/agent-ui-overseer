@@ -1,6 +1,6 @@
 ---
 sources:
-  decision_store.py: e349e35512a9
+  decision_store.py: b099354f96dd
 ---
 # decision_store
 
@@ -18,6 +18,10 @@ __init__(path: str | Path)
 add_tab(tab_id: str, cwd: str, claude_args: str = '') -> None
 close_tab(tab_id: str) -> None
     닫은 시각만 남긴다. 기록은 지우지 않는다.
+tabs() -> list[dict]
+    닫은 탭까지 전부.
+history(tab_id: str, item_id: str) -> list[dict]
+    사안 하나에 보낸 결정 이력 [{action, note, created_at}].
 open_tabs() -> list[dict]
     닫지 않은 탭. 패널을 다시 켤 때 복원에 쓴다.
 
