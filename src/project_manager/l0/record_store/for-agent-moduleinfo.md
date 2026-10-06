@@ -1,6 +1,6 @@
 ---
 sources:
-  record_store.py: 2326facf5df4
+  record_store.py: 5abaf57c9adc
 ---
 # record_store
 

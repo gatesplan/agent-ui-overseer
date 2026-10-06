@@ -86,7 +86,7 @@ class RecordStore:
         lines = [
             '## 이 프로젝트의 결정 기록과 용어 (Overseer)',
             '',
-            '사용자가 승인한 것이다. 따른다. 어긋나는 결정을 제안하려면 `대체: <ID>` 를 붙인다. 이 목록을 문서에 옮겨 적지 않는다.',
+            '사용자가 승인한 결정과 용어다. 작업은 이에 맞춘다. 바꿔야 하면 `대체: <ID>` 를 붙인 [D], [W] 사안으로 제안한다.',
             '',
         ]
         for r in rows:
@@ -106,7 +106,7 @@ class RecordStore:
         rows = [r for r in rows if r['tab_id'] != exclude_tab]
         if not rows:
             return ''
-        lines = ['## 결정 기록 변경 (Overseer)', '', '다른 세션에서 사용자가 승인한 기록이다. 이후 작업에 따른다.', '']
+        lines = ['## 결정 기록 변경 (Overseer)', '', '다른 세션에서 사용자가 승인한 기록이다. 이후 작업은 이에 맞춘다.', '']
         for r in rows:
             old = self._dict(self.db.execute('select * from records where id = ?', (r['replaces'],)).fetchone()) if r['replaces'] else None
             if old:

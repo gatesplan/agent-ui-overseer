@@ -4,9 +4,9 @@ from mcp.types import ToolAnnotations
 from project_manager.l1.archive_query import ArchiveQuery
 
 INSTRUCTIONS = (
-    '이 프로젝트에서 사용자가 내린 결정의 아카이브를 읽는다. 쓰기 도구는 없다. '
-    '결정 기록이나 용어의 이력과 근거가 필요하면 record, 목록이나 검색은 records, '
-    '어떤 제안을 내기 전에 같은 제안이 기각된 적이 있는지는 decisions(action="reject")로 본다.'
+    '이 프로젝트에서 사용자가 내린 결정을 읽는 읽기 전용 도구다. '
+    '제안하기 전에 decisions(action="reject")로 비슷한 제안이 기각된 적이 있는지 본다. '
+    '결정 기록과 용어의 목록과 검색은 records, 기록 하나의 이력과 근거는 record 로 본다.'
 )
 READ_ONLY = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False)
 
