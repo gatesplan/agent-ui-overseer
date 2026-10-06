@@ -10,16 +10,14 @@
   --muted: #71859a;
   --accent: #6cc4ff;
   --accent-ink: #051421;
-  --edge: #22405a;
-  --edge-lit: #6cc4ff;
-  --q: #6cc4ff;
-  --p: #ffb547;
-  --r: #8a9bb0;
+  --q: #c29bff;
+  --p: #ff9a3c;
+  --r: #f2f6fa;
   --ok: #4fd6a0;
   --hold: #b99cff;
   --rej: #ff6b6b;
   --term-bg: #04070b;
-  --term-text: #c4d3df;
+  --term-text: #d6e1ea;
   --term-prompt: #4fd6a0;
   /* Chakra Petch, JetBrains Mono 에는 한글이 없다. 한글은 Pretendard 로 넘어간다 */
   --font-display: "Chakra Petch", "Pretendard Variable", Pretendard, sans-serif;
@@ -81,7 +79,6 @@
 [data-theme="future-industry"] .col-title b { font-weight: 600; letter-spacing: .14em; color: var(--text); }
 [data-theme="future-industry"] .col-prompt { border-left-color: var(--line-strong); background: rgba(4, 7, 11, .55); }
 
-[data-theme="future-industry"] .edge.lit path { filter: drop-shadow(0 0 3px var(--accent)); }
 
 /* 다음 입력: 오른쪽에 붙어 있는 패널 */
 [data-theme="future-industry"] .col-next {

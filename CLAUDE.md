@@ -14,6 +14,7 @@
 여러 CLI 에이전트(Claude Code 등) 세션을 탭으로 다루고, 응답을 사안 단위 블록으로 쪼개 답변·보류·기각으로 처리하는 개인용 UI.
 공식 CLI 바이너리를 그대로 띄우고 훅과 대화 기록만 읽는다. 구독 토큰을 꺼내거나 바이너리를 고치지 않는다.
 
+- 개발 의도와 방향: `개발계획.md` (작업 전에 읽는다)
 - 사안 출력 규약: `docs/item-protocol.md` (에이전트 세션의 CLAUDE.md 에 넣는다)
 - 캡처: Stop 훅 `scripts/capture_hook.py` → `data/captures/<session_id>.jsonl`
 

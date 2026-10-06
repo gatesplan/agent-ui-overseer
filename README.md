@@ -14,8 +14,10 @@ CLI 코딩 에이전트(Claude Code 등) 세션을 탭으로 다루고, 에이�
 ## 목업 실행
 
 ```bash
-python -m http.server 47310 --bind 127.0.0.1 --directory web
+python scripts/serve_mock.py
 ```
+
+http://127.0.0.1:47310/ 에서 본다. 캐시 금지 헤더를 붙여서 파일을 고친 뒤 F5 만 누르면 반영된다.
 
 ## 상태
 
