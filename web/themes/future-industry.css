@@ -1,0 +1,105 @@
+/* FutureIndustryTheme
+   우주 산업 관제 콘솔 느낌. 짙은 흑청 패널, 아이스 블루 신호색, 카드 왼쪽 위 L자 표식, 양쪽 대각 컷 주 버튼 */
+:root[data-theme="future-industry"] {
+  --bg: #070b10;
+  --panel: #0d141c;
+  --panel-2: #121c27;
+  --line: #1b2a38;
+  --line-strong: #284056;
+  --text: #dfe7ee;
+  --muted: #71859a;
+  --accent: #6cc4ff;
+  --accent-ink: #051421;
+  --edge: #22405a;
+  --edge-lit: #6cc4ff;
+  --q: #6cc4ff;
+  --p: #ffb547;
+  --r: #8a9bb0;
+  --ok: #4fd6a0;
+  --hold: #b99cff;
+  --rej: #ff6b6b;
+  --term-bg: #04070b;
+  --term-text: #c4d3df;
+  --term-prompt: #4fd6a0;
+  /* Chakra Petch, JetBrains Mono 에는 한글이 없다. 한글은 Pretendard 로 넘어간다 */
+  --font-display: "Chakra Petch", "Pretendard Variable", Pretendard, sans-serif;
+  --font-brand: "Chakra Petch", sans-serif;
+  --font-mono: "JetBrains Mono", "Pretendard Variable", Pretendard, Consolas, monospace;
+  --radius: 0;
+  --cut: 8px;
+  color-scheme: dark;
+}
+
+[data-theme="future-industry"] body {
+  background:
+    radial-gradient(1200px 600px at 0% 0%, rgba(108, 196, 255, .07), transparent 60%),
+    radial-gradient(900px 500px at 100% 100%, rgba(255, 181, 71, .035), transparent 60%),
+    linear-gradient(rgba(108, 196, 255, .022) 1px, transparent 1px) 0 0 / 64px 64px,
+    linear-gradient(90deg, rgba(108, 196, 255, .022) 1px, transparent 1px) 0 0 / 64px 64px,
+    var(--bg);
+}
+
+[data-theme="future-industry"] .topbar { background: rgba(13, 20, 28, .92); backdrop-filter: blur(6px); }
+[data-theme="future-industry"] .brand { font-weight: 600; letter-spacing: .28em; font-size: 1.07em; }
+[data-theme="future-industry"] .brand-mark { background: var(--p); box-shadow: 0 0 10px color-mix(in srgb, var(--p) 70%, transparent); }
+[data-theme="future-industry"] .tab { font-size: 0.929em; }
+[data-theme="future-industry"] .tab.on::after { box-shadow: 0 0 8px var(--accent); }
+[data-theme="future-industry"] .dot.working { box-shadow: 0 0 8px var(--accent); }
+[data-theme="future-industry"] .dot.waiting { box-shadow: 0 0 8px var(--hold); }
+
+/* 주 버튼: 왼쪽 아래와 오른쪽 위를 자른다 */
+[data-theme="future-industry"] .primary {
+  clip-path: polygon(0 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% 100%, var(--cut) 100%, 0 calc(100% - var(--cut)));
+  text-transform: uppercase;
+}
+[data-theme="future-industry"] .primary:hover:not(:disabled) { box-shadow: 0 0 22px color-mix(in srgb, var(--accent) 55%, transparent); }
+
+/* 종류 태그: 테두리 대신 왼쪽 막대 */
+[data-theme="future-industry"] .kind { border: 0; border-left: 2px solid var(--kc); background: color-mix(in srgb, var(--kc) 9%, transparent); }
+
+/* 카드: 왼쪽 위 L자 표식 */
+[data-theme="future-industry"] .card { background: rgba(13, 20, 28, .9); }
+[data-theme="future-industry"] .card::before,
+[data-theme="future-industry"] .card::after {
+  content: ""; position: absolute; left: -1px; top: -1px; background: var(--kc); pointer-events: none;
+  opacity: .55; transition: opacity .15s, width .2s, height .2s;
+}
+[data-theme="future-industry"] .card::before { width: 22px; height: 2px; }
+[data-theme="future-industry"] .card::after { width: 2px; height: 12px; }
+[data-theme="future-industry"] .card:hover::before,
+[data-theme="future-industry"] .card.open::before { width: 44px; opacity: 1; }
+[data-theme="future-industry"] .card:hover::after,
+[data-theme="future-industry"] .card.open::after { height: 20px; opacity: 1; }
+[data-theme="future-industry"] .card.open { border-color: color-mix(in srgb, var(--kc) 28%, var(--line)); }
+[data-theme="future-industry"] .note { background: rgba(4, 7, 11, .7); }
+
+/* 턴 기둥 머리: 아래 선 + 왼쪽 신호색 구간 */
+[data-theme="future-industry"] .col-head { position: relative; border-top: 0; padding: 0 0 10px; border-bottom: 1px solid var(--line); }
+[data-theme="future-industry"] .col-head::after {
+  content: ""; position: absolute; left: 0; bottom: -1px; width: 28px; height: 2px; background: var(--accent);
+}
+[data-theme="future-industry"] .col-title b { font-weight: 600; letter-spacing: .14em; color: var(--text); }
+[data-theme="future-industry"] .col-prompt { border-left-color: var(--line-strong); background: rgba(4, 7, 11, .55); }
+
+[data-theme="future-industry"] .edge.lit path { filter: drop-shadow(0 0 3px var(--accent)); }
+
+/* 다음 입력: 오른쪽에 붙어 있는 패널 */
+[data-theme="future-industry"] .col-next {
+  padding: 16px 18px 18px;
+  background: rgba(15, 25, 36, .97);
+  border: 1px solid var(--line-strong); border-top: 2px solid var(--accent);
+  box-shadow: -28px 0 48px rgba(0, 0, 0, .6);
+}
+[data-theme="future-industry"] .col-next .col-head { border-bottom: 0; padding-bottom: 4px; }
+[data-theme="future-industry"] .col-next .col-head::after { display: none; }
+[data-theme="future-industry"] .prog-bar i { box-shadow: 0 0 8px var(--accent); }
+[data-theme="future-industry"] .run-ghost { border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
+
+
+/* 영역 머리줄: IDE 서브창처럼 왼쪽에 신호색 막대 */
+[data-theme="future-industry"] .pane-bar { background: linear-gradient(180deg, #111b26, #0c141d); }
+[data-theme="future-industry"] .pane-name { position: relative; padding-left: 10px; }
+[data-theme="future-industry"] .pane-name::before { content: ""; position: absolute; left: 0; top: 2px; bottom: 2px; width: 2px; background: var(--accent); }
+[data-theme="future-industry"] .drawer { border-left: 2px solid var(--accent); background: rgba(13, 22, 31, .98); }
+[data-theme="future-industry"] .card.summary { background: rgba(108, 196, 255, .05); }
+[data-theme="future-industry"] .kind.k-종합 { --kc: var(--accent); }

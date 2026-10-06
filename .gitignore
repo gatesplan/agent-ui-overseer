@@ -1,0 +1,11 @@
+# 실행 산출물: 캡처 기록, 로그
+data/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# 로컬 실행 스크립트
+start-claude.bat
+start-claude.ps1
