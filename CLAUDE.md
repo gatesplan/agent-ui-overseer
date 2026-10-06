@@ -15,8 +15,8 @@
 공식 CLI 바이너리를 그대로 띄우고 훅과 대화 기록만 읽는다. 구독 토큰을 꺼내거나 바이너리를 고치지 않는다.
 
 - 개발 의도와 방향: `개발계획.md` (작업 전에 읽는다)
-- 사안 출력 규약: `docs/item-protocol.md` (에이전트 세션의 CLAUDE.md 에 넣는다)
-- 실행: `uv sync` 후 `uv run overseer` (http://127.0.0.1:47310/). 훅 등록은 `uv run python scripts/install_hooks.py` (전역 설정, 한 번)
+- 사안 출력 규약: `docs/item-protocol.md` (패널 세션에는 SessionStart 훅이 넣는다)
+- 실행: `uv sync` 후 `uv run overseer` (http://127.0.0.1:47310/). 훅 등록과 점검은 `uv run python scripts/setup.py` (전역 설정, 한 번). 설치 절차는 `INSTALL.md`
 - 캡처: 훅 `scripts/capture_hook.py`(SessionStart, UserPromptSubmit, Stop) → `data/captures/<탭 ID>.jsonl`. 패널이 띄운 세션(OVERSEER_TAB)에서만 동작
 - 저장: `data/overseer.db` (탭, 보낸 메시지, 사안 결정, 초안)
 - 목업만 볼 때: `python scripts/serve_mock.py` (http://127.0.0.1:47311/)

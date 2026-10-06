@@ -74,6 +74,8 @@ const turnOf = id => Number(id.split('-')[0]);
 const label = item => `[${item.kind}]${item.tag ? `[${item.tag}]` : ''}`;
 // 보존 사안의 근거 줄: `근거: #1-2, #1-4`
 const BASIS = /^근거:(.*)$/m;
+// 보존 사안의 대체 대상 줄: `대체: D-3`
+const REPLACES = /^대체:\s*([DW]-\d+).*$/m;
 const basisOf = item => item.tag ? [...((item.body.match(BASIS) || [])[1] || '').matchAll(/#(\d+-\d+)/g)].map(m => m[1]) : [];
 
 function esc(s) {
@@ -182,6 +184,9 @@ function compose(s) {
 
 // 렌더 조각
 function renderTabs() {
+  // 사용자를 기다리는 탭이 있으면 브라우저 탭 제목에도 표시한다. 다른 창을 보고 있어도 알 수 있게
+  const waiting = sessions.filter(s => s.status === 'attention').length;
+  document.title = waiting ? `(${waiting}) 확인 필요 · Overseer` : 'Overseer';
   $('#tabs').innerHTML = sessions.map(s => {
     const n = allItems(s).filter(i => statusOf(s, i) === 'todo').length;
     return `<button class="tab ${s.id === ui.cur ? 'on' : ''}" data-tab="${s.id}" title="${esc(s.cwd || s.project)}${s.args ? `\nclaude ${esc(s.args)}` : ''}">
@@ -198,9 +203,40 @@ function stateChip(s, item) {
 }
 
 // 보존 사안을 승인하거나 답해서 보냈으면 영속 지식에 들어간 것으로 본다
+// 실제 모드에서는 아카이브의 기록 번호를 보인다. 뒤에 대체된 기록이면 대체됨
 function keptBadge(s, item) {
+  const rec = (s.records || []).find(r => r.tab_id === s.id && r.item_id === item.id);
+  if (rec) {
+    return rec.status === 'active' ? `<span class="kept" title="${esc(rec.text)}">보존 ${rec.ref}</span>`
+      : `<span class="kept old" title="뒤의 기록으로 대체됨">대체됨 ${rec.ref}</span>`;
+  }
   const d = s.sent[item.id];
   return item.tag && d && ['approve', 'answer'].includes(d.action) ? '<span class="kept">보존됨</span>' : '';
+}
+
+// 보존 사안의 형식 경고. [D] 는 한 줄 60자, [W] 는 `용어: 뜻` 에 뜻 20자 안팎(30자 넘으면 경고)
+function keepWarnings(item) {
+  const warn = [];
+  if (item.tag === 'D' && item.title.length > 60) warn.push(`결정이 60자를 넘는다 (${item.title.length}자)`);
+  if (item.tag === 'W') {
+    const i = item.title.indexOf(':');
+    if (i < 0) warn.push('`용어: 뜻` 형식이 아니다');
+    else if (item.title.slice(i + 1).trim().length > 30) warn.push(`뜻이 길다 (${item.title.slice(i + 1).trim().length}자, 20자 안팎)`);
+  }
+  return warn.map(w => `<div class="bs warn">${esc(w)}</div>`).join('');
+}
+
+// 대체 대상: `대체: D-3` 이 가리키는 기록을 옆에 보여 준다. 없거나 이미 대체된 기록이면 경고
+function replaceBlock(s, item) {
+  const ref = (item.body.match(REPLACES) || [])[1];
+  if (!ref || !LIVE) return '';
+  const own = (s.records || []).find(r => r.tab_id === s.id && r.item_id === item.id);
+  const target = (s.records || []).find(r => r.ref === ref);
+  let row;
+  if (!target) row = `<div class="bs warn">${ref} 없는 기록</div>`;
+  else if (target.status !== 'active' && !(own && target.replaced_by === own.id)) row = `<div class="bs warn">${ref} 이미 대체된 기록: ${esc(target.text)}</div>`;
+  else row = `<div class="bs"><span class="iid">${ref}</span> ${esc(target.text)}${target.note ? `<span class="bd">메모: ${esc(target.note)}</span>` : ''}</div>`;
+  return `<div class="basis"><div class="basis-label">대체 대상</div>${row}</div>`;
 }
 
 // 보존 사안의 근거: 인용한 사안에 사용자가 실제로 보낸 결정을 옆에 보여 준다
@@ -216,7 +252,7 @@ function basisBlock(s, item) {
     return `<div class="bs"><span class="iid">#${id}</span> ${esc(src.title)}<span class="bd a-${d.action}">${LABEL[d.action]}${d.note ? `: ${esc(d.note)}` : ''}</span></div>`;
   });
   if (!ids.length) rows.push('<div class="bs warn">근거 사안 없음. 사용자 결정 없이 올린 기록일 수 있다</div>');
-  return `<div class="basis"><div class="basis-label">근거 결정</div>${rows.join('')}</div>`;
+  return `<div class="basis"><div class="basis-label">근거 결정</div>${rows.join('')}${keepWarnings(item)}</div>${replaceBlock(s, item)}`;
 }
 
 function decideBlock(s, item) {
@@ -228,7 +264,7 @@ function decideBlock(s, item) {
   const need = d.action && needsNote(item, d.action);
   return `<div class="decide">
     <div class="seg">${actionsFor(item).map(([a], n) =>
-      `<button class="a-${a} ${d.action === a ? 'on' : ''}" data-act="${a}" data-id="${item.id}">${LABEL[a]}<kbd>${n + 1}</kbd></button>`).join('')}</div>
+      `<button class="a-${a} ${d.action === a ? 'on' : ''}" data-act="${a}" data-id="${item.id}">${LABEL[a]}<kbd>${n + 1}</kbd>${n ? '' : '<span class="kbd-or">|</span><kbd>Enter</kbd>'}</button>`).join('')}</div>
     ${d.action ? `<textarea class="note ${need ? 'required' : ''}" data-note="${item.id}" placeholder="${esc(PLACEHOLDER[d.action])}">${esc(d.note)}</textarea>
     <div class="hint" data-hint="${item.id}">${need && !d.note.trim() ? '내용을 적어야 전송된다' : ''}</div>` : ''}
   </div>`;
@@ -250,7 +286,7 @@ function card(s, item, isCur) {
       </div>
       <div class="title">${esc(item.title)}</div>
     </div>
-    <div class="card-body"><div class="md">${md(item.tag ? item.body.replace(BASIS, '') : item.body)}</div>${basisBlock(s, item)}${decideBlock(s, item)}</div>
+    <div class="card-body"><div class="md">${md(item.tag ? item.body.replace(BASIS, '').replace(REPLACES, '') : item.body)}</div>${basisBlock(s, item)}${decideBlock(s, item)}</div>
   </article>`;
 }
 
@@ -354,6 +390,46 @@ function arrow(s) {
   return `<div class="next-arrow ${on ? 'on' : ''}" id="next-arrow"><i></i></div>`;
 }
 
+// 권한 요청 도구 입력의 한 줄 요약
+function toolSummary(p) {
+  const i = p.tool_input || {};
+  return i.command || i.file_path || i.notebook_path || i.url || i.pattern || i.path || JSON.stringify(i);
+}
+
+// 에이전트가 사용자를 기다리느라 멈췄을 때 흐름 위에 띄우는 띠
+// 권한 요청은 여기서 바로 허용·거부한다. 그 밖의 확인은 터미널에서 한다
+function attentionBar(s) {
+  if (!LIVE || !s) return '';
+  if (s.permission) {
+    const p = s.permission;
+    return `<div class="attn perm">
+      <div class="attn-head"><span class="attn-tag">권한 요청</span><b>${esc(p.tool_name || '')}</b>
+        <code class="attn-cmd">${esc(toolSummary(p))}</code></div>
+      <details class="attn-more"><summary>입력 전체</summary><pre>${esc(JSON.stringify(p.tool_input, null, 2))}</pre></details>
+      <div class="attn-actions">
+        <input class="attn-note" data-perm-note placeholder="거부 사유 (선택). 에이전트에게 전해진다" value="${esc(ui.permNote || '')}">
+        <button class="attn-allow" data-perm="allow" data-rid="${p.request_id}">허용</button>
+        <button class="attn-deny" data-perm="deny" data-rid="${p.request_id}">거부</button>
+        <button data-perm="terminal" data-rid="${p.request_id}" title="원래 확인 창을 터미널에 띄운다">터미널에서</button>
+      </div></div>`;
+  }
+  if (s.attention) {
+    return `<div class="attn"><div class="attn-head"><span class="attn-tag">터미널 확인 필요</span><span>${esc(s.attention.message || '')}</span>
+      <button data-open-term>터미널 열기</button></div></div>`;
+  }
+  return '';
+}
+
+async function decidePermission(rid, behavior) {
+  const s = cur();
+  const message = behavior === 'deny' ? (ui.permNote || '').trim() : '';
+  if (await api(`/api/tabs/${s.id}/permission`, 'POST', { request_id: rid, behavior, message })) {
+    ui.permNote = '';
+    // 터미널에서 처리하기로 했으면 확인 창이 뜰 터미널을 연다
+    if (behavior === 'terminal') { ui.term = true; render(); }
+  }
+}
+
 function renderMain(s) {
   if (!s) return `<div class="empty">열린 세션 없음<br><small>위의 + 로 작업 폴더를 골라 claude 를 띄운다</small></div>`;
   if (!s.turns.length) {
@@ -361,12 +437,13 @@ function renderMain(s) {
     const sub = !LIVE ? 'MOCK / 연결된 세션 아님'
       : !s.alive ? `<button class="primary" data-resume="${s.id}">이어서 띄우기</button>`
       : '터미널 창에서 첫 입력을 한다. 시작 확인 창도 거기서 처리한다';
-    return `<div class="empty">${msg}<br><small>${sub}</small></div>`;
+    return `<section class="pane">${attentionBar(s)}<div class="empty">${msg}<br><small>${sub}</small></div></section>`;
   }
   const last = s.turns.length - 1;
   return `<section class="pane">
     <header class="pane-bar"><span class="pane-name">흐름</span><span class="pane-info">턴 ${s.turns.length} · 사안 ${allItems(s).length}</span>
       <button class="pane-gear ${ui.drawer === 'flow' ? 'on' : ''}" data-drawer="flow" title="흐름 설정">${GEAR}</button></header>
+    ${attentionBar(s)}
     <div class="flow" id="flow"><div class="flow-inner ${ui.wide ? 'wide' : ''}" id="flow-inner">
       ${s.turns.map((t, i) => column(s, t, i === last)).join('')}${arrow(s)}${nextColumn(s)}
     </div></div>
@@ -599,6 +676,7 @@ function unpick() {
 // Tab / Shift+Tab: 세션 탭 이동, Ctrl+Shift+Enter: 승인 및 작업 (입력 중에도 동작)
 // 위아래 방향키: 같은 기둥 안 카드 이동, Home: 현재 턴 종합 의견, 숫자키: 선택한 카드의 처리 버튼
 // 그 밖의 글자 키: 선택한 카드의 입력창에 바로 입력 시작
+// Enter: 선택한 카드의 첫 번째 처리를 고르고 다음 카드로 (의견이 필요한 처리면 입력칸으로)
 // Ctrl+Enter: 카드 입력칸에서 입력을 마치고 다음 카드로
 // Esc: 입력창에서 벗어나기, 그다음 선택 해제
 document.addEventListener('keydown', e => {
@@ -635,6 +713,23 @@ document.addEventListener('keydown', e => {
     e.preventDefault();
     // 현재 턴의 맨 앞 카드로. 종합 의견이 있으면 그것, 없으면 첫 사안
     ui.active = null;
+    step(1);
+  } else if (e.key === 'Enter' && ui.active) {
+    // 첫 번째 처리(보고 확인, 제안 승인)를 고르고 다음 카드로. 의견이 필요한 처리(질문 답변)면 입력칸으로
+    e.preventDefault();
+    const s = cur();
+    const item = findItem(s, ui.active);
+    if (item && editable(s, item.id)) {
+      const [action, needNote] = actionsFor(item)[0];
+      const d = s.decisions[item.id] ||= { action: '', note: '' };
+      d.action = action;
+      saveDraft(s);
+      render();
+      if (needNote && !d.note.trim()) {
+        document.querySelector(`[data-note="${item.id}"]`)?.focus();
+        return;
+      }
+    }
     step(1);
   } else if (/^[1-9]$/.test(e.key) && ui.active) {
     // 기본 동작을 막지 않으면 새로 열려 포커스를 받은 입력창에 숫자가 찍힌다
@@ -673,10 +768,12 @@ function step(dir) {
 }
 
 function act(e) {
-  const t = e.target.closest('[data-close],[data-newtab],[data-resume],[data-tab],[data-jump],[data-act],[data-toggle],[data-prompt],[data-drawer],[data-fs],#toggle-term,#btn-send,#btn-wrapup');
+  const t = e.target.closest('[data-perm],[data-open-term],[data-close],[data-newtab],[data-resume],[data-tab],[data-jump],[data-act],[data-toggle],[data-prompt],[data-drawer],[data-fs],#toggle-term,#btn-send,#btn-wrapup');
   if (!t) return;
   const s = cur();
-  if (t.dataset.close) { closeTab(t.dataset.close); }
+  if (t.dataset.perm) { decidePermission(t.dataset.rid, t.dataset.perm); }
+  else if ('openTerm' in t.dataset) { ui.term = true; render(); }
+  else if (t.dataset.close) { closeTab(t.dataset.close); }
   else if ('newtab' in t.dataset) { if (LIVE) openTab(); }
   else if (t.dataset.resume) { resumeTab(t.dataset.resume); }
   else if (t.dataset.drawer) {
@@ -716,6 +813,7 @@ function act(e) {
 }
 
 document.addEventListener('input', e => {
+  if ('permNote' in e.target.dataset) { ui.permNote = e.target.value; return; }
   const s = cur();
   if (e.target.dataset.note) {
     s.decisions[e.target.dataset.note].note = e.target.value;
@@ -943,7 +1041,8 @@ function renderKeepFocus() {
   const f = document.activeElement;
   const sel = f?.dataset?.note ? `[data-note="${f.dataset.note}"]`
     : f?.dataset?.summary ? `[data-summary="${f.dataset.summary}"]`
-    : f && 'extra' in (f.dataset || {}) ? '[data-extra]' : null;
+    : f && 'extra' in (f.dataset || {}) ? '[data-extra]'
+    : f && 'permNote' in (f.dataset || {}) ? '[data-perm-note]' : null;
   const range = sel && [f.selectionStart, f.selectionEnd];
   render();
   const el = sel && document.querySelector(sel);

@@ -1,6 +1,6 @@
 ---
 sources:
-  project_finder.py: eedd7337ee57
+  project_finder.py: 388aa5551d8a
 ---
 # project_finder
 
@@ -9,15 +9,16 @@ sources:
 ## ProjectFinder
 
 ### __init__
-__init__(folder: str = 'Projects', drives: list[str] | None = None)
+__init__(folder: str = 'Projects', drives: list[str] | None = None, roots: list[str] | None = None)
     drives 를 주지 않으면 A: ~ Z: 를 본다. 시험에서는 임시 폴더를 드라이브처럼 넘긴다.
+    roots 를 주면 드라이브를 훑지 않고 그 폴더들을 프로젝트 루트로 쓴다(서버 --projects, OVERSEER_PROJECTS).
 
 ### Methods
 
 roots() -> list[Path]
-    있는 Projects 폴더들.
+    있는 프로젝트 루트들.
 default_root() -> Path
-    새 폴더를 만들 기본 위치. 첫 Projects 폴더, 하나도 없으면 첫 드라이브의 Projects(만들 때 생긴다).
+    새 폴더를 만들 기본 위치. 첫 루트. 하나도 없으면 정한 첫 루트, 그것도 없으면 첫 드라이브의 Projects(만들 때 생긴다).
 scan() -> list[dict]
     [{root, dirs: [{name, path}]}]. 폴더는 최근 수정 순. 점으로 시작하는 폴더는 뺀다.
 create(root: str, name: str) -> Path

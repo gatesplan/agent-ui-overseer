@@ -75,3 +75,28 @@ def test_pending_prompt_and_clear_mark_and_empty_turn_skipped():
     built = TurnBuilder().build(events + [turn('두 번째')])
     assert built['turns'][1]['after'] == 'clear'
     assert built['turns'][0]['after'] is None
+
+
+def test_open_permission_and_attention_and_usage_sum():
+    u = lambda c, o: {'calls': c, 'tools': 0, 'input_tokens': 0, 'cache_creation_input_tokens': 0, 'cache_read_input_tokens': 0, 'output_tokens': o}
+    events = [
+        {'event': 'prompt', 'prompt': 'a'},
+        {'event': 'prompt', 'prompt': 'b'},
+        {**turn('응답 1'), 'prompts': ['a'], 'usage': u(2, 10)},
+        {**turn('응답 2'), 'prompts': ['b'], 'usage': u(3, 5)},
+        {'event': 'prompt', 'prompt': 'rm 해 줘'},
+        {'event': 'permission', 'request_id': 'r1', 'tool_name': 'Bash', 'tool_input': {'command': 'rm -rf x'}},
+    ]
+    built = TurnBuilder().build(events)
+    assert built['turns'][0]['usage']['calls'] == 5 and built['turns'][0]['usage']['output_tokens'] == 15
+    assert built['permission']['tool_input'] == {'command': 'rm -rf x'}
+
+    done = events + [{'event': 'permission_done', 'request_id': 'r1', 'behavior': 'terminal'},
+                     {'event': 'notification', 'message': 'Claude needs your permission to use Bash', 'kind': 'permission_prompt'}]
+    built = TurnBuilder().build(done)
+    assert built['permission'] is None
+    assert built['attention']['kind'] == 'permission_prompt'
+
+    # 대기 알림은 띄우지 않고, 턴이 끝나면 확인 알림도 끝난다
+    assert TurnBuilder().build(done + [{**turn('끝'), 'prompts': ['rm 해 줘']}])['attention'] is None
+    assert TurnBuilder().build(events[:3] + [{'event': 'notification', 'message': 'waiting', 'kind': 'idle_prompt'}])['attention'] is None

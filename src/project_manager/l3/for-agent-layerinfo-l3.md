@@ -2,7 +2,7 @@
 
 <!-- lnt:generated:start -->
 ## tab_manager
-TabManager.__init__(store: DecisionStore, captures_dir: Path, claude_args: str='')  # tab_manager.py
+TabManager.__init__(store: DecisionStore, captures_dir: Path, claude_args: str='', records: RecordStore | None=None)  # tab_manager.py
 TabManager.restore() -> None  # tab_manager.py
 TabManager.open(cwd: str, rows: int=40, cols: int=120, skip_permissions: bool=False) -> AgentTab  # tab_manager.py
 TabManager.resume(tab_id: str, rows: int=40, cols: int=120) -> AgentTab  # tab_manager.py

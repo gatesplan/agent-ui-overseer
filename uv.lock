@@ -467,7 +467,7 @@ source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
     { name = "loguru" },
-    { name = "pywinpty" },
+    { name = "pywinpty", marker = "sys_platform == 'win32'" },
 ]
 
 [package.dev-dependencies]
@@ -479,7 +479,7 @@ dev = [
 requires-dist = [
     { name = "aiohttp" },
     { name = "loguru" },
-    { name = "pywinpty" },
+    { name = "pywinpty", marker = "sys_platform == 'win32'" },
 ]
 
 [package.metadata.requires-dev]

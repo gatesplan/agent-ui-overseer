@@ -1,6 +1,6 @@
 ---
 sources:
-  turn_builder.py: aa6143158bd5
+  turn_builder.py: 0344d4b81a3c
 ---
 # turn_builder
 
@@ -11,14 +11,19 @@ sources:
 ### Methods
 
 build(events: list[dict]) -> dict
-    반환: {turns, pending, session_id}
+    반환: {turns, pending, session_id, permission, attention}
     turns: {turn, prompt, text, preamble, items, parts, session_id, at, after}
       턴 번호는 1부터, 사안 ID 는 `턴-순번`(응답에 나온 순서)
+      예전 분리기가 종류 D, W 로 읽은 사안은 종류 제안, tag D, W 로 고쳐 낸다
       prompt: 이 턴이 받은 입력. turn 기록의 prompts(기록 파일에서 읽음)를 쓰고, 없으면 그때까지 온 입력 훅 기록 전부
       parts: 이 턴에 묶인 응답 수
+      usage: 이 턴의 토큰 사용량 합(이어 붙인 응답 포함). 기록이 없으면 None
       after: 이 턴 앞에 /clear 나 compact 가 있었으면 'clear' | 'compact'
     pending: 아직 어느 턴에도 들어가지 않은 입력. 에이전트가 처리 중이라는 뜻. 없으면 None
     session_id: 가장 최근 기록의 claude 세션 ID. --resume 에 쓴다
+    permission: 화면의 결정을 기다리는 권한 요청 {request_id, tool_name, tool_input, at, seq}. 없으면 None
+    attention: 터미널 확인을 기다리는 알림 {message, kind, at, seq}. 대기 알림(QUIET_NOTICES)은 넣지 않고,
+      뒤에 입력, 턴, 세션 시작, 권한 결정이 오면 끝난 것으로 본다. seq 는 기록 위치(AgentTab 이 터미널 입력으로 내릴 때 쓴다)
 
 ## 턴 경계
 

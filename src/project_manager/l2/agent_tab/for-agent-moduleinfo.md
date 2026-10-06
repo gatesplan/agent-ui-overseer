@@ -1,6 +1,6 @@
 ---
 sources:
-  agent_tab.py: c4562ce0364b
+  agent_tab.py: 40e398a2685b
 ---
 # agent_tab
 
@@ -17,8 +17,8 @@ listeners: list              # 터미널 창 출력 콜백. PTY 를 다시 띄�
 alive: bool
 
 ### __init__
-__init__(tab_id: str, cwd: str, claude_args: str, store: DecisionStore, captures_dir: Path)
-    훅 기록을 한 번 읽어 둔다. 프로세스는 start 로 띄운다.
+__init__(tab_id: str, cwd: str, claude_args: str, store: DecisionStore, captures_dir: Path, records: RecordStore | None = None)
+    훅 기록을 한 번 읽고 sync_records 를 한 번 한다. 프로세스는 start 로 띄운다.
 
 ### Methods
 
@@ -40,8 +40,20 @@ async send(message: str, decisions: list[tuple[str, str, str]]) -> None
     결정을 저장하고 메시지를 붙여넣은 뒤 SUBMIT_DELAY 뒤에 Enter 를 친다.
 
 close() -> None
+    결정을 기다리던 권한 훅이 있으면 terminal 로 풀어 준다.
+
+sync_records() -> list[dict]
+    보낸 결정 중 승인(approve) 또는 답변(answer)한 보존 사안([D], [W])을 결정 아카이브로 옮긴다. 결정 의견은 note 로.
+    본문의 `대체: D-3` 이 있으면 대체한다. 이미 옮긴 사안은 그대로(같은 기록). send 뒤와 생성 때 부른다.
+
+decide_permission(request_id: str, behavior: str, message: str = '') -> None
+    raise ValueError
+    화면의 권한 결정을 결정 파일로 쓴다(PermissionGate.decide).
+
+acknowledge() -> bool
+    터미널 창 입력이 들어오면 서버가 부른다. 떠 있던 확인 알림을 사용자가 본 것으로 치고 내린다. 내렸으면 True.
 
 state() -> dict
-    화면용 상태. {id, project, cwd, agent, args, status, alive, running, turns, session_id, sent, summarySent, draft}
-    status: exited(꺼짐) | working(입력 처리 중) | waiting(사안 처리 대기) | idle(아직 턴 없음)
+    화면용 상태. {id, project, cwd, agent, args, status, alive, running, permission, attention, records, turns, session_id, sent, summarySent, draft}
+    status: exited(꺼짐) | attention(권한 결정이나 터미널 확인을 기다림) | working(입력 처리 중) | waiting(사안 처리 대기) | idle(아직 턴 없음)
     running: 처리 중인 입력문. 보낸 직후 훅 기록이 오기 전에는 마지막으로 보낸 메시지.

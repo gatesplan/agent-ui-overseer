@@ -4,16 +4,26 @@ from pathlib import Path
 
 from loguru import logger
 
+from project_manager.l0.permission_gate import PermissionGate
+from project_manager.l0.record_store import RecordStore
 from project_manager.l0.transcript_reader import TranscriptReader
 from project_manager.l1.item_splitter import ItemSplitter
 
+# 권한 요청 기록에 남길 도구 입력 문자열 길이. Write 본문 같은 큰 입력을 다 남기지 않는다
+INPUT_PREVIEW = 2000
 
-# 패널이 띄운 세션의 훅 진입점. 세션 시작, 입력, 턴 끝을 탭별 JSONL 에 쌓는다
+
+# 패널이 띄운 세션의 훅 진입점. 세션 시작, 입력, 턴 끝, 사용자 확인 요청을 탭별 JSONL 에 쌓는다
 # SessionStart 에는 사안 규약을 돌려줘 세션 컨텍스트에 넣는다
 class CaptureHook:
-    def __init__(self, store_dir: str | Path, protocol_path: str | Path | None = None):
+    # gate: 권한 요청을 패널 화면에 넘겨 결정을 받는다. 없으면 권한 요청은 그대로 터미널 확인 창으로 간다
+    # records: 프로젝트 결정 아카이브. 있으면 SessionStart 에 그 프로젝트의 유효한 기록 목록을 함께 넣는다
+    def __init__(self, store_dir: str | Path, protocol_path: str | Path | None = None, gate: PermissionGate | None = None,
+                 records: RecordStore | None = None):
         self.store_dir = Path(store_dir)
         self.protocol_path = Path(protocol_path) if protocol_path else None
+        self.gate = gate
+        self.records = records
         self.splitter = ItemSplitter()
 
     def run(self, hook_input: dict, tab_id: str) -> str:
@@ -23,25 +33,93 @@ class CaptureHook:
         base = {'at': datetime.now(timezone.utc).isoformat(), 'session_id': session_id}
 
         if event == 'SessionStart':
-            self._append(tab_id, {**base, 'event': 'session_start', 'source': hook_input.get('source'), 'cwd': hook_input.get('cwd')})
-            return self._protocol()
+            self._append(tab_id, {**base, 'event': 'session_start', 'source': hook_input.get('source'), 'cwd': hook_input.get('cwd'),
+                                  'transcript_rows': self._rows(hook_input.get('transcript_path'))})
+            return '\n\n'.join(p for p in (self._protocol(), self._briefing(hook_input.get('cwd'))) if p)
         if event == 'UserPromptSubmit':
             self._append(tab_id, {**base, 'event': 'prompt', 'prompt': hook_input.get('prompt') or ''})
             return ''
         if event == 'Stop':
-            self._append(tab_id, {**base, 'event': 'turn', **self._turn(hook_input)})
+            self._append(tab_id, {**base, 'event': 'turn', **self._turn(hook_input, tab_id, session_id)})
             return ''
+        if event == 'Notification':
+            # 권한 확인 등 터미널에서 사용자 응답을 기다린다는 알림. 화면이 탭에 띄운다
+            self._append(tab_id, {**base, 'event': 'notification', 'message': hook_input.get('message') or '',
+                                  'kind': hook_input.get('notification_type')})
+            return ''
+        if event == 'PermissionRequest':
+            return self._permission(hook_input, tab_id, base)
         logger.debug(f"처리하지 않는 이벤트: {event}")
         return ''
 
-    def _turn(self, hook_input: dict) -> dict:
+    # 권한 요청을 기록하고 패널 화면의 결정을 기다린다. 패널이 받을 수 없으면 기다리지 않는다
+    def _permission(self, hook_input: dict, tab_id: str, base: dict) -> str:
+        if not self.gate or not self.gate.ready():
+            logger.info("패널이 권한 결정을 받을 수 없다. 터미널 확인 창으로 넘긴다")
+            return ''
+        request_id = self.gate.new_id()
+        self._append(tab_id, {**base, 'event': 'permission', 'request_id': request_id,
+                              'tool_name': hook_input.get('tool_name'), 'tool_input': self._preview(hook_input.get('tool_input'))})
+        decision = self.gate.wait(request_id)
+        behavior = decision['behavior'] if decision else 'timeout'
+        self._append(tab_id, {**base, 'at': datetime.now(timezone.utc).isoformat(), 'event': 'permission_done',
+                              'request_id': request_id, 'behavior': behavior})
+        logger.info(f"권한 결정: tool={hook_input.get('tool_name')}, behavior={behavior}")
+        return self.gate.hook_output(decision)
+
+    def _preview(self, value):
+        if isinstance(value, str):
+            return value if len(value) <= INPUT_PREVIEW else value[:INPUT_PREVIEW] + '…'
+        if isinstance(value, dict):
+            return {k: self._preview(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [self._preview(v) for v in value[:50]]
+        return value
+
+    def _turn(self, hook_input: dict, tab_id: str, session_id: str) -> dict:
         transcript_path = hook_input.get('transcript_path')
         text, source = self._text(hook_input, transcript_path)
         preamble, items = self.splitter.split(text)
-        # 이 턴이 실제로 받은 입력. 기록 파일이 없으면 None 이고 입력 훅 기록으로 대신한다
-        prompts = TranscriptReader(transcript_path).turn_prompts() if transcript_path and Path(transcript_path).exists() else None
-        logger.info(f"turn 캡처: source={source}, items={len(items)}, text_len={len(text)}, prompts={None if prompts is None else len(prompts)}")
-        return {'source': source, 'text': text, 'preamble': preamble, 'items': [item.to_dict() for item in items], 'prompts': prompts}
+        record = {'source': source, 'text': text, 'preamble': preamble, 'items': [item.to_dict() for item in items],
+                  'prompts': None, 'usage': None, 'transcript_rows': None}
+        # 입력과 토큰 사용량은 기록 파일에서 읽는다. 실패해도 응답 기록은 남긴다
+        if transcript_path and Path(transcript_path).exists():
+            try:
+                reader = TranscriptReader(transcript_path)
+                since = self._since(tab_id, session_id)
+                record['prompts'] = reader.turn_prompts(since)
+                record['usage'] = reader.turn_usage(since)
+                record['transcript_rows'] = reader.row_count()
+            except Exception:
+                logger.exception("기록 파일 읽기 실패")
+        logger.info(f"turn 캡처: source={source}, items={len(items)}, text_len={len(text)}, usage={record['usage']}")
+        return record
+
+    # 이 세션에서 훅이 지난번에 남긴 기록 파일 길이. 이번 턴은 그 뒤에서 시작한다
+    def _since(self, tab_id: str, session_id: str) -> int | None:
+        path = self.store_dir / f'{tab_id}.jsonl'
+        if not path.exists():
+            return None
+        since = None
+        for line in path.open(encoding='utf-8'):
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if row.get('session_id') == session_id and row.get('transcript_rows') is not None:
+                since = row['transcript_rows']
+        return since
+
+    def _rows(self, transcript_path: str | None) -> int | None:
+        if not transcript_path:
+            return None
+        if not Path(transcript_path).exists():
+            return 0
+        try:
+            return TranscriptReader(transcript_path).row_count()
+        except Exception:
+            logger.exception("기록 파일 읽기 실패")
+            return None
 
     def _text(self, hook_input: dict, transcript_path: str | None) -> tuple[str, str]:
         # 2.1.x 의 Stop 훅은 마지막 응답을 직접 준다. 없는 버전만 기록 파일에서 읽는다
@@ -50,6 +128,16 @@ class CaptureHook:
         if transcript_path and Path(transcript_path).exists():
             return TranscriptReader(transcript_path).last_turn_text(), 'transcript'
         return '', 'none'
+
+    # 이 프로젝트의 유효한 결정 기록과 용어. 읽지 못해도 규약 주입은 막지 않는다
+    def _briefing(self, cwd: str | None) -> str:
+        if not self.records or not cwd:
+            return ''
+        try:
+            return self.records.briefing(RecordStore.project_key(cwd))
+        except Exception:
+            logger.exception("기록 목록 읽기 실패")
+            return ''
 
     def _protocol(self) -> str:
         if self.protocol_path and self.protocol_path.exists():

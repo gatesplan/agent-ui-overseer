@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import json
+import os
 from pathlib import Path
 
 from aiohttp import WSMsgType, web
@@ -8,6 +9,7 @@ from loguru import logger
 
 from project_manager.l0.decision_store import DecisionStore
 from project_manager.l0.project_finder import ProjectFinder
+from project_manager.l0.record_store import RecordStore
 from project_manager.l3.tab_manager import TabManager
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -16,15 +18,19 @@ POLL_INTERVAL = 0.4
 
 # 패널 서버. 화면 파일(web/), API, 상태 알림과 터미널 WebSocket 을 한 포트에서 맡는다
 class OverseerServer:
-    def __init__(self, data_dir: Path, claude_args: str = ''):
+    # project_roots: 새 세션 창에 보일 프로젝트 루트들. 없으면 드라이브마다 루트의 Projects 폴더
+    def __init__(self, data_dir: Path, claude_args: str = '', project_roots: list[str] | None = None):
         self.store = DecisionStore(data_dir / 'overseer.db')
-        self.tabs = TabManager(self.store, data_dir / 'captures', claude_args)
-        self.finder = ProjectFinder()
+        self.records = RecordStore(data_dir / 'overseer.db')
+        self.tabs = TabManager(self.store, data_dir / 'captures', claude_args, self.records)
+        self.finder = ProjectFinder(roots=project_roots)
         self.clients: set[web.WebSocketResponse] = set()
         self.app = web.Application(middlewares=[self._no_cache])
         self.app.add_routes([
             web.get('/', self._index),
+            web.get('/api/health', self._health),
             web.get('/api/projects', self._projects),
+            web.post('/api/tabs/{id}/permission', self._permission),
             web.get('/api/tabs', self._list),
             web.post('/api/tabs', self._open),
             web.post('/api/tabs/{id}/resume', self._resume),
@@ -45,9 +51,17 @@ class OverseerServer:
         parser.add_argument('--port', type=int, default=47310)
         parser.add_argument('--claude-args', default='', help='새 탭의 claude 실행 인자. 예: "--dangerously-skip-permissions"')
         parser.add_argument('--data', type=Path, default=ROOT / 'data')
+        parser.add_argument('--projects', action='append', metavar='DIR',
+                            help='새 세션 창에 보일 프로젝트 루트. 여러 번 줄 수 있다. 환경변수 OVERSEER_PROJECTS(; 로 구분)로도 된다. '
+                                 '없으면 드라이브마다 루트의 Projects 폴더')
         args = parser.parse_args()
+        env_roots = [p for p in os.environ.get('OVERSEER_PROJECTS', '').split(os.pathsep) if p.strip()]
+        roots = args.projects or env_roots or None
         logger.add(args.data / 'logs' / 'overseer.log', rotation='1 MB', encoding='utf-8')
-        server = OverseerServer(args.data, args.claude_args)
+        # 자식 claude 의 훅이 권한 결정을 물을 곳(이 서버)과 기록 폴더. child_env 가 환경을 그대로 넘긴다
+        os.environ['OVERSEER_PORT'] = str(args.port)
+        os.environ['OVERSEER_DATA'] = str(args.data.resolve())
+        server = OverseerServer(args.data, args.claude_args, roots)
         print(f'Overseer: http://{args.host}:{args.port}/', flush=True)
         web.run_app(server.app, host=args.host, port=args.port, print=None)
 
@@ -90,6 +104,20 @@ class OverseerServer:
 
     async def _list(self, request: web.Request) -> web.Response:
         return web.json_response([tab.state() for tab in self.tabs.tabs.values()])
+
+    # 훅이 권한 결정을 맡겨도 되는지 묻는다. permissions 가 없는 예전 서버면 훅은 기다리지 않는다
+    async def _health(self, request: web.Request) -> web.Response:
+        return web.json_response({'ok': True, 'permissions': True})
+
+    # 화면의 권한 결정: {request_id, behavior: allow | deny | terminal, message}
+    async def _permission(self, request: web.Request) -> web.Response:
+        tab = self.tabs.get(request.match_info['id'])
+        body = await request.json()
+        try:
+            tab.decide_permission(body.get('request_id', ''), body.get('behavior', ''), body.get('message', ''))
+        except ValueError as e:
+            return web.json_response({'error': str(e)}, status=400)
+        return web.json_response({'ok': True})
 
     # 새 세션 창의 폴더 목록: 드라이브마다 루트 Projects 폴더 안의 프로젝트
     async def _projects(self, request: web.Request) -> web.Response:
@@ -173,6 +201,9 @@ class OverseerServer:
                 data = json.loads(msg.data)
                 if data.get('type') == 'input':
                     tab.pty.write(data['data'])
+                    # 터미널에서 응답했으면 떠 있던 확인 알림을 내린다
+                    if tab.acknowledge():
+                        await self._broadcast({'type': 'tab', 'tab': tab.state()})
                 elif data.get('type') == 'resize':
                     tab.pty.resize(int(data['rows']), int(data['cols']))
         finally:

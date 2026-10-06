@@ -5,7 +5,9 @@
 - capture_log: [설명 필요]
 - decision_store: [설명 필요]
 - item: [설명 필요]
+- permission_gate: [설명 필요]
 - project_finder: [설명 필요]
+- record_store: [설명 필요]
 - transcript_reader: [설명 필요]
 - turn_builder: [설명 필요]
 

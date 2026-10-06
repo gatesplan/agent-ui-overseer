@@ -23,6 +23,23 @@ def test_scan_lists_projects_roots_recent_first(tmp_path):
     assert [d['name'] for d in finder.scan()[0]['dirs']] == ['new', 'old']
 
 
+def test_fixed_roots_replace_drive_scan(tmp_path):
+    a = drive(tmp_path, 'A')
+    (tmp_path / 'A' / 'Projects' / 'x').mkdir(parents=True)
+    code = tmp_path / 'code'
+    (code / 'mine').mkdir(parents=True)
+    finder = ProjectFinder(drives=[a], roots=[str(code), str(tmp_path / 'none')])
+    assert finder.roots() == [code]
+    assert [d['name'] for d in finder.scan()[0]['dirs']] == ['mine']
+    assert finder.create(str(code), 'new') == code / 'new'
+
+    # 정한 루트가 아직 없으면 첫 루트에 만든다
+    later = tmp_path / 'later'
+    finder = ProjectFinder(drives=[a], roots=[str(later)])
+    assert finder.default_root() == later
+    assert finder.create(str(later), 'p').is_dir()
+
+
 def test_create_inside_root_and_default_root_when_none(tmp_path):
     a = drive(tmp_path, 'A')
     finder = ProjectFinder(drives=[a])

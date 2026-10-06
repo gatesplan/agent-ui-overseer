@@ -5,7 +5,9 @@ _EXPORTS = {
     'CaptureLog': 'capture_log',
     'DecisionStore': 'decision_store',
     'Item': 'item',
+    'PermissionGate': 'permission_gate',
     'ProjectFinder': 'project_finder',
+    'RecordStore': 'record_store',
     'TranscriptReader': 'transcript_reader',
     'TurnBuilder': 'turn_builder',
 }

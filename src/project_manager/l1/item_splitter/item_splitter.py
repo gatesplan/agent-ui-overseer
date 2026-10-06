@@ -8,7 +8,8 @@ class ItemSplitter:
     KINDS = ('질문', '제안', '보고')
     HEADING = re.compile(r'^#{2,4}\s*\[([^\]]+)\]\s*(.+?)\s*$')
     FENCE = re.compile(r'^\s*(```|~~~)')
-    PARENT = re.compile(r'\s*\(\s*(?:←|<-)\s*#([\w-]+)\s*\)\s*$')
+    # 출처가 여럿이면 `(← #4-7, #5-6)`. parent 는 첫 출처
+    PARENT = re.compile(r'\s*\(\s*(?:←|<-)\s*#([\w-]+)(?:\s*,\s*#[\w-]+)*\s*\)\s*$')
     TAG = re.compile(r'^\[([WD])\]\s*')
 
     def split(self, text: str) -> tuple[str, list[Item]]:
@@ -25,6 +26,9 @@ class ItemSplitter:
                 self._close(items, body)
                 kind = match.group(1).strip()
                 tag, rest = self._tag(match.group(2))
+                # 종류 없이 `### [D] 제목` 으로 쓴 보존 사안은 제안으로 본다
+                if kind in ('D', 'W') and not tag:
+                    kind, tag = '제안', kind
                 title, parent = self._title(rest)
                 items.append(Item(kind=kind, title=title, body='', known_kind=kind in self.KINDS, parent=parent, tag=tag))
                 body = []
