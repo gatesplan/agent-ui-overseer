@@ -1,6 +1,6 @@
 ---
 sources:
-  decision_store.py: b099354f96dd
+  decision_store.py: beec96319f25
 ---
 # decision_store
 
@@ -28,6 +28,8 @@ open_tabs() -> list[dict]
 add_message(tab_id: str, text: str, decisions: list[tuple[str, str, str]]) -> int
     보낸 메시지와 거기 담긴 결정(사안 ID, 처리, 사유)을 한 트랜잭션으로 남긴다. 메시지 ID 반환.
     처리: answer, approve, hold, reject, confirm. 종합 의견 피드백은 사안 ID `sum-<턴>`, 처리 feedback.
+add_local(tab_id: str, decisions: list[tuple[str, str, str]]) -> None
+    에이전트에게 보내지 않고 패널에서만 내린 결정(보류 닫기 close). 메시지 ID 0.
 sent(tab_id: str) -> dict[str, dict]
     사안마다 마지막으로 보낸 결정 {action, note}.
 last_message(tab_id: str) -> dict | None

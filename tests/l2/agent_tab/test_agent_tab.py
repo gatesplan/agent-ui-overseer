@@ -53,3 +53,29 @@ def test_sync_records_moves_approved_keep_items_once(tmp_path):
     rows = {r['ref']: r for r in tab.state()['records']}
     assert set(rows) == {'D-1', 'W-1', 'D-2'}
     assert rows['D-1']['status'] == 'replaced' and rows['D-2']['replaces'] == rows['D-1']['id']
+
+
+def test_close_held_and_takeover_of_held_item(tmp_path):
+    import json
+    from project_manager.l0.decision_store import DecisionStore
+    captures = tmp_path / 'captures'
+    captures.mkdir()
+    turn1 = [{'kind': '제안', 'title': '전역 상태 분리', 'body': ''}, {'kind': '질문', 'title': '로그 위치', 'body': ''}]
+    turn2 = [{'kind': '제안', 'title': '전역 상태 분리, 범위 줄여서', 'body': '', 'parent': '1-1'}]
+    rows = [{'event': 'turn', 'session_id': 's', 'text': 'x', 'items': turn1},
+            {'event': 'turn', 'session_id': 's', 'text': 'y', 'items': turn2}]
+    (captures / 't.jsonl').write_text(''.join(json.dumps(r, ensure_ascii=False) + '\n' for r in rows), encoding='utf-8')
+    store = DecisionStore(tmp_path / 'o.db')
+    store.add_message('t', 'm', [('1-1', 'hold', ''), ('1-2', 'hold', '')])
+    tab = AgentTab('t', str(tmp_path), '', store, captures)
+    assert tab.held() == {'1-1', '1-2'}
+
+    # 이어받은 사안을 처리하면 원래 보류 사안을 닫는다
+    assert tab.takeovers([('2-1', 'approve', '')]) == [('1-1', 'close', '#2-1 로 이어짐')]
+    # 보류 사안 자체를 같이 처리하면 닫지 않는다
+    assert tab.takeovers([('2-1', 'approve', ''), ('1-1', 'reject', '')]) == []
+
+    # 보류함에서 닫기는 보류 중인 것만
+    assert tab.close_held(['1-2', '2-1']) == ['1-2']
+    assert store.sent('t')['1-2'] == {'action': 'close', 'note': ''}
+    assert tab.held() == {'1-1'}

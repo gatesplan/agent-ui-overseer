@@ -1,6 +1,6 @@
 ---
 sources:
-  agent_tab.py: 9d3408b01a96
+  agent_tab.py: 7732c48fe8fb
 ---
 # agent_tab
 
@@ -39,7 +39,7 @@ poll() -> bool
 
 async send(message: str, decisions: list[tuple[str, str, str]]) -> None
     raise RuntimeError    # 프로세스가 꺼져 있을 때
-    결정을 저장하고 메시지를 붙여넣은 뒤 SUBMIT_DELAY 뒤에 Enter 를 친다.
+    결정(과 takeovers)을 저장하고 메시지를 붙여넣은 뒤 SUBMIT_DELAY 뒤에 Enter 를 친다.
 
 close() -> None
     결정을 기다리던 권한 훅이 있으면 terminal 로 풀어 준다.
@@ -47,6 +47,16 @@ close() -> None
 sync_records() -> list[dict]
     보낸 결정 중 승인(approve) 또는 답변(answer)한 보존 사안([D], [W])을 결정 아카이브로 옮긴다. 결정 의견은 note 로.
     본문의 `대체: D-3` 이 있으면 대체한다. 이미 옮긴 사안은 그대로(같은 기록). send 뒤와 생성 때 부른다.
+
+held() -> set[str]
+    지금 보류 중인 사안 ID(마지막 결정이 hold).
+
+close_held(ids: list[str]) -> list[str]
+    보류함의 닫기. 보류 중인 것만 close 로 끝낸다(add_local, 에이전트에게 보내지 않음). 닫은 ID 반환.
+
+takeovers(decisions: list[tuple[str, str, str]]) -> list[tuple[str, str, str]]
+    처리하는 사안의 출처가 보류 사안이면 그 보류 사안을 close 하는 결정(의견 `#새ID 로 이어짐`). send 가 결정에 붙여 저장한다.
+    보류 사안 자체를 같은 메시지에서 처리하면 붙이지 않는다.
 
 decide_permission(request_id: str, behavior: str, message: str = '') -> None
     raise ValueError

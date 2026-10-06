@@ -79,6 +79,14 @@ class DecisionStore:
                 [(tab_id, item_id, action, note, message_id, now) for item_id, action, note in decisions])
         return message_id
 
+    # 에이전트에게 보내지 않고 패널에서만 내린 결정(보류 닫기 등). 메시지 ID 는 0
+    def add_local(self, tab_id: str, decisions: list[tuple[str, str, str]]) -> None:
+        now = self._now()
+        with self.db:
+            self.db.executemany(
+                'insert into decisions (tab_id, item_id, action, note, message_id, created_at) values (?, ?, ?, ?, 0, ?)',
+                [(tab_id, item_id, action, note, now) for item_id, action, note in decisions])
+
     # 사안마다 마지막으로 보낸 결정
     def sent(self, tab_id: str) -> dict[str, dict]:
         rows = self.db.execute(

@@ -1,6 +1,6 @@
 ---
 sources:
-  overseer_server.py: 474877a566ed
+  overseer_server.py: ccdadc9ace31
 ---
 # overseer_server
 
@@ -21,6 +21,7 @@ cli() -> None    # staticmethod. pyproject 의 overseer 명령
 ### HTTP
 GET    /api/tabs                탭 상태 목록
 GET    /api/health              {ok, permissions} 훅이 권한 결정을 맡겨도 되는지 묻는다
+POST   /api/tabs/{id}/close-held {ids} 보류함에서 닫기(에이전트에게 보내지 않음)
 POST   /api/tabs/{id}/permission {request_id, behavior: allow | deny | terminal, message} 화면의 권한 결정
 GET    /api/projects            {roots: [{root, dirs: [{name, path}]}], default_root} 새 세션 창 폴더 목록
 POST   /api/tabs                {cwd | create: {root, name}, rows, cols, skip_permissions} 새 탭. create 면 Projects 안에 폴더를 만들어 연다

@@ -2,7 +2,8 @@
 // 화면 오른쪽 끝이 NEXT INPUT, 그 왼쪽이 현재 턴, 더 왼쪽으로 갈수록 과거 턴이다. 최근 작업부터 본다
 'use strict';
 
-const LABEL = { answer: '답변', approve: '승인', hold: '보류', reject: '기각', confirm: '확인' };
+// close: 보류함에서 닫음. 에이전트에게 보내지 않는 패널 처리
+const LABEL = { answer: '답변', approve: '승인', hold: '보류', reject: '기각', confirm: '확인', close: '닫음' };
 // 사안 종류별 처리 버튼. 두 번째 값은 의견 필수 여부
 const ACTIONS = {
   질문: [['answer', true], ['hold', false], ['reject', true]],
@@ -183,8 +184,6 @@ function compose(s) {
     lines.push(`${head} → ${tail}`);
   }
   if (confirmed.length) lines.push(`확인: ${confirmed.join(', ')} 사안 종료됨.`);
-  const keep = heldItems(s).map(i => `#${i.id}`);
-  if (lines.length && keep.length) lines.push(`보류 유지: ${keep.join(', ')}`);
   if (s.wrapup) lines.push(WRAPUP);
   if (s.extra.trim()) lines.push(s.extra.trim());
   return lines.join('\n');
@@ -351,11 +350,36 @@ function draftHTML(s) {
     return `<div class="dl wait"><span class="dh">${head}</span> → <span class="dt">${tail}</span></div>`;
   }));
   if (confirmed.length) lines.push(`<div class="dl ok"><span class="dt a-confirm">확인</span>: ${confirmed.join(', ')} 사안 종료됨.</div>`);
-  const keep = heldItems(s).map(i => `#${i.id}`);
-  if (keep.length) lines.push(`<div class="dl keep">보류 유지: ${keep.join(', ')}</div>`);
   if (s.wrapup) lines.push(`<div class="dl wrap">${esc(WRAPUP)}</div>`);
   if (s.extra.trim()) lines.push(`<div class="dl extra">${esc(s.extra.trim())}</div>`);
   return lines.join('') || '<div class="dl wait">보낼 내용 없음</div>';
+}
+
+// 보류함: 보류 중인 사안. 꺼내서 처리하거나, 에이전트에게 보내지 않고 닫는다
+// 보류는 패널이 기억한다. 에이전트에게 매번 다시 알리지 않는다
+function heldTray(s) {
+  const held = heldItems(s);
+  if (!held.length) return '';
+  return `<div class="draft-label">보류 ${held.length}</div><div class="held">${held.map(i => `<div class="held-row">
+      <span class="iid">#${i.id}</span><span class="dk k-${esc(i.kind)}">[${esc(i.kind)}]</span><span class="held-title" title="${esc(i.title)}">${esc(i.title)}</span>
+      <button data-unhold="${i.id}" title="카드로 가서 처리를 고른다">꺼내기</button>
+      <button data-closeheld="${i.id}" title="에이전트에게 보내지 않고 끝낸다">닫기</button></div>`).join('')}</div>`;
+}
+
+async function closeHeld(id) {
+  const s = cur();
+  if (LIVE) { await api(`/api/tabs/${s.id}/close-held`, 'POST', { ids: [id] }); return; }
+  s.sent[id] = { action: 'close', note: '' };
+  render();
+}
+
+// 꺼내기: 그 카드를 펼쳐 선택한다. 처리를 고르면 다음 메시지에 '보류 해제:' 로 실린다
+function unhold(id) {
+  ui.open.add(id);
+  ui.active = id;
+  render();
+  raise(id);
+  flash(document.getElementById(`c-${id}`));
 }
 
 function progressHTML(s) {
@@ -388,6 +412,7 @@ function nextColumn(s) {
       <div class="prog" id="prog">${progressHTML(s)}</div>
       <button class="primary send" id="btn-send" ${canSend(s) ? '' : 'disabled'}>승인 및 작업</button>
       <button class="wrapup ${s.wrapup ? 'on' : ''}" id="btn-wrapup" title="다음 세션에도 유효한 용어와 결정을 보존 사안으로 올리게 한다">정리 요청 ${s.wrapup ? '켬' : '끔'}</button>
+      ${heldTray(s)}
       <div class="draft-label">전송 시안</div>
       <div class="draft" id="draft">${draftHTML(s)}</div>
       <textarea class="note" data-extra placeholder="추가 지시 (선택). 시안 끝에 붙는다">${esc(s.extra)}</textarea>
@@ -807,10 +832,12 @@ function step(dir) {
 }
 
 function act(e) {
-  const t = e.target.closest('[data-perm],[data-open-term],[data-close],[data-newtab],[data-resume],[data-tab],[data-jump],[data-act],[data-toggle],[data-prompt],[data-drawer],[data-fs],#toggle-term,#btn-send,#btn-wrapup');
+  const t = e.target.closest('[data-unhold],[data-closeheld],[data-perm],[data-open-term],[data-close],[data-newtab],[data-resume],[data-tab],[data-jump],[data-act],[data-toggle],[data-prompt],[data-drawer],[data-fs],#toggle-term,#btn-send,#btn-wrapup');
   if (!t) return;
   const s = cur();
-  if (t.dataset.perm) { decidePermission(t.dataset.rid, t.dataset.perm); }
+  if (t.dataset.unhold) { unhold(t.dataset.unhold); }
+  else if (t.dataset.closeheld) { closeHeld(t.dataset.closeheld); }
+  else if (t.dataset.perm) { decidePermission(t.dataset.rid, t.dataset.perm); }
   else if ('openTerm' in t.dataset) { ui.term = true; render(); }
   else if (t.dataset.close) { closeTab(t.dataset.close); }
   else if ('newtab' in t.dataset) { if (LIVE) openTab(); }

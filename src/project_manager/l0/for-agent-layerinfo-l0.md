@@ -13,6 +13,7 @@ DecisionStore.tabs() -> list[dict]  # decision_store.py
 DecisionStore.history(tab_id: str, item_id: str) -> list[dict]  # decision_store.py
 DecisionStore.open_tabs() -> list[dict]  # decision_store.py
 DecisionStore.add_message(tab_id: str, text: str, decisions: list[tuple[str, str, str]]) -> int  # decision_store.py
+DecisionStore.add_local(tab_id: str, decisions: list[tuple[str, str, str]]) -> None  # decision_store.py
 DecisionStore.sent(tab_id: str) -> dict[str, dict]  # decision_store.py
 DecisionStore.last_message(tab_id: str) -> dict | None  # decision_store.py
 DecisionStore.save_draft(tab_id: str, data: dict) -> None  # decision_store.py

@@ -223,6 +223,13 @@ code { font-family: var(--font-mono); font-size: .9em; padding: 0 4px; backgroun
 .state.s-answer, .state.s-approve, .state.s-confirm { color: var(--ok); }
 .state.s-hold { color: var(--hold); }
 .state.s-reject { color: var(--rej); }
+.state.s-close { color: var(--muted); }
+/* 보류함 */
+.held { margin-bottom: 4px; border: 1px solid var(--line); background: color-mix(in srgb, var(--bg) 70%, var(--panel)); }
+.held-row { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-top: 1px solid var(--line); font-size: 0.929em; }
+.held-row:first-child { border-top: 0; }
+.held-title { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.held-row button { flex: none; padding: 1px 8px; font-size: 0.857em; }
 .state.sent::after { content: " / 전송"; opacity: .7; }
 .chev { flex: none; color: var(--muted); font-family: var(--font-mono); transition: transform .15s; }
 .card.open .chev { transform: rotate(90deg); color: var(--accent); }

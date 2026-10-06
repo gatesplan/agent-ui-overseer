@@ -34,6 +34,7 @@ class OverseerServer:
             web.get('/api/health', self._health),
             web.get('/api/projects', self._projects),
             web.post('/api/tabs/{id}/permission', self._permission),
+            web.post('/api/tabs/{id}/close-held', self._close_held),
             web.get('/api/tabs', self._list),
             web.post('/api/tabs', self._open),
             web.post('/api/tabs/{id}/resume', self._resume),
@@ -121,6 +122,14 @@ class OverseerServer:
         except ValueError as e:
             return web.json_response({'error': str(e)}, status=400)
         return web.json_response({'ok': True})
+
+    # 보류함에서 닫기: {ids}. 보류 중인 사안을 에이전트에게 보내지 않고 끝낸다
+    async def _close_held(self, request: web.Request) -> web.Response:
+        tab = self.tabs.get(request.match_info['id'])
+        body = await request.json()
+        closed = tab.close_held([str(i) for i in body.get('ids', [])])
+        await self._broadcast({'type': 'tab', 'tab': tab.state()})
+        return web.json_response({'closed': closed})
 
     # 새 세션 창의 폴더 목록: 드라이브마다 루트 Projects 폴더 안의 프로젝트
     async def _projects(self, request: web.Request) -> web.Response:

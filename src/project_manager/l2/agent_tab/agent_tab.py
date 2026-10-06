@@ -28,6 +28,8 @@ UV_RUN_VARS = ('VIRTUAL_ENV', 'UV', 'UV_RUN_RECURSION_DEPTH', '_')
 REPLACES = re.compile(r'^대체:\s*([DW]-\d+)', re.M)
 # claude 에 붙이는 결정 아카이브 조회 MCP 서버 이름. 도구는 mcp__overseer__records 처럼 보인다
 MCP_NAME = 'overseer'
+# 보류 사안을 패널에서 끝내는 처리. 에이전트에게는 보내지 않는다
+CLOSE = 'close'
 # 보존 사안을 아카이브에 넣는 처리
 KEEP_ACTIONS = ('approve', 'answer')
 
@@ -113,13 +115,37 @@ class AgentTab:
     async def send(self, message: str, decisions: list[tuple[str, str, str]]) -> None:
         if not self.alive:
             raise RuntimeError('세션이 떠 있지 않다')
-        self.store.add_message(self.id, message, decisions)
+        self.store.add_message(self.id, message, decisions + self.takeovers(decisions))
         self.sync_records()
         logger.info(f"전송: tab={self.id}, decisions={len(decisions)}, len={len(message)}")
         self._sending = True
         self.pty.paste(message)
         await asyncio.sleep(SUBMIT_DELAY)
         self.pty.write('\r')
+
+    # 보류 사안을 이어받은 사안(출처가 보류 사안)을 처리하면 원래 보류 사안을 닫는 결정. 에이전트에게는 보내지 않는다
+    def takeovers(self, decisions: list[tuple[str, str, str]]) -> list[tuple[str, str, str]]:
+        held = self.held()
+        decided = {item_id for item_id, _, _ in decisions}
+        items = {i['id']: i for t in self.builder.build(self.log.events)['turns'] for i in t['items']}
+        closes = {}
+        for item_id, _, _ in decisions:
+            parent = (items.get(item_id) or {}).get('parent')
+            if parent in held and parent not in decided and parent not in closes:
+                closes[parent] = (parent, CLOSE, f'#{item_id} 로 이어짐')
+        return list(closes.values())
+
+    # 지금 보류 중인 사안 ID
+    def held(self) -> set[str]:
+        return {k for k, v in self.store.sent(self.id).items() if v['action'] == 'hold'}
+
+    # 보류함에서 닫기: 보류 중인 사안만 패널에서 끝낸다. 에이전트에게 보내지 않는다. 닫은 ID 를 돌려준다
+    def close_held(self, ids: list[str]) -> list[str]:
+        closing = [i for i in ids if i in self.held()]
+        if closing:
+            self.store.add_local(self.id, [(i, CLOSE, '') for i in closing])
+            logger.info(f"보류 닫기: tab={self.id}, ids={closing}")
+        return closing
 
     def close(self) -> None:
         # 결정을 기다리던 권한 훅을 풀어 준다. 안 풀면 훅이 시간이 다 될 때까지 남는다
