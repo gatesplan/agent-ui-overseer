@@ -31,6 +31,10 @@ class TranscriptReader:
             return None
         prompts = []
         for row in rows[start:]:
+            absorbed = self._absorbed_prompt(row)
+            if absorbed:
+                prompts.append(absorbed)
+                continue
             if not self._is_prompt(row):
                 continue
             text = '\n'.join(b['text'] for b in self._blocks(row) if b.get('type') == 'text' and b.get('text')).strip()
@@ -112,6 +116,19 @@ class TranscriptReader:
         if isinstance(content, list):
             return not any(b.get('type') == 'tool_result' for b in content if isinstance(b, dict))
         return False
+
+    # 작업 중에 넣은 입력. 새 턴을 열지 않고 진행 중인 턴에 흡수되어 user 줄이 아니라 queued_command 첨부로 남는다
+    # 응답 텍스트의 경계(_last_prompt_index)로는 쓰지 않는다. 흡수 앞뒤의 응답이 한 턴이다
+    def _absorbed_prompt(self, row: dict) -> str | None:
+        attachment = row.get('attachment')
+        if row.get('type') != 'attachment' or row.get('isSidechain') or not isinstance(attachment, dict):
+            return None
+        if attachment.get('type') != 'queued_command' or attachment.get('commandMode', 'prompt') != 'prompt':
+            return None
+        prompt = attachment.get('prompt')
+        if isinstance(prompt, list):
+            prompt = '\n'.join(b.get('text', '') for b in prompt if isinstance(b, dict) and b.get('type') == 'text')
+        return prompt.strip() if isinstance(prompt, str) and prompt.strip() else None
 
     def _blocks(self, row: dict) -> list[dict]:
         content = (row.get('message') or {}).get('content')

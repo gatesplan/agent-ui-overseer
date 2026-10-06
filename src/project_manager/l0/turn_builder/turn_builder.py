@@ -38,6 +38,12 @@ class TurnBuilder:
             elif kind == 'permission_done':
                 permissions.pop(e.get('request_id'), None)
             elif kind == 'notification':
+                # 입력을 기다린다는 알림인데 남은 입력이 있으면, 작업 중에 넣어 앞 턴에 흡수된 입력이다
+                # 기록에서 흡수를 읽지 못한 턴(예전 훅)이라 대기로 남은 것. 앞 턴의 입력으로 옮긴다
+                if e.get('kind') == 'idle_prompt' and waiting and turns:
+                    turns[-1]['prompt'] = '\n\n'.join(p for p in [turns[-1]['prompt'], *waiting] if p)
+                    turns[-1]['open'] = False
+                    waiting = []
                 if e.get('kind') not in QUIET_NOTICES:
                     attention = {'message': e.get('message') or '', 'kind': e.get('kind'), 'at': e.get('at'), 'seq': seq}
             elif kind == 'turn':

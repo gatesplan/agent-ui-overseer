@@ -1,6 +1,6 @@
 ---
 sources:
-  turn_builder.py: 0344d4b81a3c
+  turn_builder.py: 4b09480b27c3
 ---
 # turn_builder
 
@@ -32,5 +32,8 @@ build(events: list[dict]) -> dict
   그래서 턴 입력은 turn 기록의 prompts 로 정하고, 입력 훅 기록은 맞춰 지운다(남은 것이 pending).
 - 응답이 끝났을 때 남은 입력이 있으면 에이전트는 쉬지 않고 그것을 처리한다. 다음 응답을 같은 턴에 붙이고
   사안 ID 를 이어 매긴다(1-6, 1-7 …). 입력문, 응답, 종합 의견도 이어 붙인다.
+- 작업 중 입력이 진행 중인 턴에 흡수되면 그 턴의 prompts 에 들어온다(TranscriptReader 가 queued_command 첨부로 읽음).
+  그래도 입력이 남아 있는데 입력 대기 알림(idle_prompt)이 오면, 흡수를 못 읽은 것으로 보고 앞 턴 입력으로 옮긴다.
+  남겨 두면 pending 이 풀리지 않아 탭이 계속 작업 중으로 보이고 전송이 막힌다.
 - 응답이 빈 turn(중단 등)은 턴으로 세지 않는다. 중단된 입력은 다음 응답의 prompts 에 함께 들어온다.
 - 사안 ID 는 탭 안에서 이어진다. /clear 로 claude 세션이 바뀌어도 번호는 이어 간다.

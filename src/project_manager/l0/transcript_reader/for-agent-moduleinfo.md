@@ -1,6 +1,6 @@
 ---
 sources:
-  transcript_reader.py: e45c9c0e6a68
+  transcript_reader.py: 034800941401
 ---
 # transcript_reader
 
@@ -28,6 +28,8 @@ turn_prompts(since: int | None = None) -> list[str] | None
     이번 턴에 실제로 전달된 사용자 입력들. 직전 턴 끝(type=system, subtype=turn_duration) 뒤의 사용자 프롬프트다.
     Stop 훅 시점에는 이번 턴의 turn_duration 이 아직 기록되지 않아 이전 턴 끝이 경계가 된다.
     중단된 입력은 다음 턴에 함께 들어간다. `[Request interrupted …]` 표시는 뺀다.
+    작업 중에 넣어 진행 중인 턴에 흡수된 입력(type=attachment, attachment.type=queued_command, commandMode=prompt)도 넣는다.
+    이 입력은 last_turn_text 의 경계로 쓰지 않는다. 흡수 앞뒤 응답이 한 턴이다.
     입력 훅(UserPromptSubmit)은 작업 중 대기열에 넣는 순간 불려 어느 턴 입력인지 알 수 없어서 이것으로 정한다.
 
 turn_usage(since: int | None = None) -> dict | None

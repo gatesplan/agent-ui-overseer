@@ -50,6 +50,24 @@ def test_queued_prompt_response_joins_the_same_turn():
     assert built['turns'][1]['prompt'] == '다음'
 
 
+def test_idle_notice_moves_leftover_prompt_into_last_turn():
+    # 흡수된 입력을 기록에서 못 읽어 대기로 남아도, 입력 대기 알림이 오면 앞 턴 입력으로 옮기고 작업 중을 푼다
+    events = [
+        {'event': 'prompt', 'prompt': '변경사항 확인'},
+        {'event': 'prompt', 'prompt': '유료 API 부르나?'},
+        {**turn('응답'), 'prompts': ['변경사항 확인']},
+    ]
+    assert TurnBuilder().build(events)['pending'] == '유료 API 부르나?'
+    built = TurnBuilder().build(events + [{'event': 'notification', 'kind': 'idle_prompt', 'message': 'waiting'}])
+    assert built['pending'] is None
+    assert built['attention'] is None
+    assert built['turns'][0]['prompt'] == '변경사항 확인\n\n유료 API 부르나?'
+    # 다음 응답은 새 턴이다
+    built = TurnBuilder().build(events + [{'event': 'notification', 'kind': 'idle_prompt'}, {'event': 'prompt', 'prompt': '다음'},
+                                          {**turn('d'), 'prompts': ['다음']}])
+    assert [x['turn'] for x in built['turns']] == [1, 2]
+
+
 def test_unmatched_older_prompts_are_dropped_when_later_one_matches():
     events = [
         {'event': 'prompt', 'prompt': '/clear'},

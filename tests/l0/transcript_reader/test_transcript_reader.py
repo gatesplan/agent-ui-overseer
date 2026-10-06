@@ -51,6 +51,22 @@ def test_turn_prompts_after_last_turn_end_with_interrupt_merged(tmp_path):
     assert TranscriptReader(path).turn_prompts() == ['상태 확인', '계속해봐']
 
 
+def test_prompt_absorbed_mid_turn_counts_as_turn_prompt(tmp_path):
+    # 작업 중에 넣은 입력은 queued_command 첨부로 남는다. 턴 입력에 넣고, 응답 텍스트는 흡수 앞뒤를 모두 잇는다
+    path = tmp_path / 't.jsonl'
+    _write(path, [
+        {'type': 'user', 'message': {'content': '변경사항 확인'}},
+        {'type': 'assistant', 'message': {'content': [{'type': 'text', 'text': '확인합니다.'}]}},
+        {'type': 'queue-operation', 'operation': 'enqueue', 'content': '유료 API 부르나?'},
+        {'type': 'attachment', 'attachment': {'type': 'queued_command', 'prompt': '유료 API 부르나?', 'commandMode': 'prompt'}},
+        {'type': 'attachment', 'attachment': {'type': 'queued_command', 'prompt': '/effort', 'commandMode': 'bash'}},
+        {'type': 'assistant', 'message': {'content': [{'type': 'text', 'text': '부르지 않았습니다.'}]}},
+    ])
+    reader = TranscriptReader(path)
+    assert reader.turn_prompts() == ['변경사항 확인', '유료 API 부르나?']
+    assert reader.last_turn_text() == '확인합니다.\n\n부르지 않았습니다.'
+
+
 def test_turn_prompts_without_turn_end_marker(tmp_path):
     # 턴 끝 표시가 없는 버전: 첫 턴이면 처음부터, 이전 응답이 있으면 경계를 몰라 None
     path = tmp_path / 't.jsonl'
