@@ -41,6 +41,8 @@ RecordStore.add(project: str, kind: str, text: str, body: str='', note: str='', 
 RecordStore.records(project: str, active_only: bool=False) -> list[dict]  # record_store.py
 RecordStore.find(project: str, ref: str) -> dict | None  # record_store.py
 RecordStore.briefing(project: str) -> str  # record_store.py
+RecordStore.last_id(project: str) -> int  # record_store.py
+RecordStore.notice(project: str, after_id: int, exclude_tab: str | None=None) -> str  # record_store.py
 
 ## transcript_reader
 TranscriptReader.__init__(path: str | Path)  # transcript_reader.py

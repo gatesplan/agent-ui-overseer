@@ -442,6 +442,7 @@ function renderMain(s) {
   const last = s.turns.length - 1;
   return `<section class="pane">
     <header class="pane-bar"><span class="pane-name">흐름</span><span class="pane-info">턴 ${s.turns.length} · 사안 ${allItems(s).length}</span>
+      ${LIVE ? `<button class="pane-rec ${ui.drawer === 'records' ? 'on' : ''}" data-drawer="records" title="이 프로젝트의 결정 기록과 용어">기록 ${(s.records || []).filter(r => r.status === 'active').length}</button>` : ''}
       <button class="pane-gear ${ui.drawer === 'flow' ? 'on' : ''}" data-drawer="flow" title="흐름 설정">${GEAR}</button></header>
     ${attentionBar(s)}
     <div class="flow" id="flow"><div class="flow-inner ${ui.wide ? 'wide' : ''}" id="flow-inner">
@@ -452,8 +453,34 @@ function renderMain(s) {
 
 const GEAR = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`;
 
-// 오른쪽에서 밀려 나오는 설정창. flow: 흐름 영역 설정, global: 전역 설정
+// 아카이브 보기: 이 프로젝트의 결정 기록과 용어. 유효한 것 먼저, 대체된 것은 흐리게 뒤에
+// 출처 사안이 이 탭에 있으면 눌러서 그 카드로 간다
+function recordsHTML(s) {
+  const records = (s && s.records) || [];
+  const refOf = id => records.find(r => r.id === id)?.ref || '?';
+  const row = r => {
+    const status = r.status === 'active' ? (r.replaces ? `${refOf(r.replaces)} 대체` : '')
+      : `대체됨 → ${refOf(r.replaced_by)}`;
+    const source = r.tab_id === s.id ? `<button class="parent" data-jump="${esc(r.item_id)}" title="출처 사안으로">#${esc(r.item_id)}</button>`
+      : `<span title="다른 탭에서 승인">다른 탭 #${esc(r.item_id || '')}</span>`;
+    return `<div class="rec ${r.status}">
+      <div class="rec-head"><span class="rec-ref">${r.ref}</span><span class="rec-text">${esc(r.text)}</span></div>
+      ${r.note ? `<div class="rec-note">메모: ${esc(r.note)}</div>` : ''}
+      <div class="rec-meta">${[status, source, (r.created_at || '').slice(0, 10)].filter(Boolean).join(' · ')}</div>
+    </div>`;
+  };
+  const section = (kind, title) => {
+    const list = records.filter(r => r.kind === kind).sort((a, b) => (a.status !== 'active') - (b.status !== 'active') || a.num - b.num);
+    return `<div class="rec-sec">${title} <small>${list.filter(r => r.status === 'active').length}</small></div>${list.map(row).join('') || '<div class="rec-empty">없음</div>'}`;
+  };
+  return `<div class="ps-title">결정 기록과 용어<button class="x" data-drawer="records" title="닫기">×</button></div>
+    <div class="rec-intro">${esc(s?.project || '')} 에서 승인한 보존 사안. 유효한 것은 세션 시작 때 에이전트에게 들어간다</div>
+    ${section('D', '결정 기록')}${section('W', '용어')}`;
+}
+
+// 오른쪽에서 밀려 나오는 설정창. flow: 흐름 영역 설정, global: 전역 설정, records: 아카이브 보기
 function drawerHTML() {
+  if (ui.drawer === 'records') return recordsHTML(cur());
   if (ui.drawer === 'global') {
     return `<div class="ps-title">전역 설정<button class="x" data-drawer="global" title="닫기">×</button></div>
       <label class="ps-row"><span>테마</span><select id="theme-select">
@@ -475,6 +502,7 @@ function renderDrawer() {
   const d = $('#drawer');
   if (ui.drawer) d.innerHTML = drawerHTML();
   d.classList.toggle('open', !!ui.drawer);
+  d.classList.toggle('wide', ui.drawer === 'records');
   document.querySelectorAll('[data-drawer]').forEach(b => b.classList.toggle('on', b.dataset.drawer === ui.drawer));
 }
 

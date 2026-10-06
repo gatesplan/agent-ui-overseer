@@ -35,3 +35,19 @@ def test_replace_marks_old_and_briefing_shows_only_active(tmp_path):
     assert store.briefing(RecordStore.project_key('C:/empty')) == ''
     with pytest.raises(ValueError):
         store.add(p, 'X', 'z')
+
+
+def test_notice_lists_records_after_seen_point_from_other_tabs(tmp_path):
+    store = RecordStore(tmp_path / 'o.db')
+    p = RecordStore.project_key('C:/p')
+    store.add(p, 'D', '가격은 새 값으로', tab_id='a', item_id='1-1')
+    seen = store.last_id(p)
+    assert store.notice(p, seen) == ''
+    store.add(p, 'W', '사안: 결정 단위', tab_id='b', item_id='2-1')
+    store.add(p, 'D', '가격은 유지', tab_id='b', item_id='2-2', replaces='D-1')
+    store.add(p, 'D', '내 탭 결정', tab_id='a', item_id='3-1')
+    text = store.notice(p, seen, exclude_tab='a')
+    assert '- 추가: W-1 사안: 결정 단위' in text
+    assert '- 변경: D-1 가격은 새 값으로 → D-2 가격은 유지' in text
+    assert '내 탭 결정' not in text
+    assert store.notice(p, store.last_id(p), exclude_tab='a') == ''

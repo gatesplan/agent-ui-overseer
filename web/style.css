@@ -347,6 +347,23 @@ kbd.tag {
 .pane-info { flex: 1; font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
 .pane-gear { display: grid; place-items: center; width: 26px; height: 24px; border: 1px solid transparent; background: none; color: var(--muted); }
 .pane-gear:hover, .pane-gear.on { color: var(--accent); border-color: var(--line-strong); }
+.pane-rec { height: 24px; padding: 0 10px; border: 1px solid var(--line-strong); background: none; color: var(--keep); font: 600 12px var(--font-mono); letter-spacing: .04em; }
+.pane-rec:hover, .pane-rec.on { border-color: var(--keep); background: color-mix(in srgb, var(--keep) 12%, transparent); }
+
+/* 아카이브 보기 */
+.drawer.wide { width: min(460px, 92vw); }
+.rec-intro { margin-bottom: 6px; color: var(--muted); font-size: 12px; }
+.rec-sec { margin: 14px 0 4px; padding-bottom: 4px; border-bottom: 1px solid var(--line-strong); font-family: var(--font-display); font-weight: 600; letter-spacing: .04em; }
+.rec-sec small { color: var(--muted); font-weight: 400; }
+.rec { padding: 8px 0; border-bottom: 1px solid var(--line); }
+.rec-head { display: flex; gap: 8px; align-items: baseline; }
+.rec-ref { flex: none; font: 600 12px var(--font-mono); color: var(--keep); }
+.rec-text { line-height: 1.45; }
+.rec-note { margin: 3px 0 0 38px; color: var(--muted); font-size: 12px; }
+.rec-meta { display: flex; gap: 6px; align-items: center; margin: 4px 0 0 38px; color: var(--muted); font: 11px var(--font-mono); }
+.rec.replaced { opacity: .5; }
+.rec.replaced .rec-text { text-decoration: line-through; }
+.rec-empty { padding: 8px 0; color: var(--muted); font-size: 12px; }
 .pane-gear svg, .icon-btn svg { transition: transform .4s; }
 .pane-gear.on svg, .icon-btn.on svg { transform: rotate(60deg); }
 

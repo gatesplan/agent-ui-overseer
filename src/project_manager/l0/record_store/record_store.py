@@ -94,6 +94,27 @@ class RecordStore:
             lines.append(f"- {r['ref']} {r['text']}{note}")
         return '\n'.join(lines) + '\n'
 
+    # 지금까지 생긴 가장 큰 기록 번호(내부 id). 세션이 목록을 어디까지 받았는지 표시하는 데 쓴다
+    def last_id(self, project: str) -> int:
+        return self.db.execute('select coalesce(max(id), 0) from records where project = ?', (project,)).fetchone()[0]
+
+    # 세션이 마지막으로 받은 뒤 다른 탭에서 생긴 기록을 알리는 글. 없으면 빈 문자열
+    # exclude_tab: 그 세션의 탭. 자기 탭에서 승인한 것은 이미 대화에 있다
+    def notice(self, project: str, after_id: int, exclude_tab: str | None = None) -> str:
+        rows = [self._dict(r) for r in self.db.execute(
+            'select * from records where project = ? and id > ? order by id', (project, after_id)).fetchall()]
+        rows = [r for r in rows if r['tab_id'] != exclude_tab]
+        if not rows:
+            return ''
+        lines = ['## 결정 기록 변경 (Overseer)', '', '다른 세션에서 사용자가 승인한 기록이다. 이후 작업에 따른다.', '']
+        for r in rows:
+            old = self._dict(self.db.execute('select * from records where id = ?', (r['replaces'],)).fetchone()) if r['replaces'] else None
+            if old:
+                lines.append(f"- 변경: {old['ref']} {old['text']} → {r['ref']} {r['text']}")
+            else:
+                lines.append(f"- 추가: {r['ref']} {r['text']}")
+        return '\n'.join(lines) + '\n'
+
     def _dict(self, row: sqlite3.Row) -> dict:
         d = dict(row)
         d['ref'] = f"{d['kind']}-{d['num']}"

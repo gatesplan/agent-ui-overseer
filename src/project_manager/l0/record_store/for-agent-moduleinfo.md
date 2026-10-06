@@ -1,6 +1,6 @@
 ---
 sources:
-  record_store.py: 08d28ef247c3
+  record_store.py: 2326facf5df4
 ---
 # record_store
 
@@ -26,6 +26,10 @@ records(project: str, active_only: bool = False) -> list[dict]
 find(project: str, ref: str) -> dict | None
 briefing(project: str) -> str
     세션 시작 때 넣을 목록. 유효한 기록만 `- D-3 결정 (메모: …)` 한 줄씩. 없으면 빈 문자열.
+last_id(project: str) -> int
+    그 프로젝트 기록의 가장 큰 내부 id. 세션이 목록을 어디까지 받았는지(records_seen) 표시한다.
+notice(project: str, after_id: int, exclude_tab: str | None = None) -> str
+    after_id 뒤에 생긴 기록의 변경 고지. `- 추가: W-2 …`, 대체면 `- 변경: D-1 옛 → D-3 새`. 자기 탭(exclude_tab) 기록은 뺀다. 없으면 빈 문자열.
 
 ## 설계 이유
 

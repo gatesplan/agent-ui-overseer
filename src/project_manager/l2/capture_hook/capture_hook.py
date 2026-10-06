@@ -33,12 +33,15 @@ class CaptureHook:
         base = {'at': datetime.now(timezone.utc).isoformat(), 'session_id': session_id}
 
         if event == 'SessionStart':
+            # records_seen: 이 세션이 받은 기록 목록의 끝. 이후 생긴 기록은 다음 입력 때 변경 고지로 알린다
             self._append(tab_id, {**base, 'event': 'session_start', 'source': hook_input.get('source'), 'cwd': hook_input.get('cwd'),
-                                  'transcript_rows': self._rows(hook_input.get('transcript_path'))})
+                                  'transcript_rows': self._rows(hook_input.get('transcript_path')),
+                                  'records_seen': self._records_last(hook_input.get('cwd'))})
             return '\n\n'.join(p for p in (self._protocol(), self._briefing(hook_input.get('cwd'))) if p)
         if event == 'UserPromptSubmit':
-            self._append(tab_id, {**base, 'event': 'prompt', 'prompt': hook_input.get('prompt') or ''})
-            return ''
+            notice, seen = self._notice(hook_input.get('cwd'), tab_id, session_id)
+            self._append(tab_id, {**base, 'event': 'prompt', 'prompt': hook_input.get('prompt') or '', 'records_seen': seen})
+            return notice
         if event == 'Stop':
             self._append(tab_id, {**base, 'event': 'turn', **self._turn(hook_input, tab_id, session_id)})
             return ''
@@ -97,18 +100,46 @@ class CaptureHook:
 
     # 이 세션에서 훅이 지난번에 남긴 기록 파일 길이. 이번 턴은 그 뒤에서 시작한다
     def _since(self, tab_id: str, session_id: str) -> int | None:
+        return self._last_value(tab_id, session_id, 'transcript_rows')
+
+    # 이 세션의 훅 기록에서 key 의 마지막 값
+    def _last_value(self, tab_id: str, session_id: str, key: str):
         path = self.store_dir / f'{tab_id}.jsonl'
         if not path.exists():
             return None
-        since = None
+        value = None
         for line in path.open(encoding='utf-8'):
             try:
                 row = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            if row.get('session_id') == session_id and row.get('transcript_rows') is not None:
-                since = row['transcript_rows']
-        return since
+            if row.get('session_id') == session_id and row.get(key) is not None:
+                value = row[key]
+        return value
+
+    def _records_last(self, cwd: str | None) -> int | None:
+        if not self.records or not cwd:
+            return None
+        try:
+            return self.records.last_id(RecordStore.project_key(cwd))
+        except Exception:
+            logger.exception("기록 목록 읽기 실패")
+            return None
+
+    # 이 세션이 마지막으로 받은 뒤 다른 탭에서 생긴 기록의 변경 고지와, 이제 받은 끝
+    # 받은 끝이 기록되지 않은 세션(이 기능 전에 뜬 세션)은 지금 끝부터 센다. 지난 기록을 한꺼번에 쏟지 않게
+    def _notice(self, cwd: str | None, tab_id: str, session_id: str) -> tuple[str, int | None]:
+        last = self._records_last(cwd)
+        if last is None:
+            return '', None
+        seen = self._last_value(tab_id, session_id, 'records_seen')
+        if seen is None:
+            return '', last
+        try:
+            return self.records.notice(RecordStore.project_key(cwd), seen, exclude_tab=tab_id), last
+        except Exception:
+            logger.exception("변경 고지 만들기 실패")
+            return '', seen
 
     def _rows(self, transcript_path: str | None) -> int | None:
         if not transcript_path:

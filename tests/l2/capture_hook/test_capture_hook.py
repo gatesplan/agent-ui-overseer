@@ -74,3 +74,30 @@ def test_session_start_injects_active_records_of_project(tmp_path):
     # 다른 프로젝트에는 넣지 않는다
     out = hook.run({'hook_event_name': 'SessionStart', 'session_id': 's', 'source': 'startup', 'cwd': str(tmp_path / 'other')}, 'tab')
     assert out == '## 규약'
+
+
+def test_prompt_gets_notice_of_records_added_by_other_tabs_once(tmp_path):
+    from project_manager.l0.record_store import RecordStore
+    records = RecordStore(tmp_path / 'o.db')
+    cwd = str(tmp_path / 'proj')
+    project = RecordStore.project_key(cwd)
+    records.add(project, 'D', '처음 결정', tab_id='other', item_id='1-1')
+    hook = CaptureHook(tmp_path / 'cap', records=records)
+    start = {'hook_event_name': 'SessionStart', 'session_id': 's', 'source': 'startup', 'cwd': cwd}
+    prompt = {'hook_event_name': 'UserPromptSubmit', 'session_id': 's', 'prompt': '다음', 'cwd': cwd}
+    assert '처음 결정' in hook.run(start, 'tab')
+    assert hook.run(prompt, 'tab') == ''
+    records.add(project, 'D', '바뀐 결정', tab_id='other', item_id='2-1', replaces='D-1')
+    out = hook.run(prompt, 'tab')
+    assert '- 변경: D-1 처음 결정 → D-2 바뀐 결정' in out
+    # 한 번만 알린다
+    assert hook.run(prompt, 'tab') == ''
+
+
+def test_prompt_in_session_started_before_feature_gets_no_backlog(tmp_path):
+    from project_manager.l0.record_store import RecordStore
+    records = RecordStore(tmp_path / 'o.db')
+    cwd = str(tmp_path / 'proj')
+    records.add(RecordStore.project_key(cwd), 'D', '예전 결정', tab_id='other', item_id='1-1')
+    hook = CaptureHook(tmp_path / 'cap', records=records)
+    assert hook.run({'hook_event_name': 'UserPromptSubmit', 'session_id': 'old', 'prompt': 'x', 'cwd': cwd}, 'tab') == ''
