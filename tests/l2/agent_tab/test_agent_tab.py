@@ -79,3 +79,38 @@ def test_close_held_and_takeover_of_held_item(tmp_path):
     assert tab.close_held(['1-2', '2-1']) == ['1-2']
     assert store.sent('t')['1-2'] == {'action': 'close', 'note': ''}
     assert tab.held() == {'1-1'}
+
+
+def test_clear_saves_decisions_locally_holds_rest_and_types_clear(tmp_path):
+    import asyncio
+    import json
+    from project_manager.l0.decision_store import DecisionStore
+    from project_manager.l0.record_store import RecordStore
+    captures = tmp_path / 'captures'
+    captures.mkdir()
+    items = [{'kind': '제안', 'tag': 'D', 'title': '이전 판도 계속 공개', 'body': '근거: #1-1'},
+             {'kind': '제안', 'tag': 'W', 'title': '판: 게시 시각 번호', 'body': ''},
+             {'kind': '제안', 'title': '/clear 권함', 'body': ''}]
+    (captures / 't.jsonl').write_text(json.dumps({'event': 'turn', 'session_id': 's', 'text': 'x', 'items': items}, ensure_ascii=False) + '\n',
+                                      encoding='utf-8')
+    store, records = DecisionStore(tmp_path / 'o.db'), RecordStore(tmp_path / 'o.db')
+    tab = AgentTab('t', str(tmp_path / 'proj'), '', store, captures, records)
+
+    class FakePty:
+        alive = True
+        typed = []
+
+        def write(self, data):
+            self.typed.append(data)
+
+    tab.pty = FakePty()
+    held = asyncio.run(tab.clear([('1-1', 'approve', ''), ('1-3', 'approve', '')]))
+    # 처리하지 않은 사안은 보류로 넘긴다
+    assert held == ['1-2']
+    assert store.sent('t') == {'1-1': {'action': 'approve', 'note': ''}, '1-3': {'action': 'approve', 'note': ''},
+                               '1-2': {'action': 'hold', 'note': ''}}
+    # 에이전트에게 메시지는 가지 않는다
+    assert store.last_message('t') is None
+    # 승인한 보존 사안은 기록이 된다
+    assert [r['ref'] for r in tab.state()['records']] == ['D-1']
+    assert FakePty.typed == ['/clear', '\r']

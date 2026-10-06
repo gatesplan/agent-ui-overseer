@@ -19,7 +19,10 @@ const PLACEHOLDER = {
 // 보존 표시. 사안 종류 라벨 뒤에 붙는다. 승인하거나 답하면 영속 지식에 들어간다
 const TAGS = { W: '용어', D: '결정 기록' };
 // 정리 요청: 다음 세션에도 유효한 용어와 결정을 보존 사안으로 올리게 한다
-const WRAPUP = '정리: 이 세션에서 내가 결정한 것 중 다음 세션에도 유효한 결정과 용어를 [D], [W] 사안으로 올려 줘. 근거 사안 ID를 붙여서.';
+// 걸러내는 기준은 규약(docs/item-protocol.md 보존 사안)에 두고, 문구는 짧게 둔다
+const WRAPUP = '정리: 이 세션에서 내가 결정한 것 중 기록이 없으면 다음 세션이 다르게 판단할 것만 [D], [W] 사안으로 올려 줘. 근거 사안 ID를 붙여서.';
+// 정리 턴 표시. 문구가 바뀌어도 예전 정리 턴을 알아보도록 줄 머리로 찾는다
+const WRAPUP_LINE = /^정리: /m;
 // 턴 안 정렬: 보고, 질문, 제안. 규약 밖 종류는 맨 뒤
 const KIND_ORDER = { 보고: 0, 질문: 1, 제안: 2 };
 const FONT_KEYS = { cur: '현재 카드', prev: '이전 카드', draft: '시안', head: '턴 머리' };
@@ -46,7 +49,7 @@ function fromServer(t, prev) {
   const d = t.draft || {};
   return {
     ...blank, ...t,
-    turns: t.turns.map(x => ({ ...x, wrapup: x.prompt.includes(WRAPUP) })),
+    turns: t.turns.map(x => ({ ...x, wrapup: WRAPUP_LINE.test(x.prompt) })),
     decisions: prev ? prev.decisions : (d.decisions || {}),
     summary: prev ? prev.summary : (d.summary || {}),
     extra: prev ? prev.extra : (d.extra || ''),
@@ -418,6 +421,7 @@ function nextColumn(s) {
       <div class="draft-label">전송 시안</div>
       <div class="draft" id="draft">${draftHTML(s)}</div>
       <textarea class="note" data-extra placeholder="추가 지시 (선택). 시안 끝에 붙는다">${esc(s.extra)}</textarea>
+      <button class="clear-ctx" id="btn-clear" title="고른 처리를 패널에만 저장하고 에이전트 맥락을 지운다. 에이전트에게는 보내지 않는다">결정 저장 후 /clear</button>
     </div>
   </section>`;
 }
@@ -680,6 +684,31 @@ async function send() {
   if ($('#flow')) $('#flow').scrollLeft = 0;
 }
 
+// 결정 저장 후 /clear: 고른 처리는 패널에만 남기고 에이전트에게 보내지 않는다. 곧 지울 맥락이라 보낼 이유가 없다
+// 미처리 사안은 보류함으로 넘긴다. 추가 지시는 지우지 않고 남겨 새 세션에 보낼 수 있게 한다
+async function clearContext() {
+  const s = cur();
+  if (!s || !s.alive || s.running) return;
+  const ready = allItems(s).filter(i => isReady(s, i));
+  const todo = roundItems(s).filter(i => !isReady(s, i));
+  const keep = todo.filter(i => i.tag).length;
+  const msg = ['에이전트 맥락을 지운다(/clear). 처리한 결정은 패널에만 저장하고 에이전트에게 보내지 않는다.'];
+  if (todo.length) msg.push(`미처리 ${todo.length}건${keep ? `(보존 사안 ${keep}건)` : ''}은 보류함으로 넘긴다.`);
+  if (!confirm(msg.join('\n'))) return;
+  if (LIVE) {
+    const decisions = ready.map(i => ({ id: i.id, action: s.decisions[i.id].action, note: s.decisions[i.id].note.trim() }));
+    if (summaryNote(s)) decisions.push({ id: `sum-${s.turns.length}`, action: 'feedback', note: summaryNote(s) });
+    const res = await api(`/api/tabs/${s.id}/clear`, 'POST', { decisions });
+    if (!res) return;
+  }
+  ready.forEach(i => { s.sent[i.id] = { ...s.decisions[i.id] }; ui.open.delete(i.id); });
+  todo.forEach(i => { s.sent[i.id] = { action: 'hold', note: '' }; ui.open.delete(i.id); });
+  if (summaryNote(s)) { s.summarySent[s.turns.length] = summaryNote(s); s.summary[s.turns.length] = ''; }
+  s.wrapup = false;
+  saveDraft(s);
+  render();
+}
+
 // 새로 선택한 카드를 그 기둥 머리의 가로선 바로 아래로 옮긴다. 그 기둥만 스크롤한다
 // 끝 쪽 카드라 더 내려갈 데가 없으면 아래 여백을 늘린다. 다른 기둥은 스크롤 이벤트로 따라온다
 function raise(id) {
@@ -837,7 +866,7 @@ function step(dir) {
 }
 
 function act(e) {
-  const t = e.target.closest('[data-unhold],[data-closeheld],[data-perm],[data-open-term],[data-close],[data-newtab],[data-resume],[data-tab],[data-jump],[data-act],[data-toggle],[data-prompt],[data-drawer],[data-fs],#toggle-term,#btn-send,#btn-wrapup');
+  const t = e.target.closest('[data-unhold],[data-closeheld],[data-perm],[data-open-term],[data-close],[data-newtab],[data-resume],[data-tab],[data-jump],[data-act],[data-toggle],[data-prompt],[data-drawer],[data-fs],#toggle-term,#btn-send,#btn-wrapup,#btn-clear');
   if (!t) return;
   const s = cur();
   if (t.dataset.unhold) { unhold(t.dataset.unhold); }
@@ -881,6 +910,7 @@ function act(e) {
   else if (t.id === 'toggle-term') { ui.term = !ui.term; render(); }
   else if (t.id === 'btn-send') { send(); }
   else if (t.id === 'btn-wrapup') { s.wrapup = !s.wrapup; saveDraft(s); render(); }
+  else if (t.id === 'btn-clear') { clearContext(); }
 }
 
 document.addEventListener('input', e => {
@@ -936,8 +966,14 @@ if (location.hash.includes('drawer')) ui.drawer = 'flow';
 async function api(path, method = 'GET', body) {
   try {
     const res = await fetch(path, { method, headers: { 'Content-Type': 'application/json' }, body: body && JSON.stringify(body) });
-    const data = await res.json();
-    if (!res.ok) { alert(data.error || `요청 실패: ${res.status}`); return null; }
+    // 서버가 모르는 경로면 aiohttp 가 `405: Method Not Allowed` 같은 글로 답한다. 서버를 다시 띄우지 않았을 때 생긴다
+    const text = await res.text();
+    let data = null;
+    try { data = JSON.parse(text); } catch { /* 아래에서 글 그대로 알린다 */ }
+    if (!res.ok || !data) {
+      alert(data?.error || `요청 실패: ${text.trim() || res.status}${res.status === 404 || res.status === 405 ? '\n서버가 이 기능을 모른다. 서버를 다시 띄웠는지 확인' : ''}`);
+      return null;
+    }
     return data;
   } catch (err) {
     alert(`서버에 닿지 않는다: ${err.message}`);

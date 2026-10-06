@@ -343,6 +343,12 @@ kbd.tag {
   font-family: var(--font-display); letter-spacing: .04em;
 }
 .wrapup:hover { color: var(--text); border-color: var(--keep); }
+/* 결정 저장 후 /clear. 되돌릴 수 없어 전송 버튼과 떨어진 맨 아래에 약하게 둔다 */
+.clear-ctx {
+  width: 100%; margin-top: 14px; padding: 6px 0; border: 1px solid var(--line-strong); background: none; color: var(--muted);
+  font-family: var(--font-display); letter-spacing: .04em;
+}
+.clear-ctx:hover { color: var(--rej); border-color: var(--rej); }
 .wrapup.on { color: var(--keep); border-style: solid; border-color: var(--keep); background: color-mix(in srgb, var(--keep) 10%, transparent); }
 
 .col-run .working { display: flex; align-items: center; gap: 8px; color: var(--accent); }

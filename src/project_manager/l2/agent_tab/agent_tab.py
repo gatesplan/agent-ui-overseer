@@ -123,6 +123,25 @@ class AgentTab:
         await asyncio.sleep(SUBMIT_DELAY)
         self.pty.write('\r')
 
+    # 결정 저장 후 /clear: 고른 처리를 패널에만 저장하고 맥락을 지운다. 곧 지울 맥락이라 에이전트에게는 보내지 않는다
+    # 아직 처리하지 않은 사안은 보류로 남겨 보류함에서 꺼낼 수 있게 한다. 보류로 넘긴 사안 ID 를 돌려준다
+    async def clear(self, decisions: list[tuple[str, str, str]]) -> list[str]:
+        if not self.alive:
+            raise RuntimeError('세션이 떠 있지 않다')
+        built = self.builder.build(self.log.events)
+        if built['pending'] is not None or self._sending:
+            raise RuntimeError('에이전트가 작업 중이다')
+        sent = self.store.sent(self.id)
+        decided = {item_id for item_id, _, _ in decisions}
+        holds = [i['id'] for t in built['turns'] for i in t['items'] if i['id'] not in sent and i['id'] not in decided]
+        self.store.add_local(self.id, decisions + self.takeovers(decisions) + [(i, 'hold', '') for i in holds])
+        self.sync_records()
+        logger.info(f"clear: tab={self.id}, decisions={len(decisions)}, held={holds}")
+        self.pty.write('/clear')
+        await asyncio.sleep(SUBMIT_DELAY)
+        self.pty.write('\r')
+        return holds
+
     # 보류 사안을 이어받은 사안(출처가 보류 사안)을 처리하면 원래 보류 사안을 닫는 결정. 에이전트에게는 보내지 않는다
     def takeovers(self, decisions: list[tuple[str, str, str]]) -> list[tuple[str, str, str]]:
         held = self.held()

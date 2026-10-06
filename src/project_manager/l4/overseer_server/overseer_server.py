@@ -11,6 +11,7 @@ from loguru import logger
 from project_manager.l0.decision_store import DecisionStore
 from project_manager.l0.project_finder import ProjectFinder
 from project_manager.l0.record_store import RecordStore
+from project_manager.l2.agent_tab import AgentTab
 from project_manager.l3.tab_manager import TabManager
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -40,6 +41,7 @@ class OverseerServer:
             web.post('/api/tabs/{id}/resume', self._resume),
             web.delete('/api/tabs/{id}', self._close),
             web.post('/api/tabs/{id}/send', self._send),
+            web.post('/api/tabs/{id}/clear', self._clear),
             web.put('/api/tabs/{id}/draft', self._draft),
             web.get('/ws/events', self._events),
             web.get('/ws/term/{id}', self._term),
@@ -95,6 +97,14 @@ class OverseerServer:
             except ConnectionError:
                 self.clients.discard(ws)
 
+    # 주소의 탭. 없는 탭이면 404. 서버를 다시 띄운 뒤 예전 화면이 닫힌 탭에 요청할 때 생긴다
+    def _tab(self, request: web.Request) -> AgentTab:
+        try:
+            return self.tabs.get(request.match_info['id'])
+        except KeyError:
+            raise web.HTTPNotFound(text=json.dumps({'error': '없는 탭이다. 화면을 새로고침한다'}, ensure_ascii=False),
+                                   content_type='application/json')
+
     @web.middleware
     async def _no_cache(self, request: web.Request, handler):
         response = await handler(request)
@@ -115,7 +125,7 @@ class OverseerServer:
 
     # 화면의 권한 결정: {request_id, behavior: allow | deny | terminal, message}
     async def _permission(self, request: web.Request) -> web.Response:
-        tab = self.tabs.get(request.match_info['id'])
+        tab = self._tab(request)
         body = await request.json()
         try:
             tab.decide_permission(body.get('request_id', ''), body.get('behavior', ''), body.get('message', ''))
@@ -125,7 +135,7 @@ class OverseerServer:
 
     # 보류함에서 닫기: {ids}. 보류 중인 사안을 에이전트에게 보내지 않고 끝낸다
     async def _close_held(self, request: web.Request) -> web.Response:
-        tab = self.tabs.get(request.match_info['id'])
+        tab = self._tab(request)
         body = await request.json()
         closed = tab.close_held([str(i) for i in body.get('ids', [])])
         await self._broadcast({'type': 'tab', 'tab': tab.state()})
@@ -162,7 +172,7 @@ class OverseerServer:
 
     # 전송: message 는 화면이 조립한 전송 시안, decisions 는 [{id, action, note}]
     async def _send(self, request: web.Request) -> web.Response:
-        tab = self.tabs.get(request.match_info['id'])
+        tab = self._tab(request)
         body = await request.json()
         decisions = [(d['id'], d['action'], d.get('note', '')) for d in body.get('decisions', [])]
         try:
@@ -171,6 +181,18 @@ class OverseerServer:
             return web.json_response({'error': str(e)}, status=409)
         await self._broadcast({'type': 'tab', 'tab': tab.state()})
         return web.json_response(tab.state())
+
+    # 결정 저장 후 /clear. 결정은 에이전트에게 보내지 않는다. 미처리 사안은 보류로 넘긴다
+    async def _clear(self, request: web.Request) -> web.Response:
+        tab = self._tab(request)
+        body = await request.json()
+        decisions = [(d['id'], d['action'], d.get('note', '')) for d in body.get('decisions', [])]
+        try:
+            held = await tab.clear(decisions)
+        except RuntimeError as e:
+            return web.json_response({'error': str(e)}, status=409)
+        await self._broadcast({'type': 'tab', 'tab': tab.state()})
+        return web.json_response({'held': held, 'tab': tab.state()})
 
     async def _draft(self, request: web.Request) -> web.Response:
         self.store.save_draft(request.match_info['id'], await request.json())
@@ -189,7 +211,7 @@ class OverseerServer:
 
     # 터미널: 붙으면 남은 출력을 먼저 보내고 이어서 실시간 출력을 흘린다. 받은 글자는 그대로 PTY 에 쓴다
     async def _term(self, request: web.Request) -> web.WebSocketResponse:
-        tab = self.tabs.get(request.match_info['id'])
+        tab = self._tab(request)
         ws = web.WebSocketResponse(heartbeat=20)
         await ws.prepare(request)
         loop = asyncio.get_running_loop()

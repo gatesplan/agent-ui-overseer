@@ -1,6 +1,6 @@
 ---
 sources:
-  overseer_server.py: ccdadc9ace31
+  overseer_server.py: ecea692a27ef
 ---
 # overseer_server
 
@@ -28,6 +28,7 @@ POST   /api/tabs                {cwd | create: {root, name}, rows, cols, skip_pe
 POST   /api/tabs/{id}/resume    {rows, cols} 이어서 띄우기
 DELETE /api/tabs/{id}           세션 끝내고 탭 닫기
 POST   /api/tabs/{id}/send      {message, decisions: [{id, action, note}]} 결정 저장 후 붙여넣기 전송
+POST   /api/tabs/{id}/clear     {decisions: [{id, action, note}]} 결정을 패널에만 저장하고 /clear. 미처리 사안은 보류로. {held, tab}
 PUT    /api/tabs/{id}/draft     작성 중 초안 저장
 
 ### WebSocket

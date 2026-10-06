@@ -8,6 +8,7 @@ AgentTab.child_env(environ: dict[str, str], tab_id: str) -> dict[str, str]  # ag
 AgentTab.alive() -> bool  # agent_tab.py
 AgentTab.poll() -> bool  # agent_tab.py
 AgentTab.send(message: str, decisions: list[tuple[str, str, str]]) -> None  # agent_tab.py
+AgentTab.clear(decisions: list[tuple[str, str, str]]) -> list[str]  # agent_tab.py
 AgentTab.takeovers(decisions: list[tuple[str, str, str]]) -> list[tuple[str, str, str]]  # agent_tab.py
 AgentTab.held() -> set[str]  # agent_tab.py
 AgentTab.close_held(ids: list[str]) -> list[str]  # agent_tab.py

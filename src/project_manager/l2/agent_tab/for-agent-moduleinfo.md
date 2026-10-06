@@ -1,6 +1,6 @@
 ---
 sources:
-  agent_tab.py: 166dc4f09229
+  agent_tab.py: 804c314c9b43
 ---
 # agent_tab
 
@@ -40,6 +40,11 @@ poll() -> bool
 async send(message: str, decisions: list[tuple[str, str, str]]) -> None
     raise RuntimeError    # 프로세스가 꺼져 있을 때
     결정(과 takeovers)을 저장하고 메시지를 붙여넣은 뒤 SUBMIT_DELAY 뒤에 Enter 를 친다.
+
+async clear(decisions: list[tuple[str, str, str]]) -> list[str]
+    raise RuntimeError    # 프로세스가 꺼져 있거나 에이전트가 작업 중일 때
+    결정 저장 후 /clear. 결정(과 takeovers)을 add_local 로 패널에만 저장하고(에이전트에게 보내지 않음) sync_records 한다.
+    결정도 보낸 결정도 없는 사안은 hold 로 남긴다. 그다음 `/clear` 를 치고 SUBMIT_DELAY 뒤에 Enter. 보류로 넘긴 사안 ID 반환.
 
 close() -> None
     결정을 기다리던 권한 훅이 있으면 terminal 로 풀어 준다.
