@@ -245,6 +245,10 @@ code { font-family: var(--font-mono); font-size: .9em; padding: 0 4px; backgroun
 .md ul { margin: 0 0 6px; padding-left: 0; list-style: none; }
 .md li { position: relative; margin: 3px 0; padding-left: 16px; }
 .md li::before { content: ""; position: absolute; left: 2px; top: .7em; width: 5px; height: 5px; background: var(--kc); transform: rotate(45deg); opacity: .8; }
+.md-table { margin: 0 0 8px; overflow-x: auto; }
+.md table { border-collapse: collapse; font-size: .95em; font-variant-numeric: tabular-nums; }
+.md th, .md td { padding: 3px 8px; border: 1px solid var(--line); text-align: left; vertical-align: top; }
+.md th { font-weight: 600; color: var(--text); background: color-mix(in srgb, var(--line) 40%, transparent); white-space: nowrap; }
 
 .decide { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
 .seg { display: flex; gap: 6px; }

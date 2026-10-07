@@ -95,14 +95,41 @@ function inline(s) {
 function md(text) {
   const out = [];
   let list = null;
+  let rows = null;
+  const flush = () => {
+    if (list) { out.push(`<ul>${list.join('')}</ul>`); list = null; }
+    if (rows) { out.push(table(rows)); rows = null; }
+  };
   for (const line of text.split('\n')) {
+    if (/^\s*\|/.test(line)) {
+      if (list) flush();
+      (rows ||= []).push(line);
+      continue;
+    }
+    if (rows) flush();
     const m = line.match(/^\s*[-*]\s+(.*)$/);
     if (m) { (list ||= []).push(`<li>${inline(m[1])}</li>`); continue; }
-    if (list) { out.push(`<ul>${list.join('')}</ul>`); list = null; }
+    flush();
     if (line.trim()) out.push(`<p>${inline(line)}</p>`);
   }
-  if (list) out.push(`<ul>${list.join('')}</ul>`);
+  flush();
   return out.join('');
+}
+
+// 마크다운 표. 둘째 줄이 구분 줄(|---|:--:|)이면 첫 줄이 머리, 구분 줄의 콜론으로 정렬한다
+// 카드 폭이 좁아 넘치면 표만 가로로 스크롤한다
+function cells(line) {
+  const s = line.trim().replace(/^\|/, '').replace(/(^|[^\\])\|$/, '$1');
+  return s.split(/(?<!\\)\|/).map(c => c.trim().replace(/\\\|/g, '|'));
+}
+function table(lines) {
+  const rows = lines.map(cells);
+  const sep = rows.length > 1 && rows[1].every(c => /^:?-+:?$/.test(c));
+  const align = sep ? rows[1].map(c => c.endsWith(':') ? (c.startsWith(':') ? 'center' : 'right') : '') : [];
+  const td = (tag, row) => row.map((c, k) => `<${tag}${align[k] ? ` style="text-align:${align[k]}"` : ''}>${inline(c)}</${tag}>`).join('');
+  const head = sep ? `<thead><tr>${td('th', rows[0])}</tr></thead>` : '';
+  const body = (sep ? rows.slice(2) : rows).map(r => `<tr>${td('td', r)}</tr>`).join('');
+  return `<div class="md-table"><table>${head}<tbody>${body}</tbody></table></div>`;
 }
 
 // 사안 상태
