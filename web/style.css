@@ -369,6 +369,8 @@ kbd.tag {
 .pane-gear:hover, .pane-gear.on { color: var(--accent); border-color: var(--line-strong); }
 .pane-rec { height: 24px; padding: 0 10px; border: 1px solid var(--line-strong); background: none; color: var(--keep); font: 600 12px var(--font-mono); letter-spacing: .04em; }
 .pane-rec:hover, .pane-rec.on { border-color: var(--keep); background: color-mix(in srgb, var(--keep) 12%, transparent); }
+.pane-old { color: var(--muted); }
+.pane-old:hover, .pane-old.on { color: var(--accent); border-color: var(--accent); background: none; }
 
 /* 아카이브 보기 */
 .drawer.wide { width: min(460px, 92vw); }

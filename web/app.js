@@ -63,6 +63,8 @@ function savePref(key, value) { try { localStorage.setItem(key, value); } catch 
 
 const ui = {
   cur: null, active: null, term: false, open: new Set(), promptOpen: new Set(), drawer: null,
+  // /clear 앞 턴까지 펼쳐 보는 탭
+  showOld: new Set(),
   theme: pref('overseer.theme', 'future-industry'),
   refs: pref('overseer.refs', '1') === '1',
   // 현재 턴 기둥을 가로 두 배로
@@ -116,6 +118,15 @@ function isReady(s, item) {
   if (!isValid(item, d)) return false;
   if (!s.sent[item.id]) return true;
   return isHeld(s, item.id) && d.action !== 'hold';
+}
+// /clear 앞의 턴은 처리가 끝났으니 접는다. 보류에서 꺼내 다시 처리 중인 사안이 있는 턴은 보인다
+function visibleTurns(s) {
+  if (!s.cleared || ui.showOld.has(s.id)) return s.turns;
+  return s.turns.filter(t => t.turn > s.cleared || t.items.some(i => ['todo', 'ready'].includes(statusOf(s, i))));
+}
+// 접힌 턴의 사안으로 가야 하면 앞 턴을 펼친다
+function reveal(s, id) {
+  if (s && !visibleTurns(s).some(t => t.turn === turnOf(id))) ui.showOld.add(s.id);
 }
 function editable(s, id) { return !s.sent[id] || isHeld(s, id); }
 function statusOf(s, item) {
@@ -380,6 +391,7 @@ async function closeHeld(id) {
 
 // 꺼내기: 그 카드를 펼쳐 선택한다. 처리를 고르면 다음 메시지에 '보류 해제:' 로 실린다
 function unhold(id) {
+  reveal(cur(), id);
   ui.open.add(id);
   ui.active = id;
   render();
@@ -481,14 +493,19 @@ function renderMain(s) {
       : '터미널 창에서 첫 입력을 한다. 시작 확인 창도 거기서 처리한다';
     return `<section class="pane">${attentionBar(s)}<div class="empty">${msg}<br><small>${sub}</small></div></section>`;
   }
-  const last = s.turns.length - 1;
+  const last = s.turns[s.turns.length - 1];
+  const shown = visibleTurns(s);
+  const folded = s.turns.length - shown.length;
+  const old = s.cleared && (folded || ui.showOld.has(s.id))
+    ? `<button class="pane-rec pane-old ${ui.showOld.has(s.id) ? 'on' : ''}" data-oldturns title="마지막 /clear 앞의 턴">${folded ? `이전 맥락 ${folded}턴 보기` : '이전 맥락 접기'}</button>` : '';
   return `<section class="pane">
     <header class="pane-bar"><span class="pane-name">흐름</span><span class="pane-info">턴 ${s.turns.length} · 사안 ${allItems(s).length}</span>
+      ${old}
       ${LIVE ? `<button class="pane-rec ${ui.drawer === 'records' ? 'on' : ''}" data-drawer="records" title="이 프로젝트의 결정 기록과 용어">기록 ${(s.records || []).filter(r => r.status === 'active').length}</button>` : ''}
       <button class="pane-gear ${ui.drawer === 'flow' ? 'on' : ''}" data-drawer="flow" title="흐름 설정">${GEAR}</button></header>
     ${attentionBar(s)}
     <div class="flow" id="flow"><div class="flow-inner ${ui.wide ? 'wide' : ''}" id="flow-inner">
-      ${s.turns.map((t, i) => column(s, t, i === last)).join('')}${arrow(s)}${nextColumn(s)}
+      ${shown.map(t => column(s, t, t === last)).join('')}${arrow(s)}${nextColumn(s)}
     </div></div>
   </section>`;
 }
@@ -723,6 +740,7 @@ function raise(id) {
 
 // 출처 버튼: 화면은 움직이지 않는다. 출처 카드를 펼쳐 깜빡인다. 선택 정렬로 출처가 같은 높이에 온다
 function jumpTo(id) {
+  reveal(cur(), id);
   ui.open.add(id);
   render();
   flash(document.getElementById(`c-${id}`));
@@ -866,7 +884,7 @@ function step(dir) {
 }
 
 function act(e) {
-  const t = e.target.closest('[data-unhold],[data-closeheld],[data-perm],[data-open-term],[data-close],[data-newtab],[data-resume],[data-tab],[data-jump],[data-act],[data-toggle],[data-prompt],[data-drawer],[data-fs],#toggle-term,#btn-send,#btn-wrapup,#btn-clear');
+  const t = e.target.closest('[data-unhold],[data-closeheld],[data-perm],[data-open-term],[data-close],[data-newtab],[data-resume],[data-tab],[data-jump],[data-act],[data-toggle],[data-prompt],[data-drawer],[data-fs],[data-oldturns],#toggle-term,#btn-send,#btn-wrapup,#btn-clear');
   if (!t) return;
   const s = cur();
   if (t.dataset.unhold) { unhold(t.dataset.unhold); }
@@ -889,6 +907,7 @@ function act(e) {
   }
   else if (t.dataset.tab) { ui.cur = t.dataset.tab; ui.active = null; render({ keepScroll: false }); }
   else if (t.dataset.jump) { e.stopPropagation(); jumpTo(t.dataset.jump); }
+  else if ('oldturns' in t.dataset) { ui.showOld.has(s.id) ? ui.showOld.delete(s.id) : ui.showOld.add(s.id); render(); }
   else if (t.dataset.prompt) {
     const n = Number(t.dataset.prompt);
     ui.promptOpen.has(n) ? ui.promptOpen.delete(n) : ui.promptOpen.add(n);

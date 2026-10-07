@@ -1,6 +1,6 @@
 ---
 sources:
-  transcript_reader.py: 034800941401
+  transcript_reader.py: 555d0380bb6e
 ---
 # transcript_reader
 
@@ -30,6 +30,9 @@ turn_prompts(since: int | None = None) -> list[str] | None
     중단된 입력은 다음 턴에 함께 들어간다. `[Request interrupted …]` 표시는 뺀다.
     작업 중에 넣어 진행 중인 턴에 흡수된 입력(type=attachment, attachment.type=queued_command, commandMode=prompt)도 넣는다.
     이 입력은 last_turn_text 의 경계로 쓰지 않는다. 흡수 앞뒤 응답이 한 턴이다.
+    시스템이 넣은 입력(origin.kind 가 human 이 아니거나 promptSource=system, 예: 백그라운드 작업 알림)은 넣지 않는다.
+    흡수된 작업 알림(commandMode=task-notification)도 넣지 않는다. 작업 알림만으로 시작된 턴은 빈 목록이다.
+    last_turn_text 의 경계로는 그대로 쓴다. 알림에 대한 응답만 그 턴의 텍스트다.
     입력 훅(UserPromptSubmit)은 작업 중 대기열에 넣는 순간 불려 어느 턴 입력인지 알 수 없어서 이것으로 정한다.
 
 turn_usage(since: int | None = None) -> dict | None

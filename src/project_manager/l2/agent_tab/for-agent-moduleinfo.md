@@ -1,6 +1,6 @@
 ---
 sources:
-  agent_tab.py: 804c314c9b43
+  agent_tab.py: 2b75a5492d44
 ---
 # agent_tab
 
@@ -71,6 +71,7 @@ acknowledge() -> bool
     터미널 창 입력이 들어오면 서버가 부른다. 떠 있던 확인 알림을 사용자가 본 것으로 치고 내린다. 내렸으면 True.
 
 state() -> dict
-    화면용 상태. {id, project, cwd, agent, args, status, alive, running, permission, attention, records, turns, session_id, sent, summarySent, draft}
+    화면용 상태. {id, project, cwd, agent, args, status, alive, running, permission, attention, records, turns, session_id, cleared, sent, summarySent, draft}
+    cleared: 마지막 /clear 앞의 턴 수(TurnBuilder). 화면은 그 턴들을 접고, 보류에서 꺼내 다시 처리 중인 사안이 있는 턴만 보인다
     status: exited(꺼짐) | attention(권한 결정이나 터미널 확인을 기다림) | working(입력 처리 중) | waiting(사안 처리 대기) | idle(아직 턴 없음)
     running: 처리 중인 입력문. 보낸 직후 훅 기록이 오기 전에는 마지막으로 보낸 메시지.

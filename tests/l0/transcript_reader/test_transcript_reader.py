@@ -67,6 +67,24 @@ def test_prompt_absorbed_mid_turn_counts_as_turn_prompt(tmp_path):
     assert reader.last_turn_text() == '확인합니다.\n\n부르지 않았습니다.'
 
 
+def test_system_prompt_is_not_turn_prompt(tmp_path):
+    # 작업 알림은 user 줄로 남아 새 응답을 부르지만 사용자 입력이 아니다. 응답 텍스트의 경계로는 쓴다
+    path = tmp_path / 't.jsonl'
+    _write(path, [
+        {'type': 'user', 'origin': {'kind': 'human'}, 'promptSource': 'typed', 'message': {'content': '실측해 봐'}},
+        {'type': 'assistant', 'message': {'content': [{'type': 'text', 'text': '끝났습니다.'}]}},
+        {'type': 'system', 'subtype': 'turn_duration'},
+        {'type': 'user', 'origin': {'kind': 'task-notification', 'producer': 'session-task'}, 'promptSource': 'system',
+         'message': {'content': '<task-notification>감시 만료</task-notification>'}},
+        {'type': 'attachment', 'attachment': {'type': 'queued_command', 'prompt': '<task-notification>x</task-notification>',
+                                              'commandMode': 'task-notification'}},
+        {'type': 'assistant', 'message': {'content': [{'type': 'text', 'text': '다시 걸지 않습니다.'}]}},
+    ])
+    reader = TranscriptReader(path)
+    assert reader.turn_prompts() == []
+    assert reader.last_turn_text() == '다시 걸지 않습니다.'
+
+
 def test_turn_prompts_without_turn_end_marker(tmp_path):
     # 턴 끝 표시가 없는 버전: 첫 턴이면 처음부터, 이전 응답이 있으면 경계를 몰라 None
     path = tmp_path / 't.jsonl'

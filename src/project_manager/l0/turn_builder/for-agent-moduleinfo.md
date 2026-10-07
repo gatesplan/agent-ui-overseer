@@ -1,6 +1,6 @@
 ---
 sources:
-  turn_builder.py: 4b09480b27c3
+  turn_builder.py: 348c7f3e0999
 ---
 # turn_builder
 
@@ -11,7 +11,7 @@ sources:
 ### Methods
 
 build(events: list[dict]) -> dict
-    반환: {turns, pending, session_id, permission, attention}
+    반환: {turns, pending, session_id, cleared, permission, attention}
     turns: {turn, prompt, text, preamble, items, parts, session_id, at, after}
       턴 번호는 1부터, 사안 ID 는 `턴-순번`(응답에 나온 순서)
       예전 분리기가 종류 D, W 로 읽은 사안은 종류 제안, tag D, W 로 고쳐 낸다
@@ -21,6 +21,7 @@ build(events: list[dict]) -> dict
       after: 이 턴 앞에 /clear 나 compact 가 있었으면 'clear' | 'compact'
     pending: 아직 어느 턴에도 들어가지 않은 입력. 에이전트가 처리 중이라는 뜻. 없으면 None
     session_id: 가장 최근 기록의 claude 세션 ID. --resume 에 쓴다
+    cleared: 마지막 /clear(source=clear 인 session_start) 때 이미 있던 턴 수. 없으면 0. 화면이 그 앞 턴을 접는다. compact 는 세지 않는다
     permission: 화면의 결정을 기다리는 권한 요청 {request_id, tool_name, tool_input, at, seq}. 없으면 None
     attention: 터미널 확인을 기다리는 알림 {message, kind, at, seq}. 대기 알림(QUIET_NOTICES)은 넣지 않고,
       뒤에 입력, 턴, 세션 시작, 권한 결정이 오면 끝난 것으로 본다. seq 는 기록 위치(AgentTab 이 터미널 입력으로 내릴 때 쓴다)
@@ -35,5 +36,9 @@ build(events: list[dict]) -> dict
 - 작업 중 입력이 진행 중인 턴에 흡수되면 그 턴의 prompts 에 들어온다(TranscriptReader 가 queued_command 첨부로 읽음).
   그래도 입력이 남아 있는데 입력 대기 알림(idle_prompt)이 오면, 흡수를 못 읽은 것으로 보고 앞 턴 입력으로 옮긴다.
   남겨 두면 pending 이 풀리지 않아 탭이 계속 작업 중으로 보이고 전송이 막힌다.
+- 시스템이 넣은 입력(`<task-notification>` 으로 시작하는 백그라운드 작업 알림)은 사용자 입력이 아니다.
+  입력 훅이 불려도 대기로 두지 않고, turn 기록의 prompts 에 있어도(예전 훅) 뺀다. pending 에도 넣지 않는다.
+  prompts 가 기록 파일에서 읽혔는데 사용자 입력이 하나도 없는 응답(작업 알림에 대한 응답)은 앞 턴에 붙인다.
+  /clear, compact 바로 뒤 응답은 맥락이 바뀌었으니 새 턴으로 연다. prompts 를 못 읽은 응답은 붙이지 않는다.
 - 응답이 빈 turn(중단 등)은 턴으로 세지 않는다. 중단된 입력은 다음 응답의 prompts 에 함께 들어온다.
 - 사안 ID 는 탭 안에서 이어진다. /clear 로 claude 세션이 바뀌어도 번호는 이어 간다.

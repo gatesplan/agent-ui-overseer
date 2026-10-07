@@ -2,6 +2,8 @@
 QUIET_NOTICES = ('idle_prompt', 'auth_success')
 # 턴에 더하는 토큰 사용량 항목
 USAGE_KEYS = ('calls', 'tools', 'input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens', 'output_tokens')
+# 시스템이 넣은 입력(백그라운드 작업 알림)의 시작. 입력 훅도 불리지만 사용자 입력이 아니다
+SYSTEM_PROMPT_PREFIXES = ('<task-notification>',)
 
 
 # 훅 기록을 턴 목록으로 조립한다. 턴 번호는 응답이 있는 turn 기록의 순서, 사안 ID 는 `턴-순번`
@@ -12,6 +14,8 @@ class TurnBuilder:
         # 아직 어느 턴에도 들어가지 않은 입력 훅 기록. 입력 훅은 대기열에 넣는 순간 불려 앞 턴보다 먼저 올 수 있다
         waiting: list[str] = []
         after: str | None = None
+        # 마지막 /clear 때 이미 있던 턴 수. 화면은 그 앞 턴을 숨긴다
+        cleared = 0
         session_id: str | None = None
         # 패널의 결정을 기다리는 권한 요청(요청 ID 별), 마지막 확인 알림
         permissions: dict[str, dict] = {}
@@ -26,10 +30,14 @@ class TurnBuilder:
                 # /clear, compact 뒤 첫 턴에 표시한다. 에이전트 맥락이 바뀐 지점
                 if e.get('source') in ('clear', 'compact'):
                     after = e['source']
+                if e.get('source') == 'clear':
+                    cleared = len(turns)
                 # 세션이 새로 뜨면 앞 세션에서 기다리던 권한 요청은 끝났다
                 permissions.clear()
             elif kind == 'prompt':
-                waiting.append(e.get('prompt') or '')
+                # 시스템 입력은 대기로 두지 않는다. 진행 중인 턴에 흡수되어 남으면 작업 중이 풀리지 않는다
+                if not self._system(e.get('prompt') or ''):
+                    waiting.append(e.get('prompt') or '')
             elif kind == 'permission':
                 permissions[e.get('request_id')] = {
                     'request_id': e.get('request_id'), 'tool_name': e.get('tool_name'),
@@ -50,12 +58,17 @@ class TurnBuilder:
                 if not (e.get('text') or '').strip():
                     continue
                 prompts = e.get('prompts')
-                if prompts is None:
+                known = prompts is not None
+                if not known:
                     # 기록 파일에서 읽지 못한 턴은 그때까지 온 입력 전부로 본다
                     prompts, waiting = waiting, []
                 else:
+                    # 예전 훅은 시스템 입력도 턴 입력으로 남겼다
+                    prompts = [p for p in prompts if not self._system(p)]
                     waiting = self._consume(waiting, prompts)
-                if turns and turns[-1]['open']:
+                # 기록 파일에 사용자 입력이 없는 응답(작업 알림에 대한 응답)은 앞 턴에 붙인다. /clear, compact 뒤면 맥락이 바뀌어 새 턴
+                joins = known and not prompts and after is None
+                if turns and (turns[-1]['open'] or joins):
                     self._extend(turns[-1], e, prompts)
                 else:
                     turns.append(self._new(len(turns) + 1, e, prompts, after))
@@ -65,7 +78,7 @@ class TurnBuilder:
         for t in turns:
             del t['open']
         return {
-            'turns': turns, 'session_id': session_id,
+            'turns': turns, 'session_id': session_id, 'cleared': cleared,
             # 남은 입력이 있으면 에이전트가 그것을 처리하는 중이다
             'pending': '\n\n'.join(waiting) if waiting else None,
             'permission': list(permissions.values())[-1] if permissions else None,
@@ -117,6 +130,9 @@ class TurnBuilder:
                     last = i
                     break
         return waiting[last + 1:]
+
+    def _system(self, text: str) -> bool:
+        return text.lstrip().startswith(SYSTEM_PROMPT_PREFIXES)
 
     def _key(self, text: str) -> str:
         return ' '.join(text.split())

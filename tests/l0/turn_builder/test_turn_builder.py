@@ -68,6 +68,46 @@ def test_idle_notice_moves_leftover_prompt_into_last_turn():
     assert [x['turn'] for x in built['turns']] == [1, 2]
 
 
+def test_system_prompt_response_joins_previous_turn():
+    # 백그라운드 작업 알림도 입력 훅이 불린다. 작업 중 알림은 대기로 남기지 않고, 알림에 대한 응답은 앞 턴에 붙인다
+    note = '<task-notification>\n<task-id>b1</task-id>\n</task-notification>'
+    events = [
+        {'event': 'prompt', 'prompt': '실측해 봐'},
+        {'event': 'prompt', 'prompt': note},
+        {'event': 'prompt', 'prompt': note},
+        {**turn('### [보고] a', [{'kind': '보고', 'title': 'a'}]), 'prompts': ['실측해 봐']},
+    ]
+    built = TurnBuilder().build(events)
+    assert built['pending'] is None
+    built = TurnBuilder().build(events + [{'event': 'notification', 'kind': 'idle_prompt'}])
+    assert built['turns'][0]['prompt'] == '실측해 봐'
+
+    # 예전 훅은 알림을 턴 입력으로 남겼다. 그래도 사용자 입력이 없는 응답이다
+    later = [{'event': 'notification', 'kind': 'idle_prompt'}, {'event': 'prompt', 'prompt': note},
+             {**turn('### [보고] b', [{'kind': '보고', 'title': 'b'}]), 'prompts': [note]}]
+    built = TurnBuilder().build(events + later)
+    assert len(built['turns']) == 1
+    t = built['turns'][0]
+    assert [i['id'] for i in t['items']] == ['1-1', '1-2']
+    assert t['prompt'] == '실측해 봐'
+    assert t['parts'] == 2
+    assert built['pending'] is None
+
+    # /clear 뒤 첫 응답은 입력이 없어도 새 턴
+    built = TurnBuilder().build(events + [{'event': 'session_start', 'source': 'clear'}, {**turn('c'), 'prompts': []}])
+    assert [x['turn'] for x in built['turns']] == [1, 2]
+
+
+def test_cleared_counts_turns_before_last_clear():
+    # 화면은 마지막 /clear 앞의 턴을 접는다. compact 는 맥락을 이어 가므로 세지 않는다
+    events = [{'event': 'prompt', 'prompt': 'a'}, {**turn('a'), 'prompts': ['a']}]
+    assert TurnBuilder().build(events)['cleared'] == 0
+    events += [{'event': 'session_start', 'source': 'clear'}]
+    assert TurnBuilder().build(events)['cleared'] == 1
+    events += [{'event': 'prompt', 'prompt': 'b'}, {**turn('b'), 'prompts': ['b']}, {'event': 'session_start', 'source': 'compact'}]
+    assert TurnBuilder().build(events)['cleared'] == 1
+
+
 def test_unmatched_older_prompts_are_dropped_when_later_one_matches():
     events = [
         {'event': 'prompt', 'prompt': '/clear'},
