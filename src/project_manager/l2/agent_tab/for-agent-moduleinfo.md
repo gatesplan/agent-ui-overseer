@@ -4,7 +4,8 @@ sources:
 ---
 # agent_tab
 
-패널 탭 하나. claude 프로세스(PtySession), 훅 기록(CaptureLog), 결정 저장(DecisionStore)을 묶고 화면에 줄 상태를 만든다.
+패널 탭 하나. claude 프로세스(PtySession), 훅 기록(CaptureLog), 프로젝트 세션 이력(ProjectJournal), 패널 저장소(PanelStore)를 묶고 화면에 줄 상태를 만든다.
+턴은 훅 기록이 바뀔 때마다 세션 파일에 쓴다(write_journal). 이 탭이 연 세션(파일 주인)만 쓴다.
 
 ## AgentTab
 
@@ -18,7 +19,7 @@ alive: bool
 starting: bool               # 띄운 뒤 이번 실행의 session_start 기록이 아직 없음. 시작 훅은 폴더 신뢰 같은 시작 확인 창이 닫혀야 불린다
 
 ### __init__
-__init__(tab_id: str, cwd: str, claude_args: str, store: DecisionStore, captures_dir: Path, records: RecordStore | None = None, mcp: dict | None = None)
+__init__(tab_id: str, cwd: str, claude_args: str, store: PanelStore, captures_dir: Path, records: RecordStore | None = None, mcp: dict | None = None)
     mcp: 결정 아카이브 조회 MCP 서버 실행 명령 {command, args}. 있으면 start 가 탭별 설정 파일(data/mcp/<탭>.json)을 쓰고
     `--mcp-config <파일> --allowedTools mcp__overseer` 를 붙인다(읽기 전용이라 권한 확인 없이).
     훅 기록을 한 번 읽고 sync_records 를 한 번 한다. 프로세스는 start 로 띄운다.
@@ -29,11 +30,11 @@ start(resume: bool = False, rows: int = 40, cols: int = 120) -> None
     `cmd.exe /c claude <claude_args>` 를 띄운다. resume 이면 기록된 마지막 세션으로 `--resume <session_id>`.
     환경은 child_env 로 만든다. 띄우기 전 훅 기록 길이를 적어 두고 starting 판단에 쓴다.
 
-child_env(environ: dict[str, str], tab_id: str) -> dict[str, str]    # staticmethod
+child_env(environ: dict[str, str], tab_id: str, project: str | None = None) -> dict[str, str]    # staticmethod
     자식 claude 에 줄 환경. environ 은 고치지 않는다.
     - 부모 Claude Code 세션의 표식(SESSION_MARKERS)을 지운다. 남으면 자식이 하위 세션으로 떠서 대화 기록 저장이 꺼진다
     - 서버를 uv run 으로 띄우며 붙은 가상환경(UV_RUN_VARS, PATH 의 VIRTUAL_ENV\Scripts)을 지운다. 남으면 자식 세션의 python 이 패널 .venv 로 잡힌다
-    - OVERSEER_TAB 을 넣는다
+    - OVERSEER_TAB 과 OVERSEER_PROJECT(탭의 프로젝트 폴더. 훅이 세션 번호를 받을 곳)를 넣는다
 
 poll() -> bool
     새 훅 기록이 붙었거나 프로세스가 끝났으면 True.
@@ -44,7 +45,7 @@ async send(message: str, decisions: list[tuple[str, str, str]]) -> None
 
 async clear(decisions: list[tuple[str, str, str]]) -> list[str]
     raise RuntimeError    # 프로세스가 꺼져 있거나 시작 중(starting)이거나 에이전트가 작업 중일 때
-    결정 저장 후 /clear. 결정(과 takeovers)을 add_local 로 패널에만 저장하고(에이전트에게 보내지 않음) sync_records 한다.
+    결정 저장 후 /clear. 결정(과 takeovers)을 메시지 없이 세션 이력에 쓰고(에이전트에게 보내지 않음) sync_records 한다.
     결정도 보낸 결정도 없는 사안은 hold 로 남긴다. 그다음 `/clear` 를 치고 SUBMIT_DELAY 뒤에 Enter. 보류로 넘긴 사안 ID 반환.
 
 close() -> None
@@ -58,7 +59,16 @@ held() -> set[str]
     지금 보류 중인 사안 ID(마지막 결정이 hold).
 
 close_held(ids: list[str]) -> list[str]
-    보류함의 닫기. 보류 중인 것만 close 로 끝낸다(add_local, 에이전트에게 보내지 않음). 닫은 ID 반환.
+    보류함의 닫기. 보류 중인 것만 close 로 끝낸다(에이전트에게 보내지 않음). 닫은 ID 반환.
+
+sent(built: dict | None = None) -> dict[str, dict]
+    이 탭의 세션들에서 사안마다 마지막 결정.
+
+write_journal() -> None
+
+note_map(before: dict | None, after: dict | None) -> list[dict]
+    모듈 지도가 바뀌면 서버가 부른다. 책임이 바뀐 모듈(새 모듈 포함, 책임이 빈 새 모듈은 뺀다)을 지금 세션 파일에 남긴다.
+    마지막 턴 뒤에 보낸 메시지의 `[책임 수정] <모듈>: …` 이나 `[새 책임 카드] <이름>: …` 과 맞으면 request 에 그 책임.
 
 takeovers(decisions: list[tuple[str, str, str]]) -> list[tuple[str, str, str]]
     처리하는 사안의 출처가 보류 사안이면 그 보류 사안을 close 하는 결정(의견 `#새ID 로 이어짐`). send 가 결정에 붙여 저장한다.
@@ -72,8 +82,9 @@ acknowledge() -> bool
     터미널 창 입력이 들어오면 서버가 부른다. 떠 있던 확인 알림을 사용자가 본 것으로 치고 내린다. 내렸으면 True.
 
 state() -> dict
-    화면용 상태. {id, project, cwd, agent, args, status, alive, starting, running, permission, attention, records, turns, session_id, session, sent, summarySent, draft}
+    화면용 상태. {id, project, cwd, agent, args, status, alive, starting, running, permission, attention, records, turns, session_id, session, sent, summarySent, draft, moduleHistory}
     session: 지금 세션 번호(TurnBuilder). 화면은 앞 세션의 턴을 접고, 보류에서 꺼내 다시 처리 중인 사안이 있는 턴만 보인다
-    summarySent: 턴 ID(`2S-3`)별 보낸 종합 의견 피드백. 결정 저장소에는 `sum-<턴 ID>` 로 둔다
+    summarySent: 턴 ID(`2S-3`)별 보낸 종합 의견 피드백. 세션 이력에는 `sum-<턴 ID>` 로 둔다
+    moduleHistory: {모듈: [책임 변경]}. 모듈 패널의 책임 이력과 사용자 스펙 칩
     status: exited(꺼짐) | attention(권한 결정이나 터미널 확인을 기다림) | working(입력 처리 중) | waiting(사안 처리 대기) | idle(아직 턴 없음)
     running: 처리 중인 입력문. 보낸 직후 훅 기록이 오기 전에는 마지막으로 보낸 메시지.

@@ -3,6 +3,7 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
+# decisions 표는 사안 결정이 프로젝트 `.overseer/` 로 옮겨 가기 전의 것이다. 이전 스크립트가 읽도록 남겨 둔다
 SCHEMA = '''
 create table if not exists tabs (
   id text primary key,
@@ -17,16 +18,6 @@ create table if not exists messages (
   text text not null,
   created_at text not null
 );
-create table if not exists decisions (
-  id integer primary key autoincrement,
-  tab_id text not null,
-  item_id text not null,
-  action text not null,
-  note text not null default '',
-  message_id integer not null,
-  created_at text not null
-);
-create index if not exists decisions_tab on decisions (tab_id, item_id);
 create table if not exists drafts (
   tab_id text primary key,
   data text not null,
@@ -35,8 +26,9 @@ create table if not exists drafts (
 '''
 
 
-# 탭, 보낸 메시지, 사안 결정, 작성 중 초안을 SQLite 에 둔다. 결정은 덮어쓰지 않고 이벤트로 쌓는다
-class DecisionStore:
+# 이 컴퓨터의 패널 상태. 열린 탭, 보낸 메시지, 작성 중 초안을 SQLite 에 둔다
+# 사안과 결정은 프로젝트의 것이라 여기 두지 않는다(ProjectJournal)
+class PanelStore:
     def __init__(self, path: str | Path):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -54,44 +46,19 @@ class DecisionStore:
         with self.db:
             self.db.execute('update tabs set closed_at = ? where id = ?', (self._now(), tab_id))
 
-    # 닫은 탭까지 전부. 프로젝트 기록 조회에서 지난 세션의 사안을 찾을 때 쓴다
+    # 닫은 탭까지 전부
     def tabs(self) -> list[dict]:
         return [dict(r) for r in self.db.execute('select * from tabs order by created_at').fetchall()]
-
-    # 사안 하나에 보낸 결정 이력. 보류에서 승인으로 바뀐 것까지
-    def history(self, tab_id: str, item_id: str) -> list[dict]:
-        rows = self.db.execute('select action, note, created_at from decisions where tab_id = ? and item_id = ? order by id',
-                               (tab_id, item_id)).fetchall()
-        return [dict(r) for r in rows]
 
     def open_tabs(self) -> list[dict]:
         rows = self.db.execute('select * from tabs where closed_at is null order by created_at').fetchall()
         return [dict(r) for r in rows]
 
-    # 메시지 한 번과 거기 담긴 결정들을 함께 남긴다. decisions: [(사안 ID, 처리, 사유)]
-    def add_message(self, tab_id: str, text: str, decisions: list[tuple[str, str, str]]) -> int:
-        now = self._now()
+    # 보낸 메시지를 남기고 메시지 ID 를 돌려준다. 거기 담긴 결정은 프로젝트 기록에 따로 쓴다
+    def add_message(self, tab_id: str, text: str) -> int:
         with self.db:
-            cur = self.db.execute('insert into messages (tab_id, text, created_at) values (?, ?, ?)', (tab_id, text, now))
-            message_id = cur.lastrowid
-            self.db.executemany(
-                'insert into decisions (tab_id, item_id, action, note, message_id, created_at) values (?, ?, ?, ?, ?, ?)',
-                [(tab_id, item_id, action, note, message_id, now) for item_id, action, note in decisions])
-        return message_id
-
-    # 에이전트에게 보내지 않고 패널에서만 내린 결정(보류 닫기 등). 메시지 ID 는 0
-    def add_local(self, tab_id: str, decisions: list[tuple[str, str, str]]) -> None:
-        now = self._now()
-        with self.db:
-            self.db.executemany(
-                'insert into decisions (tab_id, item_id, action, note, message_id, created_at) values (?, ?, ?, ?, 0, ?)',
-                [(tab_id, item_id, action, note, now) for item_id, action, note in decisions])
-
-    # 사안마다 마지막으로 보낸 결정
-    def sent(self, tab_id: str) -> dict[str, dict]:
-        rows = self.db.execute(
-            'select item_id, action, note from decisions where tab_id = ? order by id', (tab_id,)).fetchall()
-        return {r['item_id']: {'action': r['action'], 'note': r['note']} for r in rows}
+            cur = self.db.execute('insert into messages (tab_id, text, created_at) values (?, ?, ?)', (tab_id, text, self._now()))
+        return cur.lastrowid
 
     def last_message(self, tab_id: str) -> dict | None:
         row = self.db.execute(

@@ -45,7 +45,8 @@ uv run overseer
 - Overseer 가 띄우는 claude 세션은 서버를 띄운 셸의 환경(PATH, conda 등)을 물려받는다. 사용자가 평소 claude 를 쓰는 셸에서 띄운다
 - 서버를 끄면 그 서버가 띄운 claude 세션도 끝난다. 다시 켜면 탭이 "세션 꺼짐" 으로 돌아오고 `이어서 띄우기` 로 `--resume` 한다
 - 다시 띄우기: `pwsh scripts/restart_server.ps1`. 모든 탭이 쉴 때까지 기다렸다가 서버를 다시 띄우고 떠 있던 탭을 `이어서 띄우기` 한다. 서버와 무관한 프로세스에서 돌아 패널 탭 안의 에이전트가 불러도 된다. 작업 스케줄러에 `Overseer` 작업이 있으면 그것으로 띄우고, 없으면 `uv run overseer` 를 창 없이 띄운다. 진행은 `data/logs/restart.log`, 멈추지 않고 점검만 할 때는 `-DryRun`
-- 기록은 이 폴더의 `data/` 에 쌓인다(훅 기록 JSONL, `overseer.db`)
+- 프로젝트 기록(사안, 결정, 보존 기록, 책임 이력)은 각 프로젝트의 `.overseer/` 에 쌓인다. 폴더 안 `.gitignore` 로 git 에서 스스로 빠진다
+- 이 컴퓨터의 패널 상태는 이 폴더의 `data/` 에 쌓인다(훅 기록 JSONL, `overseer.db`)
 
 ## 3. 사용 요령 (사용자에게 전할 것)
 

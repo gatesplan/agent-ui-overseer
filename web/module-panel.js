@@ -240,11 +240,28 @@ function mpChips(s, m) {
   const q = s.map || { resp: {}, ask: {} };
   const c = [...new Set(m.bad.map(v => v.code))].map(code => `<span class="chip c-bad">${code === 'E' ? '파싱 실패' : code}</span>`);
   if (m.orphan) c.push('<span class="chip c-orphan">고아</span>');
+  // 사용자가 모듈 패널에서 정한 책임(책임 수정, 새 책임 카드)이 들어간 모듈. 나머지는 에이전트가 정한 것이다
+  if (mpHistory(s, m.name).some(e => e.request)) c.push('<span class="chip c-spec" title="사용자가 정한 책임">사용자 스펙</span>');
   if (q.resp[m.name]) c.push('<span class="chip c-wait">수정 대기</span>');
   if (q.ask[m.name]) c.push('<span class="chip c-wait">질문 대기</span>');
   if (m.external) c.push('<span class="chip c-ext">+ext</span>');
   return c.join('');
 }
+// 모듈의 책임 변경 이력. 서버가 프로젝트 세션 이력(.overseer/sessions)에서 모아 준다. 오래된 것부터
+const mpHistory = (s, name) => (s.moduleHistory || {})[name] || [];
+
+function mpHistoryHTML(s, id) {
+  const h = mpHistory(s, id);
+  if (!h.length) return '';
+  const rows = h.slice().reverse().map(e => {
+    const who = e.request ? '<span class="chip c-spec">사용자 요청</span>' : '<span class="chip c-orphan">에이전트</span>';
+    const from = e.before == null ? '<i>새 모듈</i>' : (e.before ? esc(e.before) : '<i>없음</i>');
+    return `<div class="rec hist"><div class="h-meta"><code>${esc((e.at || '').slice(0, 10))}</code>${e.turn ? ` <button class="parent" data-jump="${esc(e.turn)}-1">${esc(e.turn)} 뒤</button>` : ''} ${who}</div>`
+      + `<div class="h-from">${from}</div><div class="h-to">→ ${esc(e.after || '') || '<i>없음</i>'}</div></div>`;
+  });
+  return '<div class="d-sec">책임 이력</div>' + rows.join('');
+}
+
 function mpResp(s, m) {
   const want = s.map?.resp[m.name];
   if (want) return `<div class="n-resp pending">${esc(want)}</div>`;
@@ -395,6 +412,7 @@ function mpShowDetail(s, id) {
       <dt>영향 범위</dt><dd>${[...mpUps(ix, id)].map(esc).join(', ') || '-'}</dd>
       <dt>위치</dt><dd>${esc(m.path)}</dd>
     </dl>
+    ${mpHistoryHTML(s, id)}
     ${recs.length ? '<div class="d-sec">결정 기록</div>' + recs.map(r => `<div class="rec"><code>${esc(r.ref)}</code> ${esc(r.text)}</div>`).join('') : ''}
     ${items.length ? '<div class="d-sec">언급한 사안</div>' + items.map(i => `<div class="rec"><button class="parent" data-jump="${esc(i.id)}">#${esc(i.id)}</button> ${esc(i.title)}</div>`).join('') : ''}
     ${q.resp[id] ? `<div class="queued"><span>책임 수정 보낼 예정: ${esc(q.resp[id])}</span><button data-mp-unq="resp">×</button></div>` : ''}

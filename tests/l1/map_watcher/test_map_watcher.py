@@ -25,7 +25,8 @@ def test_get_scans_once_then_changed_reports_only_edited_folders(tmp_path):
     assert maps.scans == 2
     assert watcher.changed() == []
     maps.sigs[a] = (1, 5, 10)
-    assert watcher.changed() == [(a, {'status': 'ok', 'map': {'n': 3}})]
+    # 앞 지도도 함께 준다. 책임 변경을 가리는 데 쓴다
+    assert watcher.changed() == [(a, {'status': 'ok', 'map': {'n': 3}}, {'status': 'ok', 'map': {'n': 1}})]
     assert watcher.changed() == []
     assert watcher.get(a) == {'status': 'ok', 'map': {'n': 3}}
 
@@ -38,4 +39,4 @@ def test_keep_only_stops_watching_closed_folders(tmp_path):
     watcher.get(b)
     watcher.keep_only([b])
     maps.sigs[a] = maps.sigs[b] = (9, 9, 9)
-    assert [cwd for cwd, _ in watcher.changed()] == [b]
+    assert [cwd for cwd, _, _ in watcher.changed()] == [b]

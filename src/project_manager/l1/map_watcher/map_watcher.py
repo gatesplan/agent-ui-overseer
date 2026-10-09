@@ -21,7 +21,7 @@ class MapWatcher:
                 self.cache[key] = {'cwd': cwd, 'sig': self.maps.signature(cwd), 'result': self.maps.scan(cwd)}
             return self.cache[key]['result']
 
-    # 서명이 바뀐 폴더만 다시 받는다. (폴더, 새 지도) 목록
+    # 서명이 바뀐 폴더만 다시 받는다. (폴더, 새 지도, 앞 지도) 목록
     def changed(self) -> list[tuple[str, dict]]:
         out = []
         with self.lock:
@@ -29,9 +29,10 @@ class MapWatcher:
                 sig = self.maps.signature(entry['cwd'])
                 if sig == entry['sig']:
                     continue
+                before = entry['result']
                 entry['sig'] = sig
                 entry['result'] = self.maps.scan(entry['cwd'])
-                out.append((entry['cwd'], entry['result']))
+                out.append((entry['cwd'], entry['result'], before))
         return out
 
     # 더 볼 탭이 없는 폴더는 지켜보지 않는다

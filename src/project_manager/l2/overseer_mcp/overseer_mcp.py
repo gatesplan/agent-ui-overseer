@@ -6,7 +6,8 @@ from ...l1.archive_query import ArchiveQuery
 INSTRUCTIONS = (
     '이 프로젝트에서 사용자가 내린 결정을 읽는 읽기 전용 도구다. '
     '제안하기 전에 decisions(action="reject")로 비슷한 제안이 기각된 적이 있는지 본다. '
-    '결정 기록과 용어의 목록과 검색은 records, 기록 하나의 이력과 근거는 record 로 본다.'
+    '결정 기록과 용어의 목록과 검색은 records, 기록 하나의 이력과 근거는 record 로 본다. '
+    '모듈의 책임이 언제 누구의 요청으로 바뀌었는지는 module 로 본다.'
 )
 READ_ONLY = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False)
 
@@ -24,6 +25,9 @@ class OverseerMcp:
         self.server.add_tool(self.decisions, name='decisions', annotations=READ_ONLY,
                              description='이 프로젝트의 지난 사안과 사용자 결정(답변, 승인, 수정, 보류, 기각, 확인)을 최근 순으로 찾는다. '
                                          'action="reject" 면 기각된 것과 그 사유만. 같은 제안을 다시 내기 전에 확인한다.')
+        self.server.add_tool(self.module, name='module', annotations=READ_ONLY,
+                             description='모듈 하나(예: l1.item_splitter 나 item_splitter)의 책임 변경 이력과 그 모듈을 언급한 결정 기록. '
+                                         '변경마다 이전 책임, 새 책임, 사용자가 요청한 것인지를 보인다. 책임을 바꾸기 전에 확인한다.')
 
     def records(self, query: str = '', kind: str = '', include_replaced: bool = False) -> str:
         return self.query.list_records(query, kind, include_replaced)
@@ -33,6 +37,9 @@ class OverseerMcp:
 
     def decisions(self, query: str = '', action: str = '', limit: int = 20) -> str:
         return self.query.decisions(query, action, limit)
+
+    def module(self, name: str) -> str:
+        return self.query.module(name)
 
     def run(self) -> None:
         self.server.run('stdio')

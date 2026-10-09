@@ -5,22 +5,23 @@ sources:
 # record_store
 
 프로젝트 결정 아카이브. 사용자가 승인한 보존 사안([D] 결정 기록, [W] 용어)을 프로젝트별로 `D-n`, `W-n` 번호를 붙여 둔다.
-DecisionStore 와 같은 SQLite 파일(`data/overseer.db`)의 records 표를 쓴다. 훅(SessionStart)도 따로 열어 읽는다.
+기록 하나가 `<프로젝트>/.overseer/records/D-3.md` 파일 하나다. 머리(`---` 사이)에 text, status, replaces, replaced_by, item, tab, note, created.
+값은 한 줄이고, 줄바꿈이 있거나 따옴표로 시작하면 JSON 문자열로 쓴다. 본문은 원래 사안 본문. 훅(SessionStart)도 읽는다.
 
 ## RecordStore
 
 ### __init__
-__init__(path: str | Path)
+RecordStore()    # 상태 없음. 프로젝트 키가 곧 폴더 경로
 
 ### Methods
 
 project_key(path: str) -> str    # staticmethod
-    프로젝트 구분 키. 절대 경로를 normcase 한 것. 같은 폴더면 대소문자, 구분자가 달라도 같다.
+    프로젝트 구분 키. 절대 경로를 normcase 한 것. 같은 폴더면 대소문자, 구분자가 달라도 같다. 그 폴더 경로로 쓴다.
 
 add(project: str, kind: str, text: str, body: str = '', note: str = '', tab_id: str | None = None, item_id: str | None = None, replaces: str | None = None) -> dict
     raise ValueError    # kind 가 D, W 가 아닐 때
-    번호는 프로젝트 안 종류별로 1부터. 같은 사안(tab_id, item_id)으로 이미 있으면 새로 만들지 않고 그것을 돌려준다.
-    replaces('D-3')가 같은 종류의 유효한 기록이면 그 기록을 replaced 로 바꾸고 서로 잇는다(replaces, replaced_by). 아니면 대체하지 않는다.
+    번호는 프로젝트 안 종류별로 1부터. 같은 사안(item_id)으로 이미 있으면 새로 만들지 않고 그것을 돌려준다.
+    replaces('D-3')가 같은 종류의 유효한 기록이면 그 기록을 replaced 로 바꾸고 서로 잇는다(replaces, replaced_by 에 'D-3' 같은 ID). 아니면 대체하지 않는다.
     반환 dict 에 ref('D-3')가 붙는다.
 records(project: str, active_only: bool = False) -> list[dict]
     그 프로젝트 자체의 기록.
@@ -33,10 +34,10 @@ find(project: str, ref: str) -> dict | None
     'D-3' 은 그 프로젝트, 'gatesplan/D-3' 은 그 이름의 상위 폴더에서 찾는다.
 briefing(project: str) -> str
     세션 시작 때 넣을 목록. 유효한 기록만 `- D-3 결정 (메모: …)` 한 줄씩, 상위 폴더 기록은 따로 묶는다. 없으면 빈 문자열.
-last_id(project: str) -> int
-    그 프로젝트와 상위 폴더 기록의 가장 큰 내부 id. 세션이 목록을 어디까지 받았는지(records_seen) 표시한다.
-notice(project: str, after_id: int, exclude_tab: str | None = None) -> str
-    after_id 뒤에 생긴 기록(상위 폴더 포함)의 변경 고지. `- 추가: W-2 …`, 대체면 `- 변경: D-1 옛 → D-3 새`. 자기 탭(exclude_tab) 기록은 뺀다. 없으면 빈 문자열.
+last_mark(project: str) -> str
+    그 프로젝트와 상위 폴더 기록의 가장 늦은 created. 세션이 목록을 어디까지 받았는지(records_seen) 표시한다. 없으면 빈 문자열.
+notice(project: str, after: str, exclude_tab: str | None = None) -> str
+    after 뒤에 생긴 기록(상위 폴더 포함)의 변경 고지. `- 추가: W-2 …`, 대체면 `- 변경: D-1 옛 → D-3 새`. 자기 탭(exclude_tab) 기록은 뺀다. 없으면 빈 문자열.
 
 ## 설계 이유
 

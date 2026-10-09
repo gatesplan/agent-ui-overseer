@@ -292,7 +292,8 @@ function stateChip(s, item) {
 // 보존 사안을 승인하거나 답해서 보냈으면 영속 지식에 들어간 것으로 본다
 // 실제 모드에서는 아카이브의 기록 번호를 보인다. 뒤에 대체된 기록이면 대체됨
 function keptBadge(s, item) {
-  const rec = (s.records || []).find(r => r.tab_id === s.id && r.item_id === item.id);
+  // 사안 ID 는 프로젝트 안에서 겹치지 않는다. 상위 폴더 기록은 다른 프로젝트의 사안이라 뺀다
+  const rec = (s.records || []).find(r => !r.inherited && r.item_id === item.id);
   if (rec) {
     return rec.status === 'active' ? `<span class="kept" title="${esc(rec.text)}">보존 ${rec.ref}</span>`
       : `<span class="kept old" title="뒤의 기록으로 대체됨">대체됨 ${rec.ref}</span>`;
@@ -317,11 +318,11 @@ function keepWarnings(item) {
 function replaceBlock(s, item) {
   const ref = (item.body.match(REPLACES) || [])[1];
   if (!ref || !LIVE) return '';
-  const own = (s.records || []).find(r => r.tab_id === s.id && r.item_id === item.id);
+  const own = (s.records || []).find(r => !r.inherited && r.item_id === item.id);
   const target = (s.records || []).find(r => r.ref === ref);
   let row;
   if (!target) row = `<div class="bs warn">${ref} 없는 기록</div>`;
-  else if (target.status !== 'active' && !(own && target.replaced_by === own.id)) row = `<div class="bs warn">${ref} 이미 대체된 기록: ${esc(target.text)}</div>`;
+  else if (target.status !== 'active' && !(own && target.replaced_by === own.ref)) row = `<div class="bs warn">${ref} 이미 대체된 기록: ${esc(target.text)}</div>`;
   else row = `<div class="bs"><span class="iid">${ref}</span> ${esc(target.text)}${target.note ? `<span class="bd">메모: ${esc(target.note)}</span>` : ''}</div>`;
   return `<div class="basis"><div class="basis-label">대체 대상</div>${row}</div>`;
 }
@@ -572,12 +573,13 @@ const GEAR = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke
 // 출처 사안이 이 탭에 있으면 눌러서 그 카드로 간다
 function recordsHTML(s) {
   const records = (s && s.records) || [];
-  const refOf = id => records.find(r => r.id === id)?.ref || '?';
+  // 대체 관계는 그 기록이 있는 폴더 안의 ID(D-3)다. 상위 폴더 기록이면 폴더 이름을 붙여 보인다
+  const refOf = (r, ref) => (r.inherited ? `${r.scope}/${ref}` : ref);
   const row = r => {
-    const status = r.status === 'active' ? (r.replaces ? `${refOf(r.replaces)} 대체` : '')
-      : `대체됨 → ${refOf(r.replaced_by)}`;
+    const status = r.status === 'active' ? (r.replaces ? `${refOf(r, r.replaces)} 대체` : '')
+      : `대체됨 → ${refOf(r, r.replaced_by)}`;
     const source = r.tab_id === s.id ? `<button class="parent" data-jump="${esc(r.item_id)}" title="출처 사안으로">#${esc(r.item_id)}</button>`
-      : `<span title="다른 탭에서 승인">다른 탭 #${esc(r.item_id || '')}</span>`;
+      : `<span title="다른 탭에서 승인">${r.inherited ? `${esc(r.scope)}/` : ''}#${esc(r.item_id || '')}</span>`;
     return `<div class="rec ${r.status}">
       <div class="rec-head"><span class="rec-ref">${r.ref}</span><span class="rec-text">${esc(r.text)}</span></div>
       ${r.note ? `<div class="rec-note">메모: ${esc(r.note)}</div>` : ''}
@@ -1155,7 +1157,7 @@ function renderPicker() {
     const head = o.root !== lastRoot ? `<div class="nt-root">${esc(o.root)}</div>` : '';
     lastRoot = o.root;
     const name = o.group ? `<span class="nt-group">${esc(o.group)} /</span>${esc(o.name)}` : esc(o.name);
-    return `${head}<div class="nt-opt ${o.group ? 'nested' : ''} ${on}" data-opt="${i}">${name}${o.opened ? '<small>열려 있음</small>' : ''}</div>`;
+    return `${head}<div class="nt-opt ${o.group ? 'nested' : ''} ${on}" data-opt="${i}">${name}${o.opened ? '<small>열려 있음 · 그 탭으로 옮긴다</small>' : ''}</div>`;
   });
   const empty = picker.roots.length ? '맞는 폴더 없음' : `드라이브 루트에 Projects 폴더가 없다. 이름을 입력하면 ${esc(picker.defaultRoot)} 에 만든다`;
   $('#nt-list').innerHTML = rows.join('') || `<div class="nt-empty">${empty}</div>`;
@@ -1216,9 +1218,12 @@ async function openTab() {
   if (!opts) return;
   const t = await api('/api/tabs', 'POST', { ...opts, ...termSize() });
   if (!t) return;
+  // 한 프로젝트에는 탭 하나. 이미 열린 폴더면 서버가 그 탭을 돌려준다. 그 탭으로 옮기기만 한다
+  const existed = sessions.some(s => s.id === t.id);
   upsert(t);
   ui.cur = t.id;
   ui.active = null;
+  if (existed) { render({ keepScroll: false }); return; }
   // 시작 확인 창은 터미널에서 처리한다. 정상으로 시작하면 접는다
   ui.term = true;
   ui.autoTerm = t.id;

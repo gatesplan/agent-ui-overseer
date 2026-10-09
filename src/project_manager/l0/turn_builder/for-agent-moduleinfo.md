@@ -13,7 +13,8 @@ sources:
 build(events: list[dict]) -> dict
     반환: {turns, pending, session_id, session, permission, attention}
     turns: {id, session, turn, prompt, text, preamble, items, parts, session_id, at, after}
-      session 은 /clear 구간 번호(1부터), turn 은 세션 안의 턴 번호(1부터), id 는 `<세션>S-<턴>`
+      session 은 프로젝트의 세션 번호(시작 기록의 session, 훅이 프로젝트에서 받는다), turn 은 세션 안의 턴 번호(1부터), id 는 `<세션>S-<턴>`
+      시작 기록에 번호가 없으면(번호를 받지 못한 훅) /clear 마다 하나씩 올려 매긴다
       사안 ID 는 `<세션>S-<턴>-<순번>`(순번은 응답에 나온 순서). 예: 2S-3-1
       예전 ID(`#턴-순번`, 턴 번호가 탭 안에서 이어짐)로 쓴 입력, 응답, 사안 본문의 참조와 출처는 새 ID 로 바꿔 낸다
       예전 분리기가 종류 D, W 로 읽은 사안은 종류 제안, tag D, W 로 고쳐 낸다
@@ -43,5 +44,5 @@ build(events: list[dict]) -> dict
   prompts 가 기록 파일에서 읽혔는데 사용자 입력이 하나도 없는 응답(작업 알림에 대한 응답)은 앞 턴에 붙인다.
   /clear, compact 바로 뒤 응답은 맥락이 바뀌었으니 새 턴으로 연다. prompts 를 못 읽은 응답은 붙이지 않는다.
 - 응답이 빈 turn(중단 등)은 턴으로 세지 않는다. 중단된 입력은 다음 응답의 prompts 에 함께 들어온다.
-- 사안 ID 는 탭 안에서 겹치지 않는다. /clear 로 세션 번호가 오르고 턴 번호는 1부터 다시 매긴다.
+- 사안 ID 는 프로젝트 안에서 겹치지 않는다. 새 탭과 /clear 가 새 세션 번호를 받고 턴 번호는 1부터 다시 매긴다.
   결정, 보류, 기록 근거는 이 ID 를 그대로 키로 쓴다.

@@ -114,6 +114,20 @@ def test_clear_starts_a_new_session_number():
     assert built['turns'][1]['items'][0]['id'] == '2S-1-1'
 
 
+def test_session_number_from_the_hook_wins():
+    # 훅이 프로젝트에서 받은 번호를 적었으면 그것을 쓴다. resume, compact 로 같은 번호가 다시 오면 턴 번호를 이어 간다
+    events = [{'event': 'session_start', 'source': 'startup', 'session': 7},
+              {'event': 'prompt', 'prompt': 'a'}, {**turn('a'), 'prompts': ['a']},
+              {'event': 'session_start', 'source': 'resume', 'session': 7},
+              {'event': 'prompt', 'prompt': 'b'}, {**turn('b', [{'kind': '보고', 'title': 'b'}]), 'prompts': ['b']},
+              {'event': 'session_start', 'source': 'clear', 'session': 9},
+              {'event': 'prompt', 'prompt': 'c'}, {**turn('c'), 'prompts': ['c']}]
+    built = TurnBuilder().build(events)
+    assert [t['id'] for t in built['turns']] == ['7S-1', '7S-2', '9S-1']
+    assert built['turns'][1]['items'][0]['id'] == '7S-2-1'
+    assert built['session'] == 9
+
+
 def test_legacy_refs_are_relabeled_to_session_ids():
     # 예전 ID 는 탭 전체에서 이어진 턴 번호였다. 본문, 입력, 출처의 `#n-k` 를 n 번째 턴의 새 ID 로 바꾼다
     events = [

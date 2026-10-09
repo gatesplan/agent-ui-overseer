@@ -8,8 +8,9 @@ from pathlib import Path
 from loguru import logger
 
 from ...l0.capture_log import CaptureLog
-from ...l0.decision_store import DecisionStore
+from ...l0.panel_store import PanelStore
 from ...l0.permission_gate import PermissionGate
+from ...l0.project_journal import ProjectJournal
 from ...l0.record_store import RecordStore
 from ...l0.turn_builder import TurnBuilder
 from ...l1.pty_session import PtySession
@@ -32,12 +33,16 @@ MCP_NAME = 'overseer'
 CLOSE = 'close'
 # 보존 사안을 아카이브에 넣는 처리
 KEEP_ACTIONS = ('approve', 'answer')
+# 모듈 패널에서 보낸 책임 수정, 새 책임 카드 줄. 책임이 바뀐 모듈을 사용자가 요청한 것인지 가린다
+RESP_LINE = re.compile(r'^\[책임 수정\] (\S+): (.*)$', re.M)
+CARD_LINE = re.compile(r'^\[새 책임 카드\] (?:([^:\n]+): )?(.*?)(?: → .*)?$', re.M)
 
 
-# 패널 탭 하나. claude 프로세스, 훅 기록, 결정 저장을 묶고 화면에 줄 상태를 만든다
+# 패널 탭 하나. claude 프로세스, 훅 기록, 프로젝트 세션 이력을 묶고 화면에 줄 상태를 만든다
+# 사안과 결정은 프로젝트 `.overseer/` 의 세션 파일에 쓰고, 보낸 메시지와 초안은 패널 저장소에 둔다
 class AgentTab:
     # records: 프로젝트 결정 아카이브. 승인된 보존 사안을 옮긴다. 없으면 옮기지 않는다
-    def __init__(self, tab_id: str, cwd: str, claude_args: str, store: DecisionStore, captures_dir: Path,
+    def __init__(self, tab_id: str, cwd: str, claude_args: str, store: PanelStore, captures_dir: Path,
                  records: RecordStore | None = None, mcp: dict | None = None):
         self.id = tab_id
         # 결정 아카이브 조회 MCP 서버 실행 명령 {command, args}. 있으면 claude 에 --mcp-config 로 붙인다
@@ -60,7 +65,9 @@ class AgentTab:
         self.gate = PermissionGate(captures_dir.parent / 'permissions', None)
         self.records = records
         self.project = RecordStore.project_key(cwd)
+        self.journal = ProjectJournal(self.project)
         self.log.poll()
+        self.write_journal()
         self.sync_records()
 
     def start(self, resume: bool = False, rows: int = 40, cols: int = 120) -> None:
@@ -71,7 +78,7 @@ class AgentTab:
         session_id = self.builder.build(self.log.events)['session_id']
         if resume and session_id:
             argv += ['--resume', session_id]
-        env = self.child_env(dict(os.environ), self.id)
+        env = self.child_env(dict(os.environ), self.id, self.cwd)
         self.pty = PtySession(argv, self.cwd, env, rows, cols)
         self.pty.listeners = self.listeners
         self.log.poll()
@@ -91,8 +98,9 @@ class AgentTab:
     # 자식 claude 에 줄 환경. 서버가 물려받은 것 중 자식 세션을 바꿔 놓는 것을 걷어 낸다
     # - 부모 Claude Code 세션 표식
     # - 서버를 uv run 으로 띄우며 생긴 패널 가상환경. 남으면 자식 세션의 python 이 패널 .venv 로 잡힌다
+    # 훅이 탭(OVERSEER_TAB)과 그 프로젝트 폴더(OVERSEER_PROJECT)를 알게 한다
     @staticmethod
-    def child_env(environ: dict[str, str], tab_id: str) -> dict[str, str]:
+    def child_env(environ: dict[str, str], tab_id: str, project: str | None = None) -> dict[str, str]:
         env = {k: v for k, v in environ.items() if k.upper() not in SESSION_MARKERS + UV_RUN_VARS}
         venv = environ.get('VIRTUAL_ENV')
         if venv:
@@ -100,6 +108,8 @@ class AgentTab:
             for key in [k for k in env if k.upper() == 'PATH']:
                 env[key] = os.pathsep.join(p for p in env[key].split(os.pathsep) if os.path.normcase(p.rstrip('\\/')) not in scripts)
         env['OVERSEER_TAB'] = tab_id
+        if project:
+            env['OVERSEER_PROJECT'] = project
         return env
 
     @property
@@ -119,6 +129,7 @@ class AgentTab:
         changed = self.log.poll()
         if changed:
             self._sending = False
+            self.write_journal()
         if self._was_alive and not self.alive:
             self._was_alive = False
             changed = True
@@ -129,7 +140,8 @@ class AgentTab:
             raise RuntimeError('세션이 떠 있지 않다')
         if self.starting:
             raise RuntimeError('세션이 시작 중이다. 시작 확인 창은 터미널에서 처리한다')
-        self.store.add_message(self.id, message, decisions + self.takeovers(decisions))
+        message_id = self.store.add_message(self.id, message)
+        self.journal.add_decisions(decisions + self.takeovers(decisions), message_id)
         self.sync_records()
         logger.info(f"전송: tab={self.id}, decisions={len(decisions)}, len={len(message)}")
         self._sending = True
@@ -147,10 +159,10 @@ class AgentTab:
         built = self.builder.build(self.log.events)
         if built['pending'] is not None or self._sending:
             raise RuntimeError('에이전트가 작업 중이다')
-        sent = self.store.sent(self.id)
+        sent = self.sent(built)
         decided = {item_id for item_id, _, _ in decisions}
         holds = [i['id'] for t in built['turns'] for i in t['items'] if i['id'] not in sent and i['id'] not in decided]
-        self.store.add_local(self.id, decisions + self.takeovers(decisions) + [(i, 'hold', '') for i in holds])
+        self.journal.add_decisions(decisions + self.takeovers(decisions) + [(i, 'hold', '') for i in holds])
         self.sync_records()
         logger.info(f"clear: tab={self.id}, decisions={len(decisions)}, held={holds}")
         self.pty.write('/clear')
@@ -170,15 +182,68 @@ class AgentTab:
                 closes[parent] = (parent, CLOSE, f'#{item_id} 로 이어짐')
         return list(closes.values())
 
+    # 이 탭의 세션들에서 사안마다 마지막 결정 {action, note, at}
+    def sent(self, built: dict | None = None) -> dict[str, dict]:
+        built = built or self.builder.build(self.log.events)
+        return self.journal.sent({t['session'] for t in built['turns']} | {built['session']})
+
+    # 이 탭이 연 세션의 턴을 프로젝트 세션 파일에 쓴다. 번호를 받지 못한 세션(파일 주인이 이 탭이 아님)은 쓰지 않는다
+    def write_journal(self) -> None:
+        turns = self.builder.build(self.log.events)['turns']
+        owned: dict[int, bool] = {}
+        for t in turns:
+            if t['session'] not in owned:
+                owned[t['session']] = self.journal.owner(t['session']) == self.id
+            if owned[t['session']]:
+                self.journal.write_turn(t)
+
+    # 모듈 지도가 바뀌었을 때 책임이 바뀐 모듈을 지금 세션 파일에 남긴다. 남긴 사건 목록
+    # 마지막 턴 뒤에 보낸 메시지가 그 모듈의 책임 수정이나 새 책임 카드면 사용자가 요청한 변경(request)이다
+    def note_map(self, before: dict | None, after: dict | None) -> list[dict]:
+        old, new = self._responsibilities(before), self._responsibilities(after)
+        if old is None or new is None:
+            return []
+        built = self.builder.build(self.log.events)
+        n = built['session']
+        if self.journal.owner(n) != self.id:
+            return []
+        last = next((t for t in reversed(built['turns']) if t['session'] == n), None)
+        message = self.store.last_message(self.id)
+        text = message['text'] if message and (not last or (message['created_at'] or '') >= (last['at'] or '')) else ''
+        asked = {m.group(1): m.group(2).strip() for m in RESP_LINE.finditer(text)}
+        cards = [(m.group(1) or '').strip() for m in CARD_LINE.finditer(text)]
+        events = []
+        for name, resp in new.items():
+            prev = old.get(name)
+            if prev == resp or (prev is None and not resp):
+                continue
+            short = name.rsplit('.', 1)[-1]
+            request = asked.get(name)
+            if request is None and prev is None and any(c and (c == name or c == short) for c in cards):
+                request = next(m.group(2).strip() for m in CARD_LINE.finditer(text) if (m.group(1) or '').strip() in (name, short))
+            event = {'module': name, 'before': prev, 'after': resp, 'request': request, 'turn': last['id'] if last else None}
+            self.journal.add_module_change(n, event)
+            events.append(event)
+        if events:
+            logger.info(f"책임 변경: tab={self.id}, modules={[e['module'] for e in events]}")
+        return events
+
+    # 지도의 모듈별 책임 {모듈: 책임}. 지도가 없으면 None
+    @staticmethod
+    def _responsibilities(result: dict | None) -> dict[str, str] | None:
+        if not result or result.get('status') != 'ok':
+            return None
+        return {m['name']: m.get('responsibility') or '' for m in (result.get('map') or {}).get('modules') or []}
+
     # 지금 보류 중인 사안 ID
     def held(self) -> set[str]:
-        return {k for k, v in self.store.sent(self.id).items() if v['action'] == 'hold'}
+        return {k for k, v in self.sent().items() if v['action'] == 'hold'}
 
     # 보류함에서 닫기: 보류 중인 사안만 패널에서 끝낸다. 에이전트에게 보내지 않는다. 닫은 ID 를 돌려준다
     def close_held(self, ids: list[str]) -> list[str]:
         closing = [i for i in ids if i in self.held()]
         if closing:
-            self.store.add_local(self.id, [(i, CLOSE, '') for i in closing])
+            self.journal.add_decisions([(i, CLOSE, '') for i in closing])
             logger.info(f"보류 닫기: tab={self.id}, ids={closing}")
         return closing
 
@@ -194,9 +259,10 @@ class AgentTab:
     def sync_records(self) -> list[dict]:
         if not self.records:
             return []
-        sent = self.store.sent(self.id)
+        built = self.builder.build(self.log.events)
+        sent = self.sent(built)
         added = []
-        for turn in self.builder.build(self.log.events)['turns']:
+        for turn in built['turns']:
             for item in turn['items']:
                 decision = sent.get(item['id'])
                 if item.get('tag') not in ('D', 'W') or not decision or decision['action'] not in KEEP_ACTIONS:
@@ -221,7 +287,7 @@ class AgentTab:
 
     def state(self) -> dict:
         built = self.builder.build(self.log.events)
-        sent = self.store.sent(self.id)
+        sent = self.sent(built)
         running = built['pending']
         if running is None and self._sending:
             running = (self.store.last_message(self.id) or {}).get('text')
@@ -241,6 +307,8 @@ class AgentTab:
             'sent': {k: v for k, v in sent.items() if not k.startswith('sum-')},
             'summarySent': {k[4:]: v['note'] for k, v in sent.items() if k.startswith('sum-')},
             'draft': self.store.draft(self.id),
+            # 모듈별 책임 변경 이력. 모듈 패널이 상세 창과 사용자 스펙 칩에 쓴다
+            'moduleHistory': self.journal.module_history(),
         }
 
     def _status(self, built: dict, running: str | None, waiting_user: dict | None) -> str:

@@ -5,6 +5,7 @@ from pathlib import Path
 from loguru import logger
 
 from ...l0.permission_gate import PermissionGate
+from ...l0.project_journal import ProjectJournal
 from ...l0.record_store import RecordStore
 from ...l0.transcript_reader import TranscriptReader
 from ...l1.item_splitter import ItemSplitter
@@ -26,24 +27,29 @@ class CaptureHook:
         self.records = records
         self.splitter = ItemSplitter()
 
-    def run(self, hook_input: dict, tab_id: str) -> str:
+    # project: 탭의 프로젝트 폴더(패널이 OVERSEER_PROJECT 로 넘긴다). 없으면 훅 입력의 cwd
+    def run(self, hook_input: dict, tab_id: str, project: str | None = None) -> str:
         event = hook_input.get('hook_event_name') or 'Stop'
         session_id = hook_input.get('session_id') or 'unknown'
         logger.info(f"hook 시작: event={event}, tab={tab_id}, session={session_id}")
         base = {'at': datetime.now(timezone.utc).isoformat(), 'session_id': session_id}
+        cwd = project or hook_input.get('cwd')
 
         if event == 'SessionStart':
+            source = hook_input.get('source')
+            # session: 프로젝트에서 받은 세션 번호. 사안 ID 의 앞자리가 된다
             # records_seen: 이 세션이 받은 기록 목록의 끝. 이후 생긴 기록은 다음 입력 때 변경 고지로 알린다
-            self._append(tab_id, {**base, 'event': 'session_start', 'source': hook_input.get('source'), 'cwd': hook_input.get('cwd'),
+            self._append(tab_id, {**base, 'event': 'session_start', 'source': source, 'cwd': hook_input.get('cwd'),
+                                  'session': self._session(cwd, tab_id, session_id, source),
                                   'transcript_rows': self._rows(hook_input.get('transcript_path')),
-                                  'records_seen': self._records_last(hook_input.get('cwd'))})
-            return '\n\n'.join(p for p in (self._protocol(), self._briefing(hook_input.get('cwd'))) if p)
+                                  'records_seen': self._records_last(cwd)})
+            return '\n\n'.join(p for p in (self._protocol(), self._briefing(cwd)) if p)
         if event == 'UserPromptSubmit':
-            cwd = hook_input.get('cwd')
             if not self._started(tab_id, session_id):
                 # 시작 훅이 실패해 규약을 못 받은 세션. 이번 입력에 규약과 기록 목록을 넣고 시작 기록을 남긴다
                 seen = self._records_last(cwd)
-                self._append(tab_id, {**base, 'event': 'session_start', 'source': 'recovered', 'cwd': cwd, 'records_seen': seen})
+                self._append(tab_id, {**base, 'event': 'session_start', 'source': 'recovered', 'cwd': hook_input.get('cwd'),
+                                      'session': self._session(cwd, tab_id, session_id, 'recovered'), 'records_seen': seen})
                 self._append(tab_id, {**base, 'event': 'prompt', 'prompt': hook_input.get('prompt') or '', 'records_seen': seen})
                 logger.info(f"세션 시작 기록이 없어 규약을 입력과 함께 넣는다: tab={tab_id}, session={session_id}")
                 return '\n\n'.join(p for p in (self._protocol(), self._briefing(cwd)) if p)
@@ -140,23 +146,58 @@ class CaptureHook:
                 value = row[key]
         return value
 
-    def _records_last(self, cwd: str | None) -> int | None:
+    # 이 세션의 번호. 같은 claude 세션이면 그 번호, resume 이나 compact 인데 새 세션 ID 면 이 탭의 마지막 번호를 잇는다
+    # 그 밖(새 탭, /clear)은 프로젝트에서 새 번호를 받는다. 받지 못하면 None(TurnBuilder 가 /clear 를 세어 매긴다)
+    def _session(self, cwd: str | None, tab_id: str, session_id: str, source: str | None) -> int | None:
+        if not cwd:
+            return None
+        try:
+            journal = ProjectJournal(RecordStore.project_key(cwd))
+            n = journal.session_of(session_id)
+            if n is None and source in ('resume', 'compact'):
+                n = self._last_session(tab_id)
+                if n is not None:
+                    journal.attach(n, session_id, source)
+            if n is None:
+                n = journal.open_session(session_id, tab_id, source)
+            return n
+        except Exception:
+            logger.exception("세션 번호 받기 실패")
+            return None
+
+    # 이 탭이 마지막으로 받은 세션 번호
+    def _last_session(self, tab_id: str) -> int | None:
+        path = self.store_dir / f'{tab_id}.jsonl'
+        if not path.exists():
+            return None
+        value = None
+        for line in path.open(encoding='utf-8'):
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if row.get('event') == 'session_start' and isinstance(row.get('session'), int):
+                value = row['session']
+        return value
+
+    def _records_last(self, cwd: str | None) -> str | None:
         if not self.records or not cwd:
             return None
         try:
-            return self.records.last_id(RecordStore.project_key(cwd))
+            return self.records.last_mark(RecordStore.project_key(cwd))
         except Exception:
             logger.exception("기록 목록 읽기 실패")
             return None
 
     # 이 세션이 마지막으로 받은 뒤 다른 탭에서 생긴 기록의 변경 고지와, 이제 받은 끝
     # 받은 끝이 기록되지 않은 세션(이 기능 전에 뜬 세션)은 지금 끝부터 센다. 지난 기록을 한꺼번에 쏟지 않게
-    def _notice(self, cwd: str | None, tab_id: str, session_id: str) -> tuple[str, int | None]:
+    # 예전에는 끝을 DB 의 기록 번호(정수)로 적었다. 그런 세션도 지금 끝부터 센다
+    def _notice(self, cwd: str | None, tab_id: str, session_id: str) -> tuple[str, str | None]:
         last = self._records_last(cwd)
         if last is None:
             return '', None
         seen = self._last_value(tab_id, session_id, 'records_seen')
-        if seen is None:
+        if not isinstance(seen, str):
             return '', last
         try:
             return self.records.notice(RecordStore.project_key(cwd), seen, exclude_tab=tab_id), last

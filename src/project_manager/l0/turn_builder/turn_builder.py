@@ -13,8 +13,8 @@ LEGACY_REF = re.compile(r'#(\d+)-(\d+)\b')
 LEGACY_ID = re.compile(r'^(\d+)-(\d+)$')
 
 
-# 훅 기록을 턴 목록으로 조립한다. 세션은 /clear 구간, 턴 번호는 세션 안에서 응답이 있는 turn 기록의 순서
-# 사안 ID 는 `<세션>S-<턴>-<순번>`
+# 훅 기록을 턴 목록으로 조립한다. 세션은 프로젝트 안에서 매긴 번호(새 탭, /clear 마다 오름), 턴 번호는 세션 안에서 응답이 있는 turn 기록의 순서
+# 사안 ID 는 `<세션>S-<턴>-<순번>`. 프로젝트 안에서 겹치지 않는다
 # 터미널에서 사용자 응답을 기다리는 것(권한 요청, 확인 알림)도 함께 가린다
 class TurnBuilder:
     def build(self, events: list[dict]) -> dict:
@@ -40,7 +40,12 @@ class TurnBuilder:
                 # /clear, compact 뒤 첫 턴에 표시한다. 에이전트 맥락이 바뀐 지점
                 if e.get('source') in ('clear', 'compact'):
                     after = e['source']
-                if e.get('source') == 'clear':
+                # 세션 번호는 훅이 프로젝트에서 받아 적는다. 적히지 않은 기록(번호를 받지 못한 훅)은 /clear 마다 하나씩 올린다
+                number = e.get('session')
+                if isinstance(number, int):
+                    if number != session:
+                        session, count = number, 0
+                elif e.get('source') == 'clear':
                     session, count = session + 1, 0
                 # 세션이 새로 뜨면 앞 세션에서 기다리던 권한 요청은 끝났다
                 permissions.clear()

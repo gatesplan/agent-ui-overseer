@@ -8,7 +8,7 @@ def test_events_append_to_tab_file_and_session_start_returns_protocol(tmp_path):
     protocol.write_text('## 규약', encoding='utf-8')
     hook = CaptureHook(tmp_path / 'cap', protocol)
 
-    out = hook.run({'hook_event_name': 'SessionStart', 'session_id': 's', 'source': 'startup', 'cwd': 'C:/p'}, 'tab1')
+    out = hook.run({'hook_event_name': 'SessionStart', 'session_id': 's', 'source': 'startup', 'cwd': str(tmp_path / 'p')}, 'tab1')
     assert out == '## 규약'
     assert hook.run({'hook_event_name': 'UserPromptSubmit', 'session_id': 's', 'prompt': '해 줘'}, 'tab1') == ''
     hook.run({'hook_event_name': 'Stop', 'session_id': 's', 'last_assistant_message': '앞말\n### [제안][D] 규칙\n본문'}, 'tab1')
@@ -66,7 +66,7 @@ def test_session_start_injects_active_records_of_project(tmp_path):
     from project_manager.l0.record_store import RecordStore
     protocol = tmp_path / 'protocol.md'
     protocol.write_text('## 규약', encoding='utf-8')
-    records = RecordStore(tmp_path / 'o.db')
+    records = RecordStore()
     records.add(RecordStore.project_key(str(tmp_path / 'proj')), 'D', '로그는 INFO')
     hook = CaptureHook(tmp_path / 'cap', protocol, records=records)
     out = hook.run({'hook_event_name': 'SessionStart', 'session_id': 's', 'source': 'startup', 'cwd': str(tmp_path / 'proj')}, 'tab')
@@ -78,16 +78,16 @@ def test_session_start_injects_active_records_of_project(tmp_path):
 
 def test_prompt_gets_notice_of_records_added_by_other_tabs_once(tmp_path):
     from project_manager.l0.record_store import RecordStore
-    records = RecordStore(tmp_path / 'o.db')
+    records = RecordStore()
     cwd = str(tmp_path / 'proj')
     project = RecordStore.project_key(cwd)
-    records.add(project, 'D', '처음 결정', tab_id='other', item_id='1-1')
+    records.add(project, 'D', '처음 결정', tab_id='other', item_id='1S-1-1')
     hook = CaptureHook(tmp_path / 'cap', records=records)
     start = {'hook_event_name': 'SessionStart', 'session_id': 's', 'source': 'startup', 'cwd': cwd}
     prompt = {'hook_event_name': 'UserPromptSubmit', 'session_id': 's', 'prompt': '다음', 'cwd': cwd}
     assert '처음 결정' in hook.run(start, 'tab')
     assert hook.run(prompt, 'tab') == ''
-    records.add(project, 'D', '바뀐 결정', tab_id='other', item_id='2-1', replaces='D-1')
+    records.add(project, 'D', '바뀐 결정', tab_id='other', item_id='1S-2-1', replaces='D-1')
     out = hook.run(prompt, 'tab')
     assert '- 변경: D-1 처음 결정 → D-2 바뀐 결정' in out
     # 한 번만 알린다
@@ -96,9 +96,9 @@ def test_prompt_gets_notice_of_records_added_by_other_tabs_once(tmp_path):
 
 def test_prompt_in_session_started_before_feature_gets_no_backlog(tmp_path):
     from project_manager.l0.record_store import RecordStore
-    records = RecordStore(tmp_path / 'o.db')
+    records = RecordStore()
     cwd = str(tmp_path / 'proj')
-    records.add(RecordStore.project_key(cwd), 'D', '예전 결정', tab_id='other', item_id='1-1')
+    records.add(RecordStore.project_key(cwd), 'D', '예전 결정', tab_id='other', item_id='1S-1-1')
     hook = CaptureHook(tmp_path / 'cap', records=records)
     # 이 기능 전 버전의 시작 기록(records_seen 없음)
     (tmp_path / 'cap').mkdir(exist_ok=True)
@@ -110,7 +110,7 @@ def test_prompt_recovers_protocol_when_session_start_failed(tmp_path):
     from project_manager.l0.record_store import RecordStore
     protocol = tmp_path / 'protocol.md'
     protocol.write_text('## 규약', encoding='utf-8')
-    records = RecordStore(tmp_path / 'o.db')
+    records = RecordStore()
     cwd = str(tmp_path / 'proj')
     records.add(RecordStore.project_key(cwd), 'D', '로그는 INFO')
     hook = CaptureHook(tmp_path / 'cap', protocol, records=records)
@@ -121,3 +121,29 @@ def test_prompt_recovers_protocol_when_session_start_failed(tmp_path):
     assert [(r['event'], r.get('source')) for r in rows] == [('session_start', 'recovered'), ('prompt', None)]
     # 한 번만 넣는다
     assert hook.run(prompt, 'tab') == ''
+
+
+def test_session_numbers_come_from_the_project(tmp_path):
+    from project_manager.l0.project_journal import ProjectJournal
+    hook = CaptureHook(tmp_path / 'cap')
+    proj = str(tmp_path / 'proj')
+
+    def start(sid, source, tab='tab', cwd=proj, project=None):
+        hook.run({'hook_event_name': 'SessionStart', 'session_id': sid, 'source': source, 'cwd': cwd}, tab, project)
+        rows = [json.loads(line) for line in (tmp_path / 'cap' / f'{tab}.jsonl').read_text(encoding='utf-8').splitlines()]
+        return rows[-1]['session']
+
+    assert start('a', 'startup') == 1
+    # compact 는 같은 claude 세션이라 같은 번호
+    assert start('a', 'compact') == 1
+    # /clear 는 새 번호
+    assert start('b', 'clear') == 2
+    # resume 이 새 claude 세션 ID 로 떠도 이 탭의 마지막 세션을 잇는다
+    assert start('b2', 'resume') == 2
+    assert ProjectJournal(proj).session_of('b2') == 2
+    # 다른 탭에서 연 세션은 프로젝트 안에서 이어 매긴다
+    assert start('c', 'startup', tab='other') == 3
+    # 패널이 넘긴 프로젝트 폴더가 훅 입력의 cwd 보다 앞선다
+    assert start('d', 'startup', tab='third', cwd=str(tmp_path / 'proj' / 'sub'), project=proj) == 4
+    assert not (tmp_path / 'proj' / 'sub').exists()
+    assert ProjectJournal(proj).owner(4) == 'third'

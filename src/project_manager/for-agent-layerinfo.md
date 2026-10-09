@@ -3,11 +3,12 @@
 <!-- lnt:generated:start -->
 ## l0
 - capture_log: 탭마다 훅이 남긴 캡처 기록을 맡는다
-- decision_store: 사용자가 사안에 내린 결정과 작성 중인 처리를 지킨다
 - item: 사안 하나가 무엇인지 정한다
 - module_map: 프로젝트의 모듈 지도를 lnt 에게서 받아 온다
+- panel_store: 이 컴퓨터의 패널 상태(탭, 보낸 메시지, 작성 중인 처리)를 지킨다
 - permission_gate: 에이전트의 권한 요청을 패널 사용자에게 넘기고 답을 돌려준다
 - project_finder: 새 세션을 열 수 있는 프로젝트 폴더를 찾아 준다
+- project_journal: 프로젝트의 세션 이력(사안, 결정, 책임 변경)을 그 프로젝트 폴더에 지킨다
 - record_store: 프로젝트의 영속 지식(결정 기록과 용어)을 지킨다
 - transcript_reader: Claude Code 대화 기록에서 턴의 사실을 읽어 낸다
 - turn_builder: 캡처 기록을 턴과 사안의 흐름으로 엮는다

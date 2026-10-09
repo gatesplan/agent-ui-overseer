@@ -29,7 +29,8 @@ uv run overseer                  # http://127.0.0.1:47310/
 - `docs/item-protocol.md`: 에이전트에게 주는 사안 출력 규약. 패널 세션에는 SessionStart 훅이 넣는다
 - `scripts/capture_hook.py`: 훅. 세션 시작, 입력, 턴 끝을 `data/captures/<탭 ID>.jsonl` 에 쌓는다
 - `scripts/setup.py`: 훅 등록, 점검, 제거
-- `data/overseer.db`: 탭, 보낸 메시지, 사안 결정, 작성 중 초안 (SQLite)
+- `<프로젝트>/.overseer/`: 그 프로젝트의 세션 이력(`sessions/<번호>.jsonl`: 사안, 결정, 책임 변경)과 보존 기록(`records/D-3.md`). 폴더 안 `.gitignore` 로 git 에서 빠진다
+- `data/overseer.db`: 이 컴퓨터의 탭, 보낸 메시지, 작성 중 초안 (SQLite)
 - `src/project_manager/`: 캡처, 저장, PTY, 서버 (Ln 구조)
 - `web/`: 화면. 턴을 기둥으로, 사안을 카드로 보인다. 서버 API 가 없으면 목업 모드(`python scripts/serve_mock.py`, 47311)
 

@@ -15,7 +15,8 @@
 - 사안 출력 규약: `docs/item-protocol.md` (패널 세션에는 SessionStart 훅이 넣는다)
 - 실행: `uv sync` 후 `uv run overseer` (http://127.0.0.1:47310/). 훅 등록과 점검은 `uv run python scripts/setup.py` (전역 설정, 한 번). 설치 절차는 `INSTALL.md`
 - 캡처: 훅 `scripts/capture_hook.py`(SessionStart, UserPromptSubmit, Stop) → `data/captures/<탭 ID>.jsonl`. 패널이 띄운 세션(OVERSEER_TAB)에서만 동작
-- 저장: `data/overseer.db` (탭, 보낸 메시지, 사안 결정, 초안)
+- 저장: 프로젝트 기록은 각 프로젝트의 `.overseer/`(git 에서 스스로 빠짐). `sessions/<번호>.jsonl` 에 사안, 결정, 책임 변경, `records/D-3.md` 에 보존 기록.
+  이 컴퓨터의 패널 상태는 `data/overseer.db` (탭, 보낸 메시지, 초안). 세션 번호는 프로젝트 단위이고, 한 프로젝트에는 탭 하나만 연다
 - 목업만 볼 때: `python scripts/serve_mock.py` (http://127.0.0.1:47311/)
 
 ## 추가 규칙

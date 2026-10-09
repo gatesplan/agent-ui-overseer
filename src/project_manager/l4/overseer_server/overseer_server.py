@@ -8,8 +8,8 @@ from pathlib import Path
 from aiohttp import WSMsgType, web
 from loguru import logger
 
-from ...l0.decision_store import DecisionStore
 from ...l0.module_map import ModuleMap
+from ...l0.panel_store import PanelStore
 from ...l0.project_finder import ProjectFinder
 from ...l0.record_store import RecordStore
 from ...l1.map_watcher import MapWatcher
@@ -26,8 +26,8 @@ MAP_INTERVAL = 1.0
 class OverseerServer:
     # project_roots: 새 세션 창에 보일 프로젝트 루트들. 없으면 드라이브마다 루트의 Projects 폴더
     def __init__(self, data_dir: Path, claude_args: str = '', project_roots: list[str] | None = None):
-        self.store = DecisionStore(data_dir / 'overseer.db')
-        self.records = RecordStore(data_dir / 'overseer.db')
+        self.store = PanelStore(data_dir / 'overseer.db')
+        self.records = RecordStore()
         # 결정 아카이브 조회 MCP 서버. 이 서버와 같은 파이썬으로 띄운다
         mcp = {'command': sys.executable, 'args': [str(ROOT / 'scripts' / 'overseer_mcp.py')]}
         self.tabs = TabManager(self.store, data_dir / 'captures', claude_args, self.records, mcp)
@@ -99,13 +99,17 @@ class OverseerServer:
                 logger.exception("poll 실패")
 
     # 화면이 연 프로젝트의 소스가 바뀌면 모듈 지도를 다시 받아 알린다. 닫힌 탭의 폴더는 그만 본다
+    # 책임이 바뀐 모듈은 그 폴더 탭의 세션 이력에 남긴다
     async def _map_loop(self) -> None:
         while True:
             await asyncio.sleep(MAP_INTERVAL)
             try:
                 self.maps.keep_only([tab.cwd for tab in self.tabs.tabs.values()])
-                for cwd, result in await asyncio.to_thread(self.maps.changed):
+                for cwd, result, before in await asyncio.to_thread(self.maps.changed):
                     await self._broadcast({'type': 'modules', 'cwd': cwd, 'modules': result})
+                    tab = self.tabs.find(cwd)
+                    if tab and tab.note_map(before, result):
+                        await self._broadcast({'type': 'tab', 'tab': tab.state()})
             except Exception:
                 logger.exception("모듈 지도 갱신 실패")
 

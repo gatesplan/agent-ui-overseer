@@ -525,6 +525,7 @@ kbd.tag {
 .chip.c-orphan { color: var(--muted); }
 .chip.c-wait { color: var(--accent); border-style: dashed; }
 .chip.c-ext { color: var(--muted); border-color: transparent; padding: 0; }
+.chip.c-spec { color: var(--keep); }
 .node.orphan { border-style: dashed; border-color: var(--muted); }
 .node.bad, .nest.bad > .nest-head { border-color: var(--rej); box-shadow: 0 0 0 1px color-mix(in srgb, var(--rej) 45%, transparent), 0 0 14px color-mix(in srgb, var(--rej) 25%, transparent); }
 .node.parse-err::after { content: "마지막 정상 상태"; position: absolute; right: 6px; bottom: -9px; padding: 0 5px; font: 10px var(--font-mono); color: var(--rej); background: var(--bg); border: 1px solid var(--rej); }
@@ -563,6 +564,9 @@ kbd.tag {
 .mp-detail .d-sec { margin: 10px 0 4px; font: 600 11px var(--font-mono); color: var(--muted); letter-spacing: .08em; }
 .mp-detail .rec { font-size: 12px; padding: 3px 0; border-top: 1px solid var(--line); border-bottom: 0; }
 .mp-detail .rec code { color: var(--keep); }
+.mp-detail .rec.hist .h-meta { display: flex; gap: 6px; align-items: center; }
+.mp-detail .rec.hist .h-from { color: var(--muted); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--muted) 50%, transparent); }
+.mp-detail .rec.hist .h-to { color: var(--text); }
 .mp-detail .acts { display: flex; gap: 6px; margin-top: 10px; }
 .mp-detail .acts button { flex: 1; padding: 5px 0; border: 1px solid var(--line-strong); background: none; color: var(--text); font-size: 12px; }
 .mp-detail .acts button:hover { border-color: var(--accent); color: var(--accent); }
