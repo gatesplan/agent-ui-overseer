@@ -90,7 +90,7 @@ class TurnBuilder:
         return {
             'turn': n, 'prompt': '\n\n'.join(prompts), 'text': e.get('text') or '',
             'preamble': e.get('preamble') or '', 'items': items, 'parts': 1,
-            'usage': self._usage(None, e.get('usage')),
+            'usage': self._usage(None, e.get('usage')), 'files': list(e.get('files') or []),
             'session_id': e.get('session_id'), 'at': e.get('at'), 'after': after, 'open': False,
         }
 
@@ -102,6 +102,7 @@ class TurnBuilder:
         turn['text'] = f"{turn['text']}\n\n{e.get('text') or ''}"
         turn['preamble'] = '\n\n'.join(p for p in [turn['preamble'], e.get('preamble') or ''] if p)
         turn['usage'] = self._usage(turn['usage'], e.get('usage'))
+        turn['files'] += [f for f in e.get('files') or [] if f not in turn['files']]
         turn['parts'] += 1
         turn['session_id'], turn['at'] = e.get('session_id'), e.get('at')
 

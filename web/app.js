@@ -1,5 +1,6 @@
-// Overseer 목업. 턴을 기둥으로, 사안을 카드로 보인다. 카드를 누르면 파생·언급으로 이어진 카드만 밝히고 높이를 맞춘다
-// 화면 오른쪽 끝이 NEXT INPUT, 그 왼쪽이 현재 턴, 더 왼쪽으로 갈수록 과거 턴이다. 최근 작업부터 본다
+// Overseer 화면. 왼쪽은 모듈 패널(module-panel.js), 오른쪽은 커맨드 패널이다
+// 커맨드 패널은 현재 턴의 사안 카드와 보내기 버튼. 보류한 사안은 막을 씌워 맨 아래에 둔다
+// 지난 턴은 접힌 띠로 두고, 펼치면 모듈 패널 위에 턴 기둥으로 보인다. 카드를 누르면 파생·언급으로 이어진 카드만 밝힌다
 'use strict';
 
 // close: 보류함에서 닫음. 에이전트에게 보내지 않는 패널 처리
@@ -9,7 +10,8 @@ const ACTIONS = {
   질문: [['answer', true], ['hold', false], ['reject', true]],
   // 수정: 방향은 맞고 수정안을 반영해 다시 제안받는다. 기각(이 방향은 아님)과 기록을 나눈다
   제안: [['approve', false], ['revise', true], ['hold', false], ['reject', true]],
-  보고: [['confirm', false], ['answer', true]],
+  // 보고는 확인만. 덧붙일 말은 확인의 의견칸에 쓴다
+  보고: [['confirm', false]],
 };
 const PLACEHOLDER = {
   answer: '답변 (필수)', approve: '조건이나 고칠 점 (선택). 반영해서 바로 진행한다', hold: '보류 메모 (선택, 전송 안 함)',
@@ -25,10 +27,10 @@ const WRAPUP = '정리: 이 세션에서 내가 결정한 것 중 기록이 없�
 const WRAPUP_LINE = /^정리: /m;
 // 턴 안 정렬: 보고, 질문, 제안. 규약 밖 종류는 맨 뒤
 const KIND_ORDER = { 보고: 0, 질문: 1, 제안: 2 };
-const FONT_KEYS = { cur: '현재 카드', prev: '이전 카드', draft: '시안', head: '턴 머리' };
-const FONT_DEFAULT = { cur: 20, prev: 14, draft: 14, head: 14 };
+const FONT_KEYS = { cur: '커맨드 카드', prev: '지난 턴 카드', head: '턴 머리', map: '모듈 카드' };
+const FONT_DEFAULT = { cur: 16, prev: 14, head: 14, map: 12 };
 
-const blank = { decisions: {}, sent: {}, log: [], extra: '', wrapup: false, running: null, turns: [], summary: {}, summarySent: {}, alive: true };
+const blank = { decisions: {}, sent: {}, log: [], extra: '', wrapup: false, running: null, turns: [], summary: {}, summarySent: {}, alive: true, map: null, modules: null };
 // 실제 모드: 패널 서버(scripts 의 overseer)가 있으면 그 탭을 쓴다. 없으면(serve_mock) 목업 데이터를 쓴다
 let LIVE = false;
 let sessions = [];
@@ -54,6 +56,12 @@ function fromServer(t, prev) {
     summary: prev ? prev.summary : (d.summary || {}),
     extra: prev ? prev.extra : (d.extra || ''),
     wrapup: prev ? prev.wrapup : !!d.wrapup,
+    // 모듈 패널에서 한 일(보낼 것)과 받아 둔 지도는 탭 알림이 와도 이어 간다
+    map: prev ? prev.map : (d.map || null),
+    modules: prev ? prev.modules : null,
+    _mpIndex: prev ? prev._mpIndex : null,
+    _mpGood: prev ? prev._mpGood : null,
+    _mpLoading: prev ? prev._mpLoading : false,
     log: [],
   };
 }
@@ -67,8 +75,14 @@ const ui = {
   showOld: new Set(),
   theme: pref('overseer.theme', 'future-industry'),
   refs: pref('overseer.refs', '1') === '1',
-  // 현재 턴 기둥을 가로 두 배로
-  wide: pref('overseer.wide', '0') === '1',
+  // 지난 턴 펼침, 보류 막을 걷은 사안, 추가 지시 칸
+  past: false, unveil: new Set(), extraOpen: false,
+  // 모듈 패널: 고정한 모듈, 탭별 펼친 중첩 모듈, 책임 카드 창
+  mpPin: null, mpOpen: {}, mpThrow: false,
+  peekDelay: Number(pref('overseer.peek', '0.5')),
+  vocabFaint: pref('overseer.vocab', '1') === '1',
+  showBlast: pref('overseer.blast', '1') === '1',
+  rememberOpen: pref('overseer.mpremember', '1') === '1',
   fs: Object.fromEntries(Object.keys(FONT_KEYS).map(k => [k, Number(pref(`overseer.fs.${k}`, FONT_DEFAULT[k]))])),
 };
 const $ = sel => document.querySelector(sel);
@@ -76,6 +90,8 @@ const cur = () => sessions.find(s => s.id === ui.cur);
 const sorted = items => [...items].sort((a, b) => (KIND_ORDER[a.kind] ?? 9) - (KIND_ORDER[b.kind] ?? 9));
 const allItems = s => s.turns.flatMap(t => sorted(t.items));
 const findItem = (s, id) => allItems(s).find(i => i.id === id);
+// 카드 요소. 커맨드 패널(c-)이 먼저, 없으면 지난 턴(p-)
+const cardEl = id => id && (document.getElementById(`c-${id}`) || document.getElementById(`p-${id}`));
 const actionsFor = item => ACTIONS[item.kind] || ACTIONS['질문'];
 const pad = n => String(n).padStart(2, '0');
 const turnOf = id => Number(id.split('-')[0]);
@@ -227,6 +243,7 @@ function compose(s) {
     lines.push(`${head} → ${tail}`);
   }
   if (confirmed.length) lines.push(`확인: ${confirmed.join(', ')} 사안 종료됨.`);
+  lines.push(...mapLines(s));
   if (s.wrapup) lines.push(WRAPUP);
   if (s.extra.trim()) lines.push(s.extra.trim());
   return lines.join('\n');
@@ -324,9 +341,14 @@ function decideBlock(s, item) {
 const UNPICK = `<button class="unpick" data-unpick title="선택 해제 (Esc)" aria-label="선택 해제"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="6"/><path d="M3.8 12.2 12.2 3.8"/></svg></button>`;
 
 // 현재 턴 카드는 늘 펼쳐 두고 접지 않는다. 이전 턴 카드만 머리를 눌러 접고 편다
-function card(s, item, isCur) {
+// veil: 커맨드 패널 맨 아래의 보류 카드. 카드 모양 그대로 흐린 막을 씌운다
+function card(s, item, isCur, prefix = 'c', veil = false) {
   const open = isCur || ui.open.has(item.id);
-  return `<article class="card k-${esc(item.kind)} st-${statusOf(s, item)} ${open ? 'open' : ''} ${isCur ? 'fixed' : ''}" id="c-${item.id}" data-id="${item.id}">
+  const mods = itemModules(s, item);
+  const held = veil ? `<div class="veil"><div class="veil-title"><span>TURN ${pad(turnOf(item.id))}</span> - ${esc(item.title)}</div>
+      <div class="veil-why ${s.sent[item.id]?.note ? '' : 'none'}">${esc(s.sent[item.id]?.note || '보류 이유 없음')}</div>
+      <div class="veil-btns"><button data-unhold="${item.id}" title="막을 걷고 다시 처리를 고른다">꺼내기</button><button data-closeheld="${item.id}" title="에이전트에게 보내지 않고 끝낸다">닫기</button></div></div>` : '';
+  return `<article class="card k-${esc(item.kind)} st-${statusOf(s, item)} ${open ? 'open' : ''} ${isCur ? 'fixed' : ''} ${veil ? 'held-card' : ''}" id="${prefix}-${item.id}" data-id="${item.id}">
     <div class="card-head" ${isCur ? '' : `data-toggle="${item.id}"`}>
       <div class="meta">
         <span class="kind k-${esc(item.kind)}">${esc(item.kind)}</span>${item.tag ? `<kbd class="tag" title="${TAGS[item.tag] || ''}">${esc(item.tag)}</kbd>` : ''}
@@ -335,8 +357,9 @@ function card(s, item, isCur) {
         <span class="spacer"></span>${keptBadge(s, item)}${stateChip(s, item)}${isCur ? '' : '<span class="chev">›</span>'}${UNPICK}
       </div>
       <div class="title">${esc(item.title)}</div>
+      ${mods.length ? `<div class="mods">${mods.map(m => `<button data-mod="${esc(m)}" title="모듈 패널에서 보기">${esc(m)}</button>`).join('')}</div>` : ''}
     </div>
-    <div class="card-body"><div class="md">${md(item.tag ? item.body.replace(BASIS, '').replace(REPLACES, '') : item.body)}</div>${basisBlock(s, item)}${decideBlock(s, item)}</div>
+    <div class="card-body"><div class="md">${md(item.tag ? item.body.replace(BASIS, '').replace(REPLACES, '') : item.body)}</div>${basisBlock(s, item)}${veil ? '' : decideBlock(s, item)}</div>${held}
   </article>`;
 }
 
@@ -351,13 +374,13 @@ function promptBlock(turn, text) {
 
 // 종합 의견 카드: 응답에서 첫 사안 앞에 쓴 글. 피드백은 선택이고 승인 조건에 들지 않는다
 // 사안 카드처럼 선택할 수 있다. 선택 id 는 sum-<턴>. 이어진 사안은 없다
-function summaryCard(s, t, isCur) {
+function summaryCard(s, t, isCur, prefix = 'c') {
   if (!t.preamble) return '';
   const sent = s.summarySent[t.turn];
   const input = isCur && !s.running
     ? `<textarea class="note" data-summary="${t.turn}" placeholder="종합 의견에 대한 피드백 (선택)">${esc(s.summary[t.turn] || '')}</textarea>`
     : sent ? `<div class="sent-note"><b>피드백</b> · ${esc(sent)}</div>` : '';
-  return `<article class="card summary" id="c-sum-${t.turn}" data-id="sum-${t.turn}">
+  return `<article class="card summary" id="${prefix}-sum-${t.turn}" data-id="sum-${t.turn}">
     <div class="card-head"><div class="meta"><span class="kind k-종합">종합 의견</span><span class="spacer"></span>
       ${isCur ? '<kbd class="hk" title="Home 키로 이동">Home</kbd>' : ''}
       ${sent ? '<span class="state s-confirm sent">피드백</span>' : ''}${UNPICK}</div></div>
@@ -365,48 +388,35 @@ function summaryCard(s, t, isCur) {
   </article>`;
 }
 
-function column(s, t, isCur) {
+function column(s, t, isCur, prefix = 'c') {
   const todo = t.items.filter(i => statusOf(s, i) === 'todo').length;
   return `<section class="col ${isCur ? 'col-cur' : 'col-prev'}" data-col="${t.turn}">
     <header class="col-head">
       <div class="col-title"><b>TURN ${pad(t.turn)}${t.wrapup ? '<i class="wrap-tag">정리</i>' : ''}${t.after ? `<i class="wrap-tag" title="이 턴 앞에서 에이전트 맥락이 바뀌었다">${esc(t.after)}</i>` : ''}${t.parts > 1 ? `<i class="wrap-tag" title="작업 중에 넣은 입력까지 이어서 처리해 응답이 ${t.parts}번 나온 턴">응답 ${t.parts}</i>` : ''}</b><span>사안 ${t.items.length}${todo ? ` · 미처리 ${todo}` : ''}</span></div>
       ${promptBlock(t.turn, t.prompt)}
     </header>
-    <div class="col-items">${summaryCard(s, t, isCur)}${sorted(t.items).map(i => card(s, i, isCur)).join('')}</div>
+    <div class="col-items">${summaryCard(s, t, isCur, prefix)}${sorted(t.items).map(i => card(s, i, isCur, prefix)).join('')}</div>
   </section>`;
 }
 
-// 전송 시안. 처리 안 된 사안도 자리를 보여 줘서 입력에 따라 채워지는 게 보이게 한다
-function draftHTML(s) {
-  const lines = summaryNote(s) ? [`<div class="dl extra">종합 의견에 대해: ${esc(summaryNote(s))}</div>`] : [];
-  // 보낼 때처럼 확인만 한 사안은 한 줄로 묶어 보인다
-  const confirmed = roundItems(s).filter(i => bareConfirm(s, i)).map(i => `#${i.id}`);
-  lines.push(...roundItems(s).filter(i => !bareConfirm(s, i)).map(i => {
-    const kind = `<span class="dk k-${esc(i.kind)}">[${esc(i.kind)}]</span>`;
-    const head = `${isHeld(s, i.id) ? '보류 해제: ' : ''}#${i.id} ${kind}${i.tag ? `<span class="dg">[${esc(i.tag)}]</span>` : ''} ${esc(i.title)}`;
-    const d = s.decisions[i.id];
-    if (isReady(s, i)) {
-      const tail = d.action === 'hold' ? '보류' : `${LABEL[d.action]}${d.note.trim() ? `: ${esc(d.note.trim())}` : ''}`;
-      return `<div class="dl ok"><span class="dh">${head}</span> → <span class="dt a-${d.action}">${tail}</span></div>`;
-    }
-    const tail = d?.action ? `${LABEL[d.action]}: 작성 중` : '미처리';
-    return `<div class="dl wait"><span class="dh">${head}</span> → <span class="dt">${tail}</span></div>`;
-  }));
-  if (confirmed.length) lines.push(`<div class="dl ok"><span class="dt a-confirm">확인</span>: ${confirmed.join(', ')} 사안 종료됨.</div>`);
-  if (s.wrapup) lines.push(`<div class="dl wrap">${esc(WRAPUP)}</div>`);
-  if (s.extra.trim()) lines.push(`<div class="dl extra">${esc(s.extra.trim())}</div>`);
-  return lines.join('') || '<div class="dl wait">보낼 내용 없음</div>';
-}
-
-// 보류함: 보류 중인 사안. 꺼내서 처리하거나, 에이전트에게 보내지 않고 닫는다
-// 보류는 패널이 기억한다. 에이전트에게 매번 다시 알리지 않는다
-function heldTray(s) {
-  const held = heldItems(s);
-  if (!held.length) return '';
-  return `<div class="draft-label">보류 ${held.length}</div><div class="held">${held.map(i => `<div class="held-row">
-      <span class="iid">#${i.id}</span><span class="dk k-${esc(i.kind)}">[${esc(i.kind)}]</span><span class="held-title" title="${esc(i.title)}">${esc(i.title)}</span>
-      <button data-unhold="${i.id}" title="카드로 가서 처리를 고른다">꺼내기</button>
-      <button data-closeheld="${i.id}" title="에이전트에게 보내지 않고 끝낸다">닫기</button></div>`).join('')}</div>`;
+// 커맨드 패널의 카드 열. 현재 턴 사안, 다른 턴에서 아직 처리할 사안(보류에서 꺼낸 것 포함), 맨 아래에 보류한 사안
+function commandColumn(s) {
+  const last = s.turns[s.turns.length - 1];
+  const here = new Set(last.items.map(i => i.id));
+  const veiled = i => statusOf(s, i) === 'held' && !ui.unveil.has(i.id);
+  const others = allItems(s).filter(i => !here.has(i.id) && !veiled(i)
+    && (['todo', 'ready'].includes(statusOf(s, i)) || ui.unveil.has(i.id)));
+  const live = [...sorted(last.items).filter(i => !veiled(i)), ...others];
+  const held = allItems(s).filter(veiled);
+  const todo = live.filter(i => statusOf(s, i) === 'todo').length;
+  return `<section class="col col-cur" data-col="cmd">
+    <header class="col-head">
+      <div class="col-title"><b>TURN ${pad(last.turn)}${last.wrapup ? '<i class="wrap-tag">정리</i>' : ''}${last.after ? `<i class="wrap-tag" title="이 턴 앞에서 에이전트 맥락이 바뀌었다">${esc(last.after)}</i>` : ''}${last.parts > 1 ? `<i class="wrap-tag" title="작업 중에 넣은 입력까지 이어서 처리해 응답이 ${last.parts}번 나온 턴">응답 ${last.parts}</i>` : ''}</b><span>사안 ${last.items.length}${todo ? ` · 미처리 ${todo}` : ''}</span></div>
+      ${promptBlock(last.turn, last.prompt)}
+    </header>
+    <div class="col-items">${summaryCard(s, last, true)}${live.map(i => card(s, i, true)).join('')}${held.length
+      ? `<div class="held-sep">보류 ${held.length}</div>${held.map(i => card(s, i, true, 'c', true)).join('')}` : ''}</div>
+  </section>`;
 }
 
 async function closeHeld(id) {
@@ -416,59 +426,38 @@ async function closeHeld(id) {
   render();
 }
 
-// 꺼내기: 그 카드를 펼쳐 선택한다. 처리를 고르면 다음 메시지에 '보류 해제:' 로 실린다
+// 꺼내기: 막을 걷고 처리할 카드 쪽으로 올린다. 처리를 고르면 다음 메시지에 '보류 해제:' 로 실린다
 function unhold(id) {
-  reveal(cur(), id);
-  ui.open.add(id);
+  ui.unveil.add(id);
   ui.active = id;
   render();
   raise(id);
-  flash(document.getElementById(`c-${id}`));
+  flash(cardEl(id));
 }
 
-function progressHTML(s) {
+// 보내기 줄: 정리 요청, 추가 지시, /clear, 보내기. 작업 중이면 보낸 메시지를 접어 보인다
+function sendLabel(s) {
   const { done, total } = progress(s);
-  const pct = total ? Math.round(done / total * 100) : 100;
-  return `<div class="prog-row"><span>처리 ${done} / ${total}</span><span>${done === total ? '모두 처리됨' : `남은 사안 ${total - done}`}</span></div>
-    <div class="prog-bar"><i style="width:${pct}%"></i></div>`;
+  const maps = mapCount(s);
+  return `보내기<span class="send-n">${total ? `${done}/${total}` : ''}${maps ? ` · 지도 ${maps}` : ''}</span>`;
 }
 
-function nextColumn(s) {
-  const next = pad(s.turns.length + 1);
+function sendBar(s) {
   if (!s.alive) {
-    return `<section class="col col-next" data-col="next">
-      <header class="col-head"><div class="col-title"><b>NEXT INPUT</b><span>TURN ${next}</span></div></header>
-      <div class="col-body"><div class="draft-label">세션 꺼짐</div>
-      <button class="primary send" data-resume="${s.id}">이어서 띄우기</button>
-      <div class="sent-note">마지막 세션을 --resume 으로 다시 띄운다. 작성 중인 처리는 그대로 남는다</div></div>
-    </section>`;
+    return `<div class="send-bar"><div class="run-line">세션 꺼짐. 작성 중인 처리는 그대로 남는다</div>
+      <button class="primary send" data-resume="${s.id}">이어서 띄우기</button></div>`;
   }
-  if (s.running) {
-    return `<section class="col col-next col-run" data-col="next">
-      <header class="col-head"><div class="col-title"><b>TURN ${next}</b><span class="working"><span class="dot working"></span>에이전트 작업 중</span></div></header>
-      <div class="col-body"><div class="draft">${esc(s.running)}</div>
-      <div class="run-ghost"></div><div class="run-ghost short"></div></div>
-    </section>`;
-  }
-  return `<section class="col col-next" data-col="next">
-    <header class="col-head"><div class="col-title"><b>NEXT INPUT</b><span>TURN ${next}</span></div></header>
-    <div class="col-body">
-      <div class="prog" id="prog">${progressHTML(s)}</div>
-      <button class="primary send" id="btn-send" ${canSend(s) ? '' : 'disabled'}>승인 및 작업</button>
+  const run = s.running ? `<details class="run-line"><summary><span class="dot working"></span>TURN ${pad(s.turns.length + 1)} 에이전트 작업 중</summary>
+    <div class="run-msg">${esc(s.running)}</div></details>` : '';
+  const extra = ui.extraOpen || s.extra.trim()
+    ? `<textarea class="note" data-extra placeholder="추가 지시 (선택). 카드와 상관없는 지시. 보낼 메시지 끝에 붙는다">${esc(s.extra)}</textarea>` : '';
+  return `<div class="send-bar">${run}${extra}
+    <div class="send-row">
       <button class="wrapup ${s.wrapup ? 'on' : ''}" id="btn-wrapup" title="다음 세션에도 유효한 용어와 결정을 보존 사안으로 올리게 한다">정리 요청 ${s.wrapup ? '켬' : '끔'}</button>
-      ${heldTray(s)}
-      <div class="draft-label">전송 시안</div>
-      <div class="draft" id="draft">${draftHTML(s)}</div>
-      <textarea class="note" data-extra placeholder="추가 지시 (선택). 시안 끝에 붙는다">${esc(s.extra)}</textarea>
-      <button class="clear-ctx" id="btn-clear" title="고른 처리를 패널에만 저장하고 에이전트 맥락을 지운다. 에이전트에게는 보내지 않는다">결정 저장 후 /clear</button>
-    </div>
-  </section>`;
-}
-
-// 현재 턴에서 NEXT INPUT 으로 넘어가는 화살표. 기둥 높이의 가운데
-function arrow(s) {
-  const on = s.running || canSend(s);
-  return `<div class="next-arrow ${on ? 'on' : ''}" id="next-arrow"><i></i></div>`;
+      <button class="bar-btn ${ui.extraOpen ? 'on' : ''}" data-extra-toggle title="카드와 상관없는 지시를 덧붙인다">+ 지시</button>
+      <button class="clear-ctx" id="btn-clear" title="고른 처리를 패널에만 저장하고 에이전트 맥락을 지운다. 에이전트에게는 보내지 않는다">/clear</button>
+      <button class="primary send" id="btn-send" ${canSend(s) ? '' : 'disabled'}>${sendLabel(s)}</button>
+    </div></div>`;
 }
 
 // 권한 요청 도구 입력의 한 줄 요약
@@ -513,28 +502,31 @@ async function decidePermission(rid, behavior) {
 
 function renderMain(s) {
   if (!s) return `<div class="empty">열린 세션 없음<br><small>위의 + 로 작업 폴더를 골라 claude 를 띄운다</small></div>`;
+  const bar = extra => `<header class="pane-bar"><span class="pane-name">커맨드 패널</span><span class="pane-info">턴 ${s.turns.length} · 사안 ${allItems(s).length}</span>
+      ${extra}
+      ${LIVE ? `<button class="pane-rec ${ui.drawer === 'records' ? 'on' : ''}" data-drawer="records" title="이 프로젝트의 결정 기록과 용어">기록 ${(s.records || []).filter(r => r.status === 'active').length}</button>` : ''}
+      <button class="pane-gear ${ui.drawer === 'flow' ? 'on' : ''}" data-drawer="flow" title="커맨드 패널 설정">${GEAR}</button></header>`;
   if (!s.turns.length) {
-    const msg = !s.alive ? '세션 꺼짐' : s.status === 'working' ? '에이전트 작업 중. 턴이 끝나면 사안 기둥이 생긴다' : '아직 사안 없음';
+    const msg = !s.alive ? '세션 꺼짐' : s.status === 'working' ? '에이전트 작업 중. 턴이 끝나면 사안 카드가 생긴다' : '아직 사안 없음';
     const sub = !LIVE ? 'MOCK / 연결된 세션 아님'
       : !s.alive ? `<button class="primary" data-resume="${s.id}">이어서 띄우기</button>`
       : '터미널 창에서 첫 입력을 한다. 시작 확인 창도 거기서 처리한다';
-    return `<section class="pane">${attentionBar(s)}<div class="empty">${msg}<br><small>${sub}</small></div></section>`;
+    return `<section class="cmd-pane">${bar('')}${attentionBar(s)}<div class="empty">${msg}<br><small>${sub}</small></div></section>`;
   }
   const last = s.turns[s.turns.length - 1];
   const shown = visibleTurns(s);
+  const past = shown.filter(t => t !== last);
   const folded = s.turns.length - shown.length;
   const old = s.cleared && (folded || ui.showOld.has(s.id))
     ? `<button class="pane-rec pane-old ${ui.showOld.has(s.id) ? 'on' : ''}" data-oldturns title="마지막 /clear 앞의 턴">${folded ? `이전 맥락 ${folded}턴 보기` : '이전 맥락 접기'}</button>` : '';
-  return `<section class="pane">
-    <header class="pane-bar"><span class="pane-name">흐름</span><span class="pane-info">턴 ${s.turns.length} · 사안 ${allItems(s).length}</span>
-      ${old}
-      ${LIVE ? `<button class="pane-rec ${ui.drawer === 'records' ? 'on' : ''}" data-drawer="records" title="이 프로젝트의 결정 기록과 용어">기록 ${(s.records || []).filter(r => r.status === 'active').length}</button>` : ''}
-      <button class="pane-gear ${ui.drawer === 'flow' ? 'on' : ''}" data-drawer="flow" title="흐름 설정">${GEAR}</button></header>
-    ${attentionBar(s)}
-    <div class="flow" id="flow"><div class="flow-inner ${ui.wide ? 'wide' : ''}" id="flow-inner">
-      ${shown.map(t => column(s, t, t === last)).join('')}${arrow(s)}${nextColumn(s)}
-    </div></div>
-  </section>`;
+  return `<button class="past-strip ${ui.past ? 'on' : ''}" data-past title="${ui.past ? '지난 턴 접기' : '지난 턴 펼치기'}" ${past.length ? '' : 'disabled'}><span>지난 턴 · ${past.length}</span></button>
+    <section class="cmd-pane">
+      ${bar(old)}
+      ${attentionBar(s)}
+      ${commandColumn(s)}
+      ${sendBar(s)}
+    </section>
+    ${ui.past && past.length ? `<div class="past-flow"><div class="flow" id="flow"><div class="flow-inner" id="flow-inner">${past.map(t => column(s, t, false, 'p')).join('')}</div></div></div>` : ''}`;
 }
 
 const GEAR = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`;
@@ -567,7 +559,7 @@ function recordsHTML(s) {
     ${section('상위 폴더 기록 <small>이 프로젝트에도 적용</small>', records.filter(r => r.inherited), false)}`;
 }
 
-// 오른쪽에서 밀려 나오는 설정창. flow: 흐름 영역 설정, global: 전역 설정, records: 아카이브 보기
+// 오른쪽에서 밀려 나오는 설정창. flow: 커맨드 패널 설정, map: 모듈 패널 설정, global: 전역 설정, records: 아카이브 보기
 function drawerHTML() {
   if (ui.drawer === 'records') return recordsHTML(cur());
   if (ui.drawer === 'global') {
@@ -578,13 +570,20 @@ function drawerHTML() {
       <div class="ps-row muted"><span>사안 규약</span><code>docs/item-protocol.md</code></div>
       <div class="ps-row muted"><span>캡처 저장</span><code>data/captures/</code></div>`;
   }
-  const fonts = Object.entries(FONT_KEYS).map(([k, label]) => `<div class="ps-row"><span>${label} 글자</span>
-    <span class="stepper"><button data-fs="${k}" data-delta="-1">−</button><b>${ui.fs[k]}</b><button data-fs="${k}" data-delta="1">+</button></span></div>`).join('');
-  return `<div class="ps-title">흐름 설정<button class="x" data-drawer="flow" title="닫기">×</button></div>${fonts}
-    <label class="ps-row"><span>언급도 관련으로 보기 <small>본문에서 #ID 로 언급한 사안도 함께 밝힌다</small></span>
-      <input type="checkbox" data-pref="refs" ${ui.refs ? 'checked' : ''}></label>
-    <label class="ps-row"><span>현재 턴 카드 넓게 <small>현재 턴 기둥을 가로 두 배로 넓힌다</small></span>
-      <input type="checkbox" data-pref="wide" ${ui.wide ? 'checked' : ''}></label>`;
+  const font = k => `<div class="ps-row"><span>${FONT_KEYS[k]} 글자${k === 'map' ? ' <small>카드 너비도 함께 바뀐다</small>' : ''}</span>
+    <span class="stepper"><button data-fs="${k}" data-delta="-1">−</button><b>${ui.fs[k]}</b><button data-fs="${k}" data-delta="1">+</button></span></div>`;
+  const check = (key, on, label, sub) => `<label class="ps-row"><span>${label} <small>${sub}</small></span><input type="checkbox" data-pref="${key}" ${on ? 'checked' : ''}></label>`;
+  if (ui.drawer === 'map') {
+    return `<div class="ps-title">모듈 패널 설정<button class="x" data-drawer="map" title="닫기">×</button></div>${font('map')}
+      <div class="ps-row"><span>미리보기 지연 <small>마우스를 올려 두고 임시 강조까지</small></span>
+        <span class="stepper"><button data-peek="-0.1">−</button><b>${ui.peekDelay.toFixed(1)}초</b><button data-peek="0.1">+</button></span></div>
+      ${check('vocab', ui.vocabFaint, 'l0 공용 모듈로 가는 선 옅게', '선택했을 때만 진하게 보인다')}
+      ${check('blast', ui.showBlast, '이번 턴 영향 범위 표시', '이번 턴이 고친 모듈에 기대는 모듈을 옅게 칠한다')}
+      ${check('remember', ui.rememberOpen, '펼친 중첩 모듈 기억', '다시 열어도 펼친 상태를 유지한다')}
+      <div class="ps-row muted"><span>지도 출처</span><code>lnt map --json</code></div>`;
+  }
+  return `<div class="ps-title">커맨드 패널 설정<button class="x" data-drawer="flow" title="닫기">×</button></div>${font('cur')}${font('prev')}${font('head')}
+    ${check('refs', ui.refs, '언급도 관련으로 보기', '본문에서 #ID 로 언급한 사안도 함께 밝힌다')}`;
 }
 
 function renderDrawer() {
@@ -625,9 +624,9 @@ function render({ keepScroll = true } = {}) {
   renderDrawer();
 
   const flow = $('#flow');
-  if (!flow) return;
-  // 흐름은 오른쪽이 기준점이라 scrollLeft 0 이 오른쪽 끝(최근)이다
-  flow.scrollLeft = scroll ?? 0;
+  // 지난 턴 흐름은 오른쪽이 기준점이라 scrollLeft 0 이 오른쪽 끝(최근)이다
+  if (flow) flow.scrollLeft = scroll ?? 0;
+  if (MP.tab !== ui.cur) renderModules();
   document.querySelectorAll('.col[data-col]').forEach(c => {
     const saved = cols[c.dataset.col];
     if (!saved) return;
@@ -646,20 +645,21 @@ function showFocus() {
 }
 
 function light(id) {
-  const inner = $('#flow-inner');
-  if (!inner) return;
-  inner.querySelectorAll('.lit, .active').forEach(el => el.classList.remove('lit', 'active'));
-  inner.classList.toggle('dim', !!id);
+  const main = $('#main');
+  main.querySelectorAll('.lit, .active').forEach(el => el.classList.remove('lit', 'active'));
+  main.classList.toggle('dim', !!id);
+  mpRepaint();
   if (!id) return;
-  relatedOf(cur(), id).forEach(r => document.getElementById(`c-${r}`)?.classList.add('lit'));
-  document.getElementById(`c-${id}`)?.classList.add('active');
+  const related = relatedOf(cur(), id);
+  main.querySelectorAll('.card[data-id]').forEach(el => { if (related.has(el.dataset.id)) el.classList.add('lit'); });
+  main.querySelectorAll(`.card[data-id="${CSS.escape(id)}"]`).forEach(el => el.classList.add('active'));
 }
 
 // 다른 턴 기둥에서 이어진 카드를 순서대로 한데 모으고, 그 첫 카드를 선택한 카드 높이에 맞춘다
 // 선택한 카드의 기둥과 가로 위치는 건드리지 않는다
 function align(id) {
   const boxes = [...document.querySelectorAll('#flow .col-items')];
-  const active = id && document.getElementById(`c-${id}`);
+  const active = cardEl(id);
   const home = active?.closest('.col-items');
   // 선택한 카드의 기둥은 여백도 두어야 카드가 제자리에 있다
   boxes.forEach(box => {
@@ -723,13 +723,16 @@ async function send() {
   s.extra = '';
   s.wrapup = false;
   s.status = 'working';
+  ui.extraOpen = false;
+  ui.unveil.clear();
+  mapClear(s);
   saveDraft(s);
   render();
-  if ($('#flow')) $('#flow').scrollLeft = 0;
+  renderModules();
 }
 
 // 결정 저장 후 /clear: 고른 처리는 패널에만 남기고 에이전트에게 보내지 않는다. 곧 지울 맥락이라 보낼 이유가 없다
-// 미처리 사안은 보류함으로 넘긴다. 추가 지시는 지우지 않고 남겨 새 세션에 보낼 수 있게 한다
+// 미처리 사안은 보류로 넘긴다. 추가 지시와 모듈 패널에서 한 일은 지우지 않고 남겨 새 세션에 보낼 수 있게 한다
 async function clearContext() {
   const s = cur();
   if (!s || !s.alive || s.running) return;
@@ -737,7 +740,7 @@ async function clearContext() {
   const todo = roundItems(s).filter(i => !isReady(s, i));
   const keep = todo.filter(i => i.tag).length;
   const msg = ['에이전트 맥락을 지운다(/clear). 처리한 결정은 패널에만 저장하고 에이전트에게 보내지 않는다.'];
-  if (todo.length) msg.push(`미처리 ${todo.length}건${keep ? `(보존 사안 ${keep}건)` : ''}은 보류함으로 넘긴다.`);
+  if (todo.length) msg.push(`미처리 ${todo.length}건${keep ? `(보존 사안 ${keep}건)` : ''}은 보류로 넘긴다.`);
   if (!confirm(msg.join('\n'))) return;
   if (LIVE) {
     const decisions = ready.map(i => ({ id: i.id, action: s.decisions[i.id].action, note: s.decisions[i.id].note.trim() }));
@@ -747,6 +750,7 @@ async function clearContext() {
   }
   ready.forEach(i => { s.sent[i.id] = { ...s.decisions[i.id] }; ui.open.delete(i.id); });
   todo.forEach(i => { s.sent[i.id] = { action: 'hold', note: '' }; ui.open.delete(i.id); });
+  ui.unveil.clear();
   if (summaryNote(s)) { s.summarySent[s.turns.length] = summaryNote(s); s.summary[s.turns.length] = ''; }
   s.wrapup = false;
   saveDraft(s);
@@ -756,7 +760,7 @@ async function clearContext() {
 // 새로 선택한 카드를 그 기둥 머리의 가로선 바로 아래로 옮긴다. 그 기둥만 스크롤한다
 // 끝 쪽 카드라 더 내려갈 데가 없으면 아래 여백을 늘린다. 다른 기둥은 스크롤 이벤트로 따라온다
 function raise(id) {
-  const card = document.getElementById(`c-${id}`);
+  const card = cardEl(id);
   if (!card) return;
   const box = card.closest('.col-items');
   const over = card.getBoundingClientRect().top - box.getBoundingClientRect().top;
@@ -769,31 +773,33 @@ function raise(id) {
 function jumpTo(id) {
   reveal(cur(), id);
   ui.open.add(id);
+  // 커맨드 패널에 없는 사안이면 지난 턴을 펼친다
+  if (!document.getElementById(`c-${id}`)) ui.past = true;
   render();
-  flash(document.getElementById(`c-${id}`));
+  flash(cardEl(id));
 }
 
 // 입력 중에는 전체를 다시 그리지 않고 바뀐 부분만 고친다
 function refreshLive(s, id) {
   if (id) {
     const item = findItem(s, id);
-    const el = document.getElementById(`c-${id}`);
-    el.className = el.className.replace(/st-\w+/, `st-${statusOf(s, item)}`);
     const need = needsNote(item, s.decisions[id].action);
-    el.querySelector('[data-hint]').textContent = need && !s.decisions[id].note.trim() ? '내용을 적어야 전송된다' : '';
+    document.querySelectorAll(`#main .card[data-id="${CSS.escape(id)}"]`).forEach(el => {
+      el.className = el.className.replace(/st-\w+/, `st-${statusOf(s, item)}`);
+      const hint = el.querySelector('[data-hint]');
+      if (hint) hint.textContent = need && !s.decisions[id].note.trim() ? '내용을 적어야 전송된다' : '';
+    });
   }
-  if ($('#draft') && $('#prog')) {
-    $('#draft').innerHTML = draftHTML(s);
-    $('#prog').innerHTML = progressHTML(s);
+  if ($('#btn-send')) {
     $('#btn-send').disabled = !canSend(s);
-    $('#next-arrow').classList.toggle('on', canSend(s));
+    $('#btn-send').innerHTML = sendLabel(s);
   }
   renderTabs();
 }
 
 function applyFonts() {
   for (const [k, v] of Object.entries(ui.fs)) document.documentElement.style.setProperty(`--fs-${k}`, `${v}px`);
-  requestAnimationFrame(showFocus);
+  requestAnimationFrame(() => { showFocus(); mpRepaint(); });
 }
 
 document.addEventListener('click', e => {
@@ -804,7 +810,7 @@ document.addEventListener('click', e => {
   // 이미 선택된 카드 안을 누를 때는 옮기지 않는다. 누른 자리가 손 밑에서 달아나지 않게
   const fresh = picked && picked.dataset.id !== ui.active;
   if (picked) { ui.active = picked.dataset.id; showFocus(); }
-  else if (e.target.closest('#flow') && !e.target.closest('.card')) { ui.active = null; showFocus(); }
+  else if (e.target.closest('#flow, .cmd-pane .col-items') && !e.target.closest('.card')) { ui.active = null; showFocus(); }
   act(e);
   // 버튼 처리로 다시 그려진 뒤에 옮긴다. 먼저 하면 다시 그리면서 스크롤이 끊긴다
   if (fresh) raise(ui.active);
@@ -844,8 +850,11 @@ document.addEventListener('keydown', e => {
     return;
   }
   if (e.key === 'Escape') {
-    if (typing) e.target.blur();
-    else if (ui.active) unpick();
+    if (typing) { e.target.blur(); return; }
+    if (ui.drawer) { ui.drawer = null; renderDrawer(); return; }
+    if (mpEsc()) return;
+    if (ui.past) { ui.past = false; render(); return; }
+    if (ui.active) unpick();
     return;
   }
   if (typing || e.ctrlKey || e.altKey || e.metaKey) return;
@@ -877,12 +886,12 @@ document.addEventListener('keydown', e => {
   } else if (/^[1-9]$/.test(e.key) && ui.active) {
     // 기본 동작을 막지 않으면 새로 열려 포커스를 받은 입력창에 숫자가 찍힌다
     e.preventDefault();
-    document.querySelectorAll(`#c-${CSS.escape(ui.active)} .seg button`)[Number(e.key) - 1]?.click();
+    cardEl(ui.active)?.querySelectorAll('.seg button')[Number(e.key) - 1]?.click();
     // 입력창에 붙잡지 않는다. 방향키로 바로 다음 카드로 갈 수 있고, 글자를 치면 그때 입력이 시작된다
     if (document.activeElement?.dataset?.note) document.activeElement.blur();
   } else if ((e.key.length === 1 || e.key === 'Process') && ui.active) {
     // 그 밖의 글자 키는 선택한 카드의 입력창으로 보낸다. 기본 동작을 막지 않아 누른 글자가 그대로 들어간다
-    const note = document.querySelector(`#c-${CSS.escape(ui.active)} textarea`);
+    const note = cardEl(ui.active)?.querySelector('textarea');
     if (!note) return;
     note.focus();
     note.setSelectionRange(note.value.length, note.value.length);
@@ -899,10 +908,11 @@ function switchTab(dir) {
 
 // 선택한 카드에서 위아래로 한 칸. 선택이 없으면 현재 턴의 첫 카드부터
 function step(dir) {
-  const active = ui.active && document.getElementById(`c-${ui.active}`);
+  const active = cardEl(ui.active);
   const box = active ? active.closest('.col-items') : document.querySelector('.col-cur .col-items');
   if (!box) return;
-  const cards = [...box.querySelectorAll(':scope > .card[data-id]')];
+  // 보류 막이 씌워진 카드는 건너뛴다
+  const cards = [...box.querySelectorAll(':scope > .card[data-id]:not(.held-card)')];
   const next = active ? cards[cards.indexOf(active) + dir] : cards[0];
   if (!next) return;
   ui.active = next.dataset.id;
@@ -911,7 +921,7 @@ function step(dir) {
 }
 
 function act(e) {
-  const t = e.target.closest('[data-unhold],[data-closeheld],[data-perm],[data-open-term],[data-close],[data-newtab],[data-resume],[data-tab],[data-jump],[data-act],[data-toggle],[data-prompt],[data-drawer],[data-fs],[data-oldturns],#toggle-term,#btn-send,#btn-wrapup,#btn-clear');
+  const t = e.target.closest('[data-unhold],[data-closeheld],[data-perm],[data-open-term],[data-close],[data-newtab],[data-resume],[data-tab],[data-jump],[data-act],[data-toggle],[data-prompt],[data-drawer],[data-fs],[data-peek],[data-oldturns],[data-past],[data-extra-toggle],#toggle-term,#btn-send,#btn-wrapup,#btn-clear');
   if (!t) return;
   const s = cur();
   if (t.dataset.unhold) { unhold(t.dataset.unhold); }
@@ -932,7 +942,18 @@ function act(e) {
     applyFonts();
     t.parentElement.querySelector('b').textContent = ui.fs[k];
   }
-  else if (t.dataset.tab) { ui.cur = t.dataset.tab; ui.active = null; render({ keepScroll: false }); }
+  else if (t.dataset.peek) {
+    ui.peekDelay = Math.round(Math.min(2, Math.max(0.1, ui.peekDelay + Number(t.dataset.peek))) * 10) / 10;
+    savePref('overseer.peek', String(ui.peekDelay));
+    t.parentElement.querySelector('b').textContent = `${ui.peekDelay.toFixed(1)}초`;
+  }
+  else if ('past' in t.dataset) { ui.past = !ui.past; render(); }
+  else if ('extraToggle' in t.dataset) {
+    ui.extraOpen = !ui.extraOpen;
+    render();
+    if (ui.extraOpen) document.querySelector('[data-extra]')?.focus();
+  }
+  else if (t.dataset.tab) { ui.cur = t.dataset.tab; ui.active = null; ui.mpPin = null; ui.past = false; ui.unveil.clear(); render({ keepScroll: false }); }
   else if (t.dataset.jump) { e.stopPropagation(); jumpTo(t.dataset.jump); }
   else if ('oldturns' in t.dataset) { ui.showOld.has(s.id) ? ui.showOld.delete(s.id) : ui.showOld.add(s.id); render(); }
   else if (t.dataset.prompt) {
@@ -978,11 +999,11 @@ document.addEventListener('input', e => {
 });
 
 document.addEventListener('change', e => {
-  if (e.target.dataset.pref === 'wide') {
-    ui.wide = e.target.checked;
-    savePref('overseer.wide', ui.wide ? '1' : '0');
-    $('#flow-inner')?.classList.toggle('wide', ui.wide);
-    requestAnimationFrame(showFocus);
+  const map = { vocab: ['vocabFaint', 'overseer.vocab'], blast: ['showBlast', 'overseer.blast'], remember: ['rememberOpen', 'overseer.mpremember'] }[e.target.dataset.pref];
+  if (map) {
+    ui[map[0]] = e.target.checked;
+    savePref(map[1], e.target.checked ? '1' : '0');
+    mpRepaint();
   } else if (e.target.dataset.pref === 'refs') {
     ui.refs = e.target.checked;
     savePref('overseer.refs', ui.refs ? '1' : '0');
@@ -1035,7 +1056,7 @@ function saveDraft(s) {
   draftTimers[s.id] = setTimeout(() => {
     fetch(`/api/tabs/${s.id}/draft`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ decisions: s.decisions, summary: s.summary, extra: s.extra, wrapup: s.wrapup }),
+      body: JSON.stringify({ decisions: s.decisions, summary: s.summary, extra: s.extra, wrapup: s.wrapup, map: s.map }),
     }).catch(() => {});
   }, 400);
 }
@@ -1187,7 +1208,7 @@ function removeTab(id) {
   sessions = sessions.filter(s => s.id !== id);
   terms[id]?.dispose();
   delete terms[id];
-  if (ui.cur === id) { ui.cur = sessions[0]?.id ?? null; ui.active = null; }
+  if (ui.cur === id) { ui.cur = sessions[0]?.id ?? null; ui.active = null; ui.mpPin = null; }
   render({ keepScroll: false });
 }
 
@@ -1210,6 +1231,7 @@ function listen() {
   ws.onmessage = e => {
     const msg = JSON.parse(e.data);
     if (msg.type === 'closed') { if (sessions.some(s => s.id === msg.id)) removeTab(msg.id); return; }
+    if (msg.type === 'modules') { onModulesEvent(msg); return; }
     if (msg.type !== 'tab') return;
     upsert(msg.tab);
     if (!ui.cur) ui.cur = msg.tab.id;

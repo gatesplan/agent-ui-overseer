@@ -158,3 +158,18 @@ def test_open_permission_and_attention_and_usage_sum():
     # 대기 알림은 띄우지 않고, 턴이 끝나면 확인 알림도 끝난다
     assert TurnBuilder().build(done + [{**turn('끝'), 'prompts': ['rm 해 줘']}])['attention'] is None
     assert TurnBuilder().build(events[:3] + [{'event': 'notification', 'message': 'waiting', 'kind': 'idle_prompt'}])['attention'] is None
+
+
+def test_files_edited_in_turn_are_kept_and_joined_without_duplicates():
+    events = [
+        {'event': 'prompt', 'prompt': '고쳐 줘'},
+        {'event': 'prompt', 'prompt': '이것도'},
+        {**turn('### [보고] a', [{'kind': '보고', 'title': 'a'}]), 'prompts': ['고쳐 줘'], 'files': ['C:/p/a.py', 'C:/p/b.py']},
+        {**turn('### [보고] b', [{'kind': '보고', 'title': 'b'}]), 'prompts': ['이것도'], 'files': ['C:/p/b.py', 'C:/p/c.py']},
+        {'event': 'prompt', 'prompt': '다음'},
+        turn('### [보고] c', [{'kind': '보고', 'title': 'c'}]),
+    ]
+    turns = TurnBuilder().build(events)['turns']
+    assert turns[0]['files'] == ['C:/p/a.py', 'C:/p/b.py', 'C:/p/c.py']
+    # 예전 훅 기록에는 files 가 없다
+    assert turns[1]['files'] == []

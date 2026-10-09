@@ -1,0 +1,786 @@
+<!doctype html>
+<html lang="ko" data-theme="future-industry">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Overseer 모듈 패널</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="themes/future-industry.css">
+<style>
+/* 모듈 지도 목업 전용. 지휘소 왼쪽을 지도로 바꾼 배치 */
+.cmd { flex: 1; min-width: 0; display: flex; }
+.map-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; border-right: 1px solid var(--line); position: relative; }
+.live { display: inline-flex; align-items: center; gap: 6px; color: var(--ok); }
+.live i { width: 6px; height: 6px; background: var(--ok); border-radius: 50%; box-shadow: 0 0 8px var(--ok); }
+.live.tick i { animation: tick .6s ease-out; }
+@keyframes tick { from { box-shadow: 0 0 0 6px color-mix(in srgb, var(--ok) 40%, transparent); } }
+.bar-btn { height: 24px; padding: 0 10px; border: 1px solid var(--line-strong); background: none; color: var(--muted); font: 600 12px var(--font-mono); }
+.bar-btn:hover, .bar-btn.on { color: var(--accent); border-color: var(--accent); }
+
+.legend { display: flex; gap: 12px; padding: 6px 14px; border-bottom: 1px solid var(--line); font: 11px var(--font-mono); color: var(--muted); flex-wrap: wrap; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend b { display: inline-block; width: 14px; height: 10px; border: 1px solid var(--line-strong); background: var(--panel); }
+.legend .lg-spec b { border-left: 3px solid var(--keep); }
+.legend .lg-turn b { background: color-mix(in srgb, var(--accent) 22%, var(--panel)); border-color: var(--accent); }
+.legend .lg-blast b { background: color-mix(in srgb, var(--accent) 8%, var(--panel)); }
+.legend .lg-bad b { border-color: var(--rej); box-shadow: 0 0 6px color-mix(in srgb, var(--rej) 60%, transparent); }
+.legend .lg-orphan b { border-style: dashed; }
+.legend .lg-layer b { height: 1px; border: 0; background: repeating-linear-gradient(90deg, color-mix(in srgb, var(--accent) 45%, transparent) 0 5px, transparent 5px 8px); }
+.legend .lg-vocab b { height: 0; border: 0; border-top: 1px solid var(--line-strong); opacity: .5; }
+.legend .lg-note { margin-left: auto; color: var(--hold); }
+
+.map-scroll { flex: 1; min-height: 0; overflow: auto; position: relative; scrollbar-width: thin; }
+.map { --mfs: 12px; position: relative; min-width: max-content; padding: 22px 28px 120px 0; }
+.edges { position: absolute; inset: 0; pointer-events: none; overflow: visible; z-index: 0; }
+.edges path { fill: none; stroke: var(--line-strong); stroke-width: 1.3; transition: stroke .15s, opacity .15s; }
+.edges path.vocab { opacity: .38; stroke-dasharray: 2 3; }
+.edges path.inner { stroke-width: 1; }
+.edges path.own { opacity: .9; }
+.edges path.dep { stroke: var(--accent); opacity: 1; stroke-width: 2; stroke-dasharray: none; }
+.edges path.blast { stroke: var(--p); opacity: .9; stroke-width: 1.6; stroke-dasharray: none; }
+.edges path.faded { opacity: .1; }
+.edges circle { fill: var(--line-strong); transition: fill .15s, opacity .15s; }
+.edges circle.vocab { opacity: .38; }
+.edges circle.dep { fill: var(--accent); }
+.edges circle.blast { fill: var(--p); }
+.edges circle.faded { opacity: .1; }
+
+.row { position: relative; display: flex; align-items: flex-start; gap: 0; }
+.row + .row { margin-top: 46px; }
+.row-label { flex: none; width: 56px; padding-top: 12px; text-align: right; padding-right: 14px; font: 600 12px var(--font-mono); color: var(--muted); letter-spacing: .08em; }
+.row-nodes { display: flex; gap: 26px; align-items: flex-start; flex-wrap: nowrap; }
+.row + .row::before {
+  content: ""; position: absolute; left: 0; right: 0; top: -23px; z-index: 0; pointer-events: none;
+  height: 1px; background: repeating-linear-gradient(90deg, color-mix(in srgb, var(--accent) 26%, transparent) 0 8px, transparent 8px 14px);
+}
+.nest-body .row + .row::before { top: -15px; left: 4px; background: repeating-linear-gradient(90deg, color-mix(in srgb, var(--accent) 16%, transparent) 0 6px, transparent 6px 11px); }
+.row.tray + .row::before { display: none; }
+.row.tray .row-label { color: var(--accent); }
+.row.tray { padding-bottom: 18px; border-bottom: 1px dashed var(--line-strong); }
+
+.node {
+  position: relative; z-index: 1; width: calc(var(--mfs) * 17.5); padding: 8px 11px 9px;
+  background: var(--panel); border: 1px solid var(--line); cursor: pointer;
+  transition: border-color .15s, background .15s, opacity .2s, box-shadow .2s;
+}
+.node:hover { border-color: var(--line-strong); }
+.n-head { display: flex; align-items: center; gap: 6px; }
+.n-name { font: 600 calc(var(--mfs) + 1px) var(--font-mono); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.n-path { margin-left: auto; font: 10px var(--font-mono); color: var(--muted); }
+.n-resp { margin-top: 4px; font-size: var(--mfs); line-height: 1.45; color: color-mix(in srgb, var(--text) 78%, var(--muted)); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.n-resp.empty { color: var(--muted); font-style: italic; border: 1px dashed var(--line-strong); padding: 1px 6px; display: block; }
+.chips { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
+.chips:empty { display: none; }
+.chip { font: 600 10px var(--font-mono); padding: 0 5px; border: 1px solid currentColor; letter-spacing: .03em; }
+.chip.c-spec { color: var(--keep); }
+.chip.c-bad { color: var(--rej); }
+.chip.c-orphan { color: var(--muted); }
+.chip.c-turn { color: var(--accent); }
+.chip.c-ext { color: var(--muted); border-color: transparent; padding: 0; }
+
+.node.spec, .nest.spec > .nest-head { border-left: 3px solid var(--keep); }
+.node.orphan { border-style: dashed; border-color: var(--muted); }
+.node.bad, .nest.bad > .nest-head { border-color: var(--rej); box-shadow: 0 0 0 1px color-mix(in srgb, var(--rej) 45%, transparent), 0 0 14px color-mix(in srgb, var(--rej) 25%, transparent); }
+.node.bad.spec { border-left-color: var(--rej); }
+.node.parse-err::after { content: "마지막 정상 상태"; position: absolute; right: 6px; bottom: -9px; padding: 0 5px; font: 10px var(--font-mono); color: var(--rej); background: var(--bg); border: 1px solid var(--rej); }
+.node.turn, .nest.turn > .nest-head { background: color-mix(in srgb, var(--accent) 16%, var(--panel)); border-color: var(--accent); }
+.node.blast, .nest.blast > .nest-head { background: color-mix(in srgb, var(--accent) 6%, var(--panel)); }
+.node.sel, .nest.sel > .nest-head { box-shadow: 0 0 0 2px var(--text); }
+.node.new { animation: born 1.6s ease-out; }
+@keyframes born { from { box-shadow: 0 0 0 3px var(--ok), 0 0 24px color-mix(in srgb, var(--ok) 60%, transparent); } }
+.node.ghost { border: 1px dashed var(--accent); background: color-mix(in srgb, var(--accent) 5%, var(--bg)); cursor: default; }
+.node.ghost .n-name { color: var(--accent); }
+
+.map.dim .node:not(.lit), .map.dim .nest:not(.lit) > .nest-head { opacity: .35; }
+
+/* 중첩 모듈 */
+.nest { position: relative; z-index: 1; display: flex; flex-direction: column; }
+.nest-head { position: relative; width: calc(var(--mfs) * 19.7); padding: 8px 11px 9px; background: var(--panel); border: 1px solid var(--line-strong); cursor: pointer; transition: border-color .15s, background .15s, opacity .2s, box-shadow .2s; }
+.nest-head::before { content: ""; position: absolute; right: -5px; bottom: -5px; width: 100%; height: 100%; border: 1px solid var(--line); border-top: 0; border-left: 0; pointer-events: none; }
+.nest.open > .nest-head::before { display: none; }
+.nest-tog { margin-left: 4px; padding: 0 6px; border: 1px solid var(--line-strong); background: none; color: var(--muted); font: 600 11px var(--font-mono); }
+.nest-tog:hover { color: var(--accent); border-color: var(--accent); }
+.nest-body { display: none; padding: 14px 12px 14px 0; border: 1px solid var(--line-strong); border-top: 0; background: color-mix(in srgb, var(--accent) 3%, transparent); }
+.nest.open .nest-body { display: block; }
+.nest.open > .nest-head { border-bottom-style: dashed; }
+.nest-body .row + .row { margin-top: 30px; }
+.nest-body .row-label { width: 34px; padding-right: 8px; font-size: 10px; }
+.nest-body .node { width: calc(var(--mfs) * 16.3); }
+
+/* 모듈 상세 */
+.detail { position: absolute; right: 14px; bottom: 14px; z-index: 5; width: 340px; max-height: 60%; overflow: auto; padding: 12px 14px; background: rgba(13, 20, 28, .97); border: 1px solid var(--line-strong); border-top: 2px solid var(--accent); box-shadow: 0 12px 40px rgba(0, 0, 0, .55); }
+.detail[hidden] { display: none; }
+.detail h3 { margin: 0; font: 600 14px var(--font-mono); display: flex; align-items: center; gap: 8px; }
+.detail h3 .x { margin-left: auto; border: 0; background: none; color: var(--muted); font-size: 16px; }
+.detail .d-resp { margin: 6px 0 8px; font-size: 13px; }
+.detail dl { display: grid; grid-template-columns: 70px 1fr; gap: 3px 10px; margin: 0 0 10px; font-size: 12px; }
+.detail dt { color: var(--muted); }
+.detail dd { margin: 0; font-family: var(--font-mono); font-size: 11.5px; word-break: break-all; }
+.detail dd .bad { color: var(--rej); }
+.detail .d-sec { margin: 10px 0 4px; font: 600 11px var(--font-mono); color: var(--muted); letter-spacing: .08em; }
+.detail .rec { font-size: 12px; padding: 3px 0; border-top: 1px solid var(--line); }
+.detail .rec code { color: var(--keep); }
+.detail .acts { display: flex; gap: 6px; margin-top: 10px; }
+.detail .acts button { flex: 1; padding: 5px 0; border: 1px solid var(--line-strong); background: none; color: var(--text); font-size: 12px; }
+.detail .acts button:hover { border-color: var(--accent); color: var(--accent); }
+
+/* 책임 카드 던지기 */
+.throw { position: absolute; left: 70px; top: 50px; z-index: 6; width: 360px; padding: 14px; background: rgba(15, 25, 36, .98); border: 1px solid var(--accent); box-shadow: 0 12px 40px rgba(0, 0, 0, .6); }
+.throw[hidden] { display: none; }
+.throw .ps-title { font: 600 13px var(--font-display); letter-spacing: .06em; margin-bottom: 10px; }
+.throw label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+.throw input, .throw textarea { display: block; width: 100%; margin-top: 4px; padding: 6px 8px; background: var(--bg); border: 1px solid var(--line-strong); color: var(--text); font: 13px var(--font-body); }
+.throw textarea { min-height: 54px; resize: vertical; }
+.throw .hint { font-size: 11.5px; color: var(--muted); margin: 2px 0 10px; }
+.throw .row-btns { display: flex; justify-content: flex-end; gap: 6px; }
+.throw .row-btns button { padding: 4px 14px; border: 1px solid var(--line-strong); background: none; }
+.throw .row-btns .primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+
+/* 목업 시뮬레이션 */
+.sim { display: flex; align-items: center; gap: 6px; padding: 5px 14px; border-bottom: 1px dashed color-mix(in srgb, var(--hold) 50%, transparent); background: rgba(4, 7, 11, .6); }
+.sim b { font: 600 10px var(--font-mono); color: var(--hold); letter-spacing: .1em; }
+.sim button { text-align: left; padding: 1px 9px; border: 1px solid var(--line-strong); background: none; color: var(--text); font-size: 12px; }
+.sim button:hover { border-color: var(--hold); }
+.sim button.on { border-color: var(--hold); color: var(--hold); }
+
+/* 지난 턴: 접힌 띠 */
+.past { flex: none; width: 30px; display: flex; flex-direction: column; align-items: center; padding-top: 14px; gap: 8px; border-right: 1px solid var(--line); background: var(--panel); cursor: pointer; color: var(--muted); }
+.past:hover { color: var(--accent); }
+.past span { writing-mode: vertical-rl; font: 600 12px var(--font-mono); letter-spacing: .1em; }
+.past-list { position: absolute; top: 0; bottom: 0; right: 0; z-index: 7; width: 320px; padding: 14px; overflow: auto; background: rgba(13, 20, 28, .98); border-left: 2px solid var(--accent); }
+.past-list[hidden] { display: none; }
+.past-list .pt { padding: 8px 0; border-top: 1px solid var(--line); font-size: 12.5px; }
+.past-list .pt b { font: 600 11px var(--font-mono); color: var(--muted); margin-right: 6px; }
+
+/* 오른쪽: 현재 턴과 다음 입력 */
+.side { flex: none; width: max(15cm, 33vw); display: flex; flex-direction: column; min-height: 0; }
+.side .cur { min-height: 0; }
+.cur { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 18px 18px 0; --fs: 14px; font-size: var(--fs); }
+.cur .col-items { padding-top: 2px; }
+.mods { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 8px; }
+.mods button { padding: 0 6px; border: 1px solid var(--line-strong); background: none; color: var(--accent); font: 11px var(--font-mono); }
+.mods button:hover { border-color: var(--accent); }
+.send-bar { flex: none; margin: 0 -18px; padding: 12px 18px 14px; border-top: 1px solid var(--line-strong); background: rgba(15, 25, 36, .97); }
+.send-bar .send { margin-top: 0; }
+.send #send-n { margin-left: 10px; font-family: var(--font-mono); font-weight: 400; opacity: .75; }
+.card .card-head { cursor: pointer; }
+.card .decide .hint:empty { display: none; }
+.held-sep { display: flex; align-items: center; gap: 10px; margin: 6px 0 -2px; font: 600 11px var(--font-mono); color: var(--hold); letter-spacing: .1em; }
+.held-sep::after { content: ""; flex: 1; border-top: 1px dashed color-mix(in srgb, var(--hold) 45%, transparent); }
+.card.held-card { overflow: hidden; }
+.card.held-card .card-head, .card.held-card .card-body { filter: blur(2.5px); opacity: .55; pointer-events: none; user-select: none; }
+.veil {
+  position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+  background: color-mix(in srgb, var(--bg) 45%, transparent); backdrop-filter: blur(1px);
+  border: 1px dashed color-mix(in srgb, var(--hold) 55%, transparent);
+}
+.veil .veil-title { max-width: 86%; text-align: center; font-weight: 600; line-height: 1.45; color: var(--text); }
+.veil .veil-title span { font: 600 12px var(--font-mono); color: var(--hold); letter-spacing: .06em; }
+.veil .veil-why { max-width: 86%; text-align: center; font-size: 12.5px; color: color-mix(in srgb, var(--text) 75%, var(--muted)); }
+.veil .veil-why.none { color: var(--muted); font-style: italic; }
+.veil .veil-btns { margin-top: 2px; }
+.veil .veil-btns { display: flex; gap: 6px; }
+.veil .veil-btns button { padding: 3px 14px; border: 1px solid var(--line-strong); background: var(--panel); color: var(--text); font-size: 12px; }
+.veil .veil-btns button:hover { border-color: var(--hold); color: var(--hold); }
+.toast { position: fixed; left: 50%; bottom: 28px; z-index: 50; transform: translateX(-50%); max-width: 720px; padding: 12px 16px; background: rgba(4, 7, 11, .97); border: 1px solid var(--accent); box-shadow: 0 10px 40px rgba(0, 0, 0, .6); font: 12.5px/1.6 var(--font-mono); white-space: pre-wrap; }
+.toast b { display: block; margin-bottom: 4px; font-family: var(--font-display); color: var(--accent); letter-spacing: .06em; }
+.n-resp.pending { color: var(--accent); }
+.n-resp.pending::before { content: "→ "; }
+.chip.c-wait { color: var(--accent); border-style: dashed; }
+.detail .inline { margin-top: 10px; }
+.detail .inline .note { margin-top: 4px; min-height: 54px; font-size: 12.5px; }
+.detail .inline .row-btns { display: flex; justify-content: flex-end; gap: 6px; margin-top: 6px; }
+.detail .inline .row-btns button { flex: none; padding: 3px 12px; }
+.detail .queued { margin-top: 8px; padding: 6px 8px; border: 1px dashed var(--accent); font-size: 12px; display: flex; gap: 8px; align-items: baseline; }
+.detail .queued span { flex: 1; }
+.detail .queued button { border: 0; background: none; color: var(--muted); }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><span class="brand-mark"></span>OVERSEER <span class="mock-tag">MOCK · 모듈 패널</span></div>
+  <nav class="tabs">
+    <button class="tab on"><span class="dot working"></span>honetnest<span class="agent">claude</span></button>
+    <button class="tab"><span class="dot"></span>ff-lntools<span class="agent">claude</span></button>
+    <button class="tab"><span class="dot waiting"></span>gatesplan-auth<span class="agent">claude</span><span class="badge">3</span></button>
+  </nav>
+  <div class="views">
+    <button id="toggle-term" title="원문 터미널 패널">터미널</button>
+    <button class="icon-btn" data-drawer="global" title="전역 설정" aria-label="전역 설정"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+  </div>
+</header>
+
+<main class="layout">
+  <section class="cmd">
+    <div class="map-pane">
+      <div class="pane-bar">
+        <span class="pane-name">모듈 패널</span>
+        <span class="pane-info"><span class="live" id="live"><i></i>LIVE</span> · <span id="stamp">0.4초 전 갱신</span> · 모듈 <span id="cnt-mod">19</span> · 위반 <span id="cnt-bad">3</span> · src/honetnest</span>
+        <button class="bar-btn" id="btn-expand">모두 펼치기</button>
+        <button class="bar-btn" id="btn-throw">+ 책임 카드</button>
+        <button class="pane-gear" data-drawer="map" title="모듈 패널 설정"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+      </div>
+      <div class="legend">
+        <span class="lg-spec"><b></b>사용자 스펙</span>
+        <span><b></b>파생 모듈</span>
+        <span class="lg-turn"><b></b>이번 턴 수정</span>
+        <span class="lg-blast"><b></b>그 영향 범위</span>
+        <span class="lg-bad"><b></b>위반·파싱 오류</span>
+        <span class="lg-orphan"><b></b>고아</span>
+        <span class="lg-vocab"><b></b>l0 공용 모듈로 가는 선</span>
+        <span class="lg-layer"><b></b>층 경계</span>
+        <span class="lg-note">구조·층·의존·위반은 honetnest 실제 스캔. 턴 내용은 가상</span>
+      </div>
+      <div class="sim">
+        <b>목업 시뮬레이션</b><span style="font-size:11px;color:var(--muted)">실시간 갱신 흉내</span>
+        <button id="sim-err">편집 중 문법 오류 (kakao_window)</button>
+        <button id="sim-add">에이전트가 모듈 추가 (retry_policy)</button>
+      </div>
+      <div class="map-scroll" id="scroll">
+        <div class="map" id="map"><svg class="edges" id="edges"></svg></div>
+      </div>
+      <div class="detail" id="detail" hidden></div>
+      <form class="throw" id="throw" hidden>
+        <div class="ps-title">책임 카드 던지기</div>
+        <label>모듈 이름 (선택)<input name="name" placeholder="비우면 에이전트가 이름과 경계를 제안" autocomplete="off"></label>
+        <label>책임 (필수)<textarea name="resp" placeholder="예: 에이전트의 보고를 슬랙 채널로 전달한다"></textarea></label>
+        <div class="hint">놓을 자리(층, 중첩 여부, 공용 모듈 사용)는 정하지 않는다. 보내면 에이전트가 타당성 분석과 함께 [제안]으로 올린다.</div>
+        <div class="row-btns"><button type="button" data-t="cancel">취소</button><button type="submit" class="primary">넣기</button></div>
+      </form>
+      <div class="past-list" id="past-list" hidden></div>
+    </div>
+
+    <div class="past" id="past" title="지난 턴 펼치기"><span>지난 턴 · 5</span></div>
+    <div class="side">
+      <div class="side-bar pane-bar">
+        <span class="pane-name">커맨드 패널</span><span class="pane-info">턴 6 · 사안 3</span>
+        <button class="pane-rec" data-drawer="records" title="이 프로젝트의 결정 기록과 용어">기록 3</button>
+        <button class="pane-gear" data-drawer="flow" title="커맨드 패널 설정"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+      </div>
+      <div class="cur col">
+        <div class="col-head">
+          <div class="col-title"><b>TURN 6</b><span>현재 · 카드 3</span></div>
+          <div class="col-prompt">카톡 전송 뒤 원래 창으로 포커스가 안 돌아오는 문제 확인해 줘. 서명 앞 구분선도 가끔 사라짐</div>
+        </div>
+        <div class="col-items" id="cards"></div>
+        <div class="send-bar"><button class="primary send" id="send" type="button">보내기<span id="send-n"></span></button></div>
+      </div>
+    </div>
+  </section>
+  <aside class="drawer" id="drawer"></aside>
+</main>
+
+<script>
+// 모듈 지도 목업. 데이터는 honetnest 를 lntools 0.3.0 으로 스캔한 결과를 옮겨 적었다 (턴 카드만 가상)
+const M = {
+  'l0.text_decoder':   { layer: 0, resp: '바깥에서 들어온 바이트를 깨지지 않은 글로 읽어 내는 일을 맡는다' },
+  'l0.text_normalizer':{ layer: 0, resp: '내보낼 글이 받는 쪽에서 깨지지 않게 하는 일을 맡는다' },
+  'l1.cli_io':         { layer: 1, ext: true, resp: '모든 도구 명령이 같은 방식으로 입력을 받고 출력하게 한다' },
+  'l1.env_loader':     { layer: 1, ext: true, resp: '도구 설정값을 어디서 가져올지 정한다' },
+  'l2.discord_plug':   { layer: 2, nested: true, spec: true, ext: true, resp: '에이전트의 보고를 디스코드 채널로 전달한다' },
+  'l2.kakao_plug':     { layer: 2, nested: true, spec: true, ext: true, resp: '에이전트의 보고를 사용자 카톡 계정 명의로 전달한다' },
+  'l2.gdrive_plug':    { layer: 2, nested: true, spec: true, ext: true, resp: '메시지로 보낼 파일을 링크로 공유하고, 지난 공유를 치운다' },
+};
+const INNER = {
+  discord_plug: { l0: ['message_chunker', '긴 글이 디스코드 한도를 넘지 않게 나누는 일을 맡는다'], l1: ['webhook_client', '디스코드 서버와의 통신을 맡는다'], l2: ['cli', '셸 명령을 플러그 호출로 옮긴다'], l3: ['plug', '디스코드 전송의 유일한 창구'] },
+  kakao_plug:   { l0: ['message_composer', '카톡으로 나갈 메시지의 최종 모양을 정한다'], l1: ['kakao_window', '카톡 창을 다루는 일을 맡고, 끝나면 사용자 화면을 되돌려 놓는다'], l2: ['cli', '셸 명령을 플러그 호출로 옮긴다'], l3: ['plug', '카톡 전송의 유일한 창구'] },
+  gdrive_plug:  { l0: ['share_namer', '공유 폴더 이름 규칙을 지킨다'], l1: ['rclone_runner', 'rclone 과의 주고받기를 맡는다'], l2: ['cli', '셸 명령을 플러그 호출로 옮긴다'], l3: ['plug', '드라이브 공유의 유일한 창구'] },
+};
+const E = [['l1.cli_io', 'l0.text_decoder']];
+for (const [tool, layers] of Object.entries(INNER)) {
+  const scope = `l2.${tool}`;
+  for (const [ln, [name, resp]] of Object.entries(layers)) {
+    M[`${scope}.${ln}.${name}`] = { layer: +ln.slice(1), scope, resp, ext: ln === 'l1' || ln === 'l3' };
+  }
+  const p = `${scope}.l3.plug`;
+  E.push([p, `${scope}.l0.${layers.l0[0]}`], [p, `${scope}.l1.${layers.l1[0]}`], [p, `${scope}.l2.cli`]);
+  // 안쪽에서 바깥 공용 모듈로 (실제 import 위치 그대로)
+  E.push([`${scope}.l2.cli`, 'l1.cli_io'], [p, 'l1.env_loader']);
+  if (tool !== 'gdrive_plug') E.push([p, 'l0.text_decoder'], [p, 'l0.text_normalizer']);
+  // 실제 lnt check: 안쪽 cli 는 바깥 cli_io 만 써서 안쪽 계산 층이 l0 이다
+  M[`${scope}.l2.cli`].bad = { code: 'C3', msg: '선언 l2, 계산 l0' };
+}
+const RECORDS = {
+  'l2.kakao_plug': [['D-2', 'kakao-plug 전송 확인 로직은 그대로 둠']],
+  '*plug': [['W-1', '도구 모듈(<tool>_plug): honetnest 안의 도구 하나']],
+};
+const TURN = [
+  { id: '#6-1', kind: '보고', title: '전송 뒤 원래 창으로 포커스가 돌아오지 않던 문제를 고쳤다', mods: ['l2.kakao_plug.l1.kakao_window'], body: '포커스 복원을 전송 확인 뒤로 옮겼다. 확인 로직 자체는 [D-2] 대로 그대로 두었다.' },
+  { id: '#6-2', kind: '제안', title: '서명 앞 구분선을 text_normalizer 가 지우지 않게 한다', mods: ['l0.text_normalizer'], body: '구분선의 제어문자가 정규화에서 같이 지워졌다. 공용 모듈이라 discord_plug 에도 영향이 간다(blast).' },
+  { id: '#6-3', kind: '질문', title: '안쪽 cli 세 개의 C3 를 지금 정리할까?', mods: ['l2.discord_plug.l2.cli', 'l2.kakao_plug.l2.cli', 'l2.gdrive_plug.l2.cli'], body: '세 cli 는 바깥 cli_io 만 써서 안쪽 계산 층이 l0 이다. 안쪽 l2 에 둔 이유가 따로 있는지?' },
+];
+// 지난 턴에서 보류해 둔 사안 (가상). 보류는 패널만 기억하고 에이전트에게 다시 알리지 않는다
+const PAST_CARDS = [
+  { id: '#4-2', kind: '제안', title: 'gdrive 공유 보관 기간(7일)을 설정값으로 뺀다', mods: ['l2.gdrive_plug.l3.plug', 'l1.env_loader'], body: '지금은 7일이 코드에 박혀 있다. env_loader 로 읽게 하면 도구마다 따로 정할 수 있다.' },
+];
+const HELD = { '#4-2': { note: '설정 체계 정리한 뒤에', turn: 4 } };
+const ALL = () => [...TURN, ...PAST_CARDS];
+const CARD = id => ALL().find(x => x.id === id);
+const TURN_EDITED = ['l2.kakao_plug.l1.kakao_window', 'l0.text_normalizer'];
+const PAST = ['카톡 전송 확인 로직 점검', 'gdrive-plug 7일 정리 추가', '공용 cli_io 로 셸 처리 통합', 'honetnest 서명 버전 치환', 'discord 2000자 분할 펜스 보존'];
+
+const open = new Set(['l2.kakao_plug']);
+const ghosts = [];
+// 강조 상태: pinned 는 눌러서 고정한 것, peek 는 마우스를 0.5초 올려 둔 임시 미리보기. 보이는 것은 peek 우선
+let pinned = null, peek = null;
+const focus = () => peek || pinned;
+const $ = s => document.querySelector(s);
+const short = id => id.split('.').pop();
+const declared = id => 'l' + M[id].layer;
+
+// 접힌 중첩 모듈 안의 모듈은 그 중첩 모듈로 보인다
+function visible(id) {
+  const m = M[id];
+  if (m && m.scope && !open.has(m.scope)) return visible(m.scope);
+  return id;
+}
+// 모듈 자신과, 중첩 모듈이면 그 안쪽 전부
+function members(id) {
+  const out = new Set([id]);
+  let grew = true;
+  while (grew) { grew = false; for (const k in M) if (M[k].scope && out.has(M[k].scope) && !out.has(k)) { out.add(k); grew = true; } }
+  return out;
+}
+// 바깥으로 나가는 import. 중첩 모듈은 안쪽 모듈들의 import 를 합친다
+function deps(id) {
+  const mem = members(id);
+  return [...new Set(E.filter(e => mem.has(e[0]) && !mem.has(e[1])).map(e => e[1]))];
+}
+// 영향 범위: 이 모듈(안쪽 포함)에 기대는 바깥 모듈들. 안쪽 모듈에 기대면 그 중첩 모듈에도 기댄다
+function dependents(id) {
+  const mem = members(id), out = new Set(), stack = [...mem];
+  while (stack.length) {
+    const cur = stack.pop();
+    const ups = E.filter(e => e[1] === cur).map(e => e[0]);
+    if (M[cur].scope) ups.push(M[cur].scope);
+    for (const u of ups) if (!mem.has(u) && !out.has(u)) { out.add(u); stack.push(u); }
+  }
+  return out;
+}
+
+function chipHTML(id) {
+  const m = M[id], c = [];
+  if (m.spec) c.push('<span class="chip c-spec">SPEC</span>');
+  if (m.bad) c.push(`<span class="chip c-bad">${m.bad.code}</span>`);
+  if (m.orphan) c.push('<span class="chip c-orphan">고아</span>');
+  if (m.wantResp) c.push('<span class="chip c-wait">수정 대기</span>');
+  if (m.wantAsk) c.push('<span class="chip c-wait">질문 대기</span>');
+  if (m.ext) c.push('<span class="chip c-ext">+ext</span>');
+  return c.join('');
+}
+function nodeHTML(id) {
+  const m = M[id];
+  const cls = ['node', m.spec && 'spec', m.bad && 'bad', m.parseErr && 'parse-err', m.orphan && 'orphan', m.isNew && 'new'].filter(Boolean).join(' ');
+  const resp = m.wantResp ? `<div class="n-resp pending">${m.wantResp}</div>`
+    : m.resp ? `<div class="n-resp">${m.resp}</div>` : '<div class="n-resp empty">책임 한 줄 없음</div>';
+  return `<div class="${cls}" data-id="${id}"><div class="n-head"><span class="n-name">${short(id)}</span><span class="n-path">${declared(id)}</span></div>${resp}<div class="chips">${chipHTML(id)}</div></div>`;
+}
+function nestHTML(id) {
+  const m = M[id], kids = Object.keys(M).filter(k => M[k].scope === id);
+  const bad = kids.filter(k => M[k].bad).length;
+  const turn = kids.filter(k => TURN_EDITED.includes(k)).length;
+  const isOpen = open.has(id);
+  const chips = [chipHTML(id), `<span class="chip c-orphan">안쪽 ${kids.length}</span>`,
+    bad ? `<span class="chip c-bad">안쪽 위반 ${bad}</span>` : '', turn && !isOpen ? `<span class="chip c-turn">이번 턴 ${turn}</span>` : ''].join('');
+  const cls = ['nest', m.spec && 'spec', isOpen && 'open', bad && !isOpen && 'bad'].filter(Boolean).join(' ');
+  const rows = [3, 2, 1, 0].map(n => {
+    const ids = kids.filter(k => M[k].layer === n);
+    return ids.length ? `<div class="row"><div class="row-label">l${n}</div><div class="row-nodes">${ids.map(nodeHTML).join('')}</div></div>` : '';
+  }).join('');
+  return `<div class="${cls}" data-nest="${id}"><div class="nest-head" data-id="${id}"><div class="n-head"><span class="n-name">${short(id)}</span><span class="n-path">l${m.layer} · 중첩</span><button class="nest-tog" data-tog="${id}">${isOpen ? '접기' : '펼치기'}</button></div><div class="n-resp">${m.resp}</div><div class="chips">${chips}</div></div><div class="nest-body">${rows}</div></div>`;
+}
+
+function render() {
+  const map = $('#map');
+  const top = Object.keys(M).filter(k => !M[k].scope);
+  let html = '';
+  if (ghosts.length) {
+    html += `<div class="row tray"><div class="row-label">제안 대기</div><div class="row-nodes">${ghosts.map(g => `<div class="node ghost"><div class="n-head"><span class="n-name">${g.name || '(이름 제안 대기)'}</span><span class="n-path">층 미정</span></div><div class="n-resp">${g.resp}</div><div class="chips"><span class="chip c-wait">${g.sent ? '전송됨 · 제안 대기' : '보낼 예정'}</span><span class="chip c-spec">SPEC</span></div></div>`).join('')}</div></div>`;
+  }
+  for (const n of [2, 1, 0]) {
+    const ids = top.filter(k => M[k].layer === n);
+    html += `<div class="row"><div class="row-label">L${n}</div><div class="row-nodes">${ids.map(id => M[id].nested ? nestHTML(id) : nodeHTML(id)).join('')}</div></div>`;
+  }
+  map.innerHTML = '<svg class="edges" id="edges"></svg>' + html;
+  for (const k in M) delete M[k].isNew;
+  paintState();
+  requestAnimationFrame(drawEdges);
+  const bad = Object.values(M).filter(m => m.bad).length;
+  $('#cnt-bad').textContent = bad;
+  $('#cnt-mod').textContent = Object.keys(M).length;
+  $('#btn-expand').textContent = open.size === 3 ? '모두 접기' : '모두 펼치기';
+}
+
+function el(id) { return document.querySelector(`.node[data-id="${CSS.escape(id)}"], .nest-head[data-id="${CSS.escape(id)}"]`); }
+function holder(id) { const e = el(id); return e && e.classList.contains('nest-head') ? e.parentElement : e; }
+
+// 지금 강조할 대상. 모듈 하나면 그 모듈(안쪽 포함), 의존, 영향 범위. 카드면 그 카드가 다룬 모듈들
+function focusSets() {
+  const f = focus();
+  if (!f) return null;
+  if (f.mod) return { mem: members(f.mod), deps: new Set(deps(f.mod)), ups: dependents(f.mod), sel: [f.mod] };
+  const mem = new Set(); f.mods.forEach(m => members(m).forEach(x => mem.add(x)));
+  return { mem, deps: new Set(), ups: new Set(), sel: f.mods };
+}
+
+// 이번 턴, 영향 범위, 선택 강조
+function paintState() {
+  document.querySelectorAll('.turn,.blast,.sel,.lit').forEach(n => n.classList.remove('turn', 'blast', 'sel', 'lit'));
+  const turnVis = new Set(TURN_EDITED.map(visible));
+  const blastVis = new Set();
+  TURN_EDITED.forEach(t => dependents(t).forEach(d => blastVis.add(visible(d))));
+  turnVis.forEach(v => holder(v)?.classList.add('turn'));
+  blastVis.forEach(v => { if (!turnVis.has(v)) holder(v)?.classList.add('blast'); });
+  const fs = focusSets();
+  $('#map').classList.toggle('dim', !!fs);
+  if (!fs) return;
+  fs.sel.forEach(id => holder(visible(id))?.classList.add('sel'));
+  [...fs.mem, ...fs.deps, ...fs.ups].forEach(id => holder(visible(id))?.classList.add('lit'));
+}
+
+function drawEdges() {
+  const svg = $('#edges'), map = $('#map');
+  const base = map.getBoundingClientRect();
+  svg.setAttribute('width', map.scrollWidth); svg.setAttribute('height', map.scrollHeight);
+  const fs = focusSets();
+  const drawn = new Map();
+  for (const [s, d] of E) {
+    const vs = visible(s), vd = visible(d);
+    if (vs === vd) continue;
+    const a = el(vs), b = el(vd); if (!a || !b) continue;
+    const cls = [];
+    if (!M[d].scope && M[d].layer === 0) cls.push('vocab');
+    if (M[s].scope && M[s].scope === M[d].scope) cls.push('inner');
+    let rank = 0;
+    if (fs) {
+      if (fs.mem.has(s) && !fs.mem.has(d)) { cls.push('dep'); rank = 3; }
+      else if (fs.ups.has(s) && (fs.mem.has(d) || fs.ups.has(d))) { cls.push('blast'); rank = 2; }
+      else if (fs.mem.has(s) && fs.mem.has(d)) { cls.push('own'); rank = 1; }
+      else cls.push('faded');
+    }
+    // 접혀서 같은 선으로 겹치면 더 강조된 쪽을 남긴다
+    const key = vs + '>' + vd;
+    if (drawn.has(key) && drawn.get(key).rank >= rank) continue;
+    const ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect();
+    const x1 = ra.left + ra.width / 2 - base.left, y1 = ra.bottom - base.top;
+    const x2 = rb.left + rb.width / 2 - base.left, y2 = rb.top - base.top;
+    const dy = Math.max(26, (y2 - y1) / 2);
+    const c = cls.join(' ');
+    drawn.set(key, { rank, svg: `<path class="${c}" d="M${x1},${y1} C${x1},${y1 + dy} ${x2},${y2 - dy} ${x2},${y2}"/><circle class="${c}" cx="${x2}" cy="${y2}" r="2.6"/>` });
+  }
+  // 강조 선을 맨 위에 그린다
+  svg.innerHTML = [...drawn.values()].sort((x, y) => x.rank - y.rank).map(x => x.svg).join('');
+}
+
+function repaint() { paintState(); drawEdges(); }
+
+function showDetail(id) {
+  const m = M[id], d = $('#detail');
+  if (!m) { d.hidden = true; return; }
+  const ds = deps(id), ups = [...dependents(id)];
+  const recs = [...(RECORDS[id] || []), ...(m.nested ? RECORDS['*plug'] : [])];
+  const items = ALL().filter(t => t.mods.some(x => x === id || M[x].scope === id));
+  d.innerHTML = `
+    <h3>${id}<button class="x" data-x>×</button></h3>
+    <div class="d-resp">${m.resp || '<i style="color:var(--muted)">책임 한 줄 없음</i>'}</div>
+    <dl>
+      <dt>구분</dt><dd>${m.spec ? '사용자 스펙' : '파생 모듈'}${m.nested ? ' · 중첩' : ''}${m.orphan ? ' · 고아' : ''}</dd>
+      <dt>층</dt><dd>선언 l${m.layer}${m.bad ? ` · <span class="bad">${m.bad.code} ${m.bad.msg}</span>` : ''}${m.parseErr ? ' · <span class="bad">파싱 실패 kakao_window.py:48</span>' : ''}</dd>
+      <dt>의존</dt><dd>${ds.join(', ') || '-'}</dd>
+      <dt>영향 범위</dt><dd>${ups.join(', ') || '-'}</dd>
+    </dl>
+    ${recs.length ? '<div class="d-sec">결정 기록</div>' + recs.map(r => `<div class="rec"><code>${r[0]}</code> ${r[1]}</div>`).join('') : ''}
+    ${items.length ? '<div class="d-sec">연결된 사안</div>' + items.map(t => `<div class="rec"><code>${t.id}</code> ${t.title}</div>`).join('') : ''}
+    ${m.wantResp ? `<div class="queued"><span>책임 수정 보낼 예정: ${m.wantResp}</span><button data-unq="wantResp">×</button></div>` : ''}
+    ${m.wantAsk ? `<div class="queued"><span>질문 보낼 예정: ${m.wantAsk}</span><button data-unq="wantAsk">×</button></div>` : ''}
+    <div class="acts"><button data-act="edit">책임 고치기</button><button data-act="ask">이 모듈에 대해 묻기</button></div>
+    <div class="inline" id="inline" hidden></div>`;
+  d.hidden = false;
+  d.dataset.id = id;
+}
+
+// 보낼 것: 카드 결정과 모듈 패널에서 한 일. 초안 없이 보내기 버튼 하나로 묶어 보낸다
+const LABEL = { answer: '답변', approve: '승인', revise: '수정', hold: '보류', reject: '기각', confirm: '확인', close: '닫음' };
+const ACTIONS = { 질문: [['answer', true], ['hold', false], ['reject', true]], 제안: [['approve', false], ['revise', true], ['hold', false], ['reject', true]], 보고: [['confirm', false]] };
+const PLACEHOLDER = { answer: '답변 (필수)', approve: '조건이나 고칠 점 (선택)', hold: '보류 메모 (선택, 전송 안 함)', revise: '수정안 (필수)', reject: '기각 사유 (필수)' };
+const DEC = { '#6-1': { action: 'confirm', note: '' }, '#6-2': { action: 'approve', note: '' } };
+const SENT = {};
+function pendingCount() {
+  const mods = Object.values(M).reduce((n, m) => n + (m.wantResp ? 1 : 0) + (m.wantAsk ? 1 : 0), 0);
+  return Object.keys(DEC).length + mods + ghosts.filter(g => !g.sent).length;
+}
+function updateSend() { const n = pendingCount(); $('#send-n').textContent = n ? `· ${n}` : ''; }
+
+// 눌러서 고정. 같은 것을 다시 누르면 풀린다
+function pin(f) {
+  const same = pinned && f && (pinned.mod ? pinned.mod === f.mod : pinned.card === f.card);
+  pinned = same ? null : f;
+  peek = null;
+  document.querySelectorAll('.card').forEach(c => c.classList.toggle('active', pinned?.card === c.dataset.card));
+  repaint();
+  pinned?.mod ? showDetail(pinned.mod) : ($('#detail').hidden = true);
+}
+
+// 마우스를 0.5초 올려 두면 임시로 그 대상을 강조하고, 벗어나면 고정한 상태로 돌아간다
+let hoverKey = null, hoverTimer = null;
+function hover(key, f) {
+  if (key === hoverKey) return;
+  hoverKey = key;
+  clearTimeout(hoverTimer);
+  if (peek) { peek = null; repaint(); }
+  if (key) hoverTimer = setTimeout(() => { peek = f; repaint(); }, 500);
+}
+
+function tick(msg) {
+  const l = $('#live'); l.classList.remove('tick'); void l.offsetWidth; l.classList.add('tick');
+  $('#stamp').textContent = msg || '방금 갱신';
+}
+
+// 이벤트
+$('#map').addEventListener('click', e => {
+  const tog = e.target.closest('[data-tog]');
+  if (tog) { const id = tog.dataset.tog; open.has(id) ? open.delete(id) : open.add(id); render(); return; }
+  const n = e.target.closest('.node:not(.ghost), .nest-head');
+  if (n) pin({ mod: n.dataset.id });
+});
+$('#map').addEventListener('pointerover', e => {
+  const n = e.target.closest('.node:not(.ghost), .nest-head');
+  hover(n ? 'm:' + n.dataset.id : null, n && { mod: n.dataset.id });
+});
+$('#map').addEventListener('pointerleave', () => hover(null));
+$('#detail').addEventListener('click', e => {
+  const id = $('#detail').dataset.id;
+  if (e.target.closest('[data-x]')) { pinned = null; pin(null); return; }
+  const unq = e.target.closest('[data-unq]');
+  if (unq) { delete M[id][unq.dataset.unq]; render(); showDetail(id); updateSend(); return; }
+  const done = e.target.closest('[data-inline]');
+  if (done) {
+    const box = $('#inline'), kind = box.dataset.kind, text = box.querySelector('textarea').value.trim();
+    if (done.dataset.inline === 'ok' && text) M[id][kind] = text;
+    render(); showDetail(id); updateSend(); return;
+  }
+  const a = e.target.closest('[data-act]'); if (!a) return;
+  const box = $('#inline'), edit = a.dataset.act === 'edit';
+  box.dataset.kind = edit ? 'wantResp' : 'wantAsk';
+  box.innerHTML = `<textarea class="note" placeholder="${edit ? '새 책임 한 줄. 무엇을 하는지가 아니라 무엇을 맡는지' : '이 모듈에 대해 물을 것'}">${edit ? (M[id].wantResp || M[id].resp || '') : (M[id].wantAsk || '')}</textarea>
+    <div class="row-btns"><button data-inline="cancel">취소</button><button data-inline="ok" class="primary">넣기</button></div>`;
+  box.hidden = false;
+  box.querySelector('textarea').focus();
+});
+$('#btn-expand').onclick = () => {
+  const nests = Object.keys(M).filter(k => M[k].nested);
+  if (open.size === nests.length) open.clear(); else nests.forEach(n => open.add(n));
+  render();
+};
+$('#btn-throw').onclick = () => { $('#throw').hidden = !$('#throw').hidden; $('#throw [name=resp]').focus(); };
+$('#throw').addEventListener('click', e => { if (e.target.closest('[data-t=cancel]')) $('#throw').hidden = true; });
+$('#throw').addEventListener('submit', e => {
+  e.preventDefault();
+  const f = e.target, name = f.name.value.trim(), resp = f.resp.value.trim();
+  if (!resp) { f.resp.focus(); return; }
+  ghosts.push({ name, resp });
+  f.reset(); f.hidden = true; render(); updateSend();
+});
+$('#sim-err').onclick = e => {
+  const k = M['l2.kakao_plug.l1.kakao_window'];
+  k.parseErr = !k.parseErr;
+  k.bad = k.parseErr ? { code: 'SYNTAX', msg: '파싱 실패' } : null;
+  e.target.classList.toggle('on', k.parseErr);
+  open.add('l2.kakao_plug'); render(); tick(k.parseErr ? '방금 갱신 · 파싱 실패 1' : '방금 갱신');
+};
+$('#sim-add').onclick = e => {
+  if (M['l0.retry_policy']) { delete M['l0.retry_policy']; e.target.classList.remove('on'); }
+  else { M['l0.retry_policy'] = { layer: 0, resp: '', orphan: true, isNew: true }; e.target.classList.add('on'); }
+  render(); tick();
+};
+$('#past').onclick = () => {
+  const p = $('#past-list');
+  p.innerHTML = '<div class="col-title"><b>지난 턴</b><span>펼쳐 보기</span></div>' + PAST.map((t, i) => `<div class="pt"><b>TURN ${i + 1}</b>${t}</div>`).join('');
+  p.hidden = !p.hidden;
+};
+
+// 현재 턴 카드. 실제 화면처럼 늘 펼쳐 두고, 종류별 처리 버튼을 붙인다. 보고는 확인만 둔다
+function decideHTML(t) {
+  if (SENT[t.id]) return `<div class="sent-note"><b>${LABEL[SENT[t.id].action]}</b>${SENT[t.id].note ? ` · ${SENT[t.id].note}` : ''}</div>`;
+  const d = DEC[t.id] || { action: '', note: '' };
+  const need = (ACTIONS[t.kind].find(x => x[0] === d.action) || [])[1];
+  const note = d.action && d.action !== 'confirm'
+    ? `<textarea class="note ${need ? 'required' : ''}" data-note="${t.id}" placeholder="${PLACEHOLDER[d.action]}">${d.note}</textarea><div class="hint" data-hint="${t.id}"></div>` : '';
+  return `<div class="decide"><div class="seg">${ACTIONS[t.kind].map(([a]) =>
+    `<button class="a-${a} ${d.action === a ? 'on' : ''}" data-dec="${a}" data-id="${t.id}">${LABEL[a]}</button>`).join('')}</div>${note}</div>`;
+}
+function cardHTML(t) {
+  const h = HELD[t.id];
+  // 막: 어느 턴의 무슨 사안인지, 왜 보류했는지, 그다음 처리 버튼
+  const veil = h ? `<div class="veil"><div class="veil-title"><span>TURN ${h.turn}</span> - ${t.title}</div>
+    <div class="veil-why ${h.note ? '' : 'none'}">${h.note || '보류 이유 없음'}</div>
+    <div class="veil-btns"><button data-unhold="${t.id}" title="막을 걷고 다시 처리를 고른다">꺼내기</button><button data-closeheld="${t.id}" title="에이전트에게 보내지 않고 끝낸다">닫기</button></div></div>` : '';
+  return `
+  <div class="card k-${t.kind} open fixed ${h ? 'held-card' : SENT[t.id] ? 'st-done' : 'st-todo'} ${pinned?.card === t.id ? 'active' : ''}" data-card="${t.id}">
+    <div class="card-head"><div class="meta"><span class="kind">${t.kind}</span><span class="iid">${t.id}</span></div>
+      <div class="title">${t.title}</div>
+      <div class="mods">${t.mods.map(m => `<button data-mod="${m}">${m.replace(/^l2\.(\w+)_plug\./, '$1·')}</button>`).join('')}</div></div>
+    <div class="card-body"><div class="md"><p>${t.body}</p></div>${h ? '' : decideHTML(t)}</div>${veil}
+  </div>`;
+}
+// 처리할 카드가 위, 보류한 카드는 어느 턴 것이든 늘 맨 아래
+function renderCards() {
+  const live = ALL().filter(t => !HELD[t.id] && !SENT[t.id]?.closed && (TURN.includes(t) || t.unheld));
+  const held = ALL().filter(t => HELD[t.id]);
+  $('#cards').innerHTML = live.map(cardHTML).join('')
+    + (held.length ? `<div class="held-sep">보류 ${held.length}</div>` + held.map(cardHTML).join('') : '');
+  updateSend();
+}
+$('#cards').addEventListener('input', e => {
+  const n = e.target.closest('[data-note]');
+  if (n) { DEC[n.dataset.note].note = n.value; $(`[data-hint="${n.dataset.note}"]`).textContent = ''; }
+});
+$('#cards').addEventListener('click', e => {
+  const mb = e.target.closest('[data-mod]');
+  if (mb) {
+    e.stopPropagation();
+    const id = mb.dataset.mod;
+    if (M[id].scope) open.add(M[id].scope);
+    render(); pinned = null; pin({ mod: id });
+    holder(id)?.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' });
+    return;
+  }
+  const uh = e.target.closest('[data-unhold]');
+  if (uh) { const t = CARD(uh.dataset.unhold); delete HELD[t.id]; delete SENT[t.id]; t.unheld = true; renderCards(); return; }
+  const ch = e.target.closest('[data-closeheld]');
+  if (ch) { delete HELD[ch.dataset.closeheld]; SENT[ch.dataset.closeheld] = { action: 'close', closed: true }; renderCards(); return; }
+  const dec = e.target.closest('[data-dec]');
+  if (dec) {
+    const id = dec.dataset.id, cur = DEC[id];
+    if (cur && cur.action === dec.dataset.dec) delete DEC[id];
+    else DEC[id] = { action: dec.dataset.dec, note: cur?.note || '' };
+    renderCards();
+    $(`[data-note="${id}"]`)?.focus();
+    return;
+  }
+  if (e.target.closest('.decide, .note, .veil')) return;
+  const card = e.target.closest('.card'); if (!card) return;
+  const t = CARD(card.dataset.card);
+  pin({ card: t.id, mods: t.mods });
+});
+
+// 보내기: 카드 결정과 모듈 패널에서 한 일을 한 메시지로 묶는다. 목업은 보낸 내용을 잠깐 보여 준다
+$('#send').onclick = () => {
+  for (const [id, d] of Object.entries(DEC)) {
+    const need = (ACTIONS[CARD(id).kind].find(x => x[0] === d.action) || [])[1];
+    if (need && !d.note.trim()) { $(`[data-hint="${id}"]`).textContent = '내용을 적어야 전송된다'; $(`[data-note="${id}"]`).focus(); return; }
+  }
+  const lines = [];
+  const confirmed = Object.keys(DEC).filter(id => DEC[id].action === 'confirm' && !DEC[id].note);
+  for (const [id, d] of Object.entries(DEC)) {
+    if (confirmed.includes(id) || d.action === 'hold') continue;
+    const t = CARD(id);
+    lines.push(`${id} [${t.kind}] ${t.title} → ${LABEL[d.action]}${d.note ? ': ' + d.note : ''}`);
+  }
+  if (confirmed.length) lines.push(`확인: ${confirmed.join(', ')} 사안 종료됨.`);
+  for (const [id, m] of Object.entries(M)) {
+    if (m.wantResp) lines.push(`[책임 수정] ${id}: ${m.wantResp}`);
+    if (m.wantAsk) lines.push(`[모듈 질문] ${id}: ${m.wantAsk}`);
+  }
+  ghosts.filter(g => !g.sent).forEach(g => lines.push(`[새 책임 카드] ${g.name ? g.name + ': ' : ''}${g.resp} → 타당성, 이름과 경계, 놓을 층, 하위 구성을 [제안]으로`));
+  if (!lines.length && !Object.keys(DEC).length) return;
+  Object.entries(DEC).forEach(([id, d]) => {
+    if (d.action === 'hold') HELD[id] = { note: d.note, turn: +id.slice(1).split('-')[0] };
+    else SENT[id] = d;
+    delete DEC[id];
+  });
+  Object.values(M).forEach(m => { delete m.wantResp; delete m.wantAsk; });
+  ghosts.forEach(g => g.sent = true);
+  renderCards(); render();
+  if (pinned?.mod) showDetail(pinned.mod);
+  const t = document.createElement('div');
+  t.className = 'toast';
+  t.innerHTML = '<b>보낸 메시지 (목업)</b>' + (lines.join('\n') || '(보낼 내용 없음. 보류만 처리)');
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 6000);
+};
+$('#cards').addEventListener('pointerover', e => {
+  const card = e.target.closest('.card');
+  const t = card && CARD(card.dataset.card);
+  hover(t ? 'c:' + t.id : null, t && { card: t.id, mods: t.mods });
+});
+$('#cards').addEventListener('pointerleave', () => hover(null));
+// Esc: 열린 입력창을 먼저 닫고, 없으면 고정한 선택을 푼다
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  if (drawer) { setDrawer(drawer); return; }
+  if (!$('#throw').hidden) { $('#throw').hidden = true; return; }
+  if (!$('#past-list').hidden) { $('#past-list').hidden = true; return; }
+  clearTimeout(hoverTimer); hoverKey = null; pinned = null; pin(null);
+});
+
+// 설정창: 실제 화면의 전역, 흐름, 기록에 지도 설정을 더한다
+const CHECK = (label, sub, on) => `<label class="ps-row"><span>${label} <small>${sub}</small></span><input type="checkbox" ${on ? 'checked' : ''}></label>`;
+// 글자 크기: map 은 모듈 카드, cur 는 현재 턴 카드
+const FS = { map: 12, cur: 14 };
+const STEP = (k, label, sub) => `<div class="ps-row"><span>${label}${sub ? ` <small>${sub}</small>` : ''}</span>
+  <span class="stepper"><button data-step="${k}" data-d="-1">−</button><b>${FS[k]}</b><button data-step="${k}" data-d="1">+</button></span></div>`;
+function applyFs() {
+  $('#map').style.setProperty('--mfs', FS.map + 'px');
+  $('.cur').style.setProperty('--fs', FS.cur + 'px');
+  requestAnimationFrame(drawEdges);
+}
+const DRAWERS = {
+  global: () => `<div class="ps-title">전역 설정<button class="x" data-drawer="global">×</button></div>
+    <label class="ps-row"><span>테마</span><select><option>FutureIndustry</option><option>Base</option></select></label>
+    <div class="ps-row muted"><span>사안 규약</span><code>docs/item-protocol.md</code></div>
+    <div class="ps-row muted"><span>캡처 저장</span><code>data/captures/</code></div>`,
+  flow: () => `<div class="ps-title">커맨드 패널 설정<button class="x" data-drawer="flow">×</button></div>
+    ${STEP('cur', '현재 턴 카드 글자', '')}
+    ${CHECK('언급도 관련으로 보기', '본문에서 #ID 로 언급한 사안도 함께 밝힌다', true)}
+    ${CHECK('지난 턴 띠 보이기', '접힌 지난 턴을 지도와 현재 턴 사이에 둔다', true)}`,
+  map: () => `<div class="ps-title">모듈 패널 설정<button class="x" data-drawer="map">×</button></div>
+    ${STEP('map', '모듈 카드 글자', '카드 너비도 함께 바뀐다')}
+    <div class="ps-row"><span>미리보기 지연 <small>마우스를 올리고 임시 강조까지</small></span><span class="stepper"><button>−</button><b>0.5초</b><button>+</button></span></div>
+    ${CHECK('l0 공용 모듈로 가는 선 옅게', '선택했을 때만 진하게 보인다', true)}
+    ${CHECK('이번 턴 영향 범위 표시', '이번 턴이 고친 모듈에 기대는 모듈을 옅게 칠한다', true)}
+    ${CHECK('펼친 중첩 모듈 기억', '탭을 다시 열어도 펼친 상태를 유지한다', true)}
+    ${CHECK('목업 시뮬레이션 줄', '목업 전용', true)}
+    <div class="ps-row muted"><span>스캔 대상</span><code>src/honetnest</code></div>`,
+  records: () => `<div class="ps-title">결정 기록과 용어<button class="x" data-drawer="records">×</button></div>
+    <div class="rec-intro">c:\\projects\\honetnest 에서 승인한 보존 사안. 유효한 것은 세션 시작 때 에이전트에게 들어간다</div>
+    <div class="rec-sec">결정 기록 <small>2</small></div>
+    <div class="rec-row"><div class="rec-head"><span class="rec-ref">D-1</span><span class="rec-text">honetnest는 로컬 전용 저장소</span></div></div>
+    <div class="rec-row"><div class="rec-head"><span class="rec-ref">D-2</span><span class="rec-text">kakao-plug 전송 확인 로직은 그대로 둠</span></div></div>
+    <div class="rec-sec">용어 <small>1</small></div>
+    <div class="rec-row"><div class="rec-head"><span class="rec-ref">W-1</span><span class="rec-text">도구 모듈(&lt;tool&gt;_plug): honetnest 안의 도구 하나</span></div></div>`,
+};
+let drawer = null;
+function setDrawer(name) {
+  drawer = drawer === name ? null : name;
+  const d = $('#drawer');
+  if (drawer) d.innerHTML = DRAWERS[drawer]();
+  d.classList.toggle('open', !!drawer);
+  d.classList.toggle('wide', drawer === 'records');
+  document.querySelectorAll('[data-drawer]').forEach(b => b.classList.toggle('on', b.dataset.drawer === drawer));
+}
+document.addEventListener('click', e => {
+  const st = e.target.closest('[data-step]');
+  if (st) {
+    const k = st.dataset.step;
+    FS[k] = Math.min(20, Math.max(10, FS[k] + +st.dataset.d));
+    applyFs();
+    $('#drawer').innerHTML = DRAWERS[drawer]();
+    return;
+  }
+  const b = e.target.closest('[data-drawer]');
+  if (b) { setDrawer(b.dataset.drawer); return; }
+  if (drawer && !e.target.closest('#drawer')) setDrawer(drawer);
+});
+$('#toggle-term').onclick = e => e.currentTarget.classList.toggle('on');
+
+renderCards();
+window.addEventListener('resize', drawEdges);
+render();
+</script>
+</body>
+</html>

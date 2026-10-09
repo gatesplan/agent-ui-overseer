@@ -8,14 +8,18 @@ from pathlib import Path
 from aiohttp import WSMsgType, web
 from loguru import logger
 
-from project_manager.l0.decision_store import DecisionStore
-from project_manager.l0.project_finder import ProjectFinder
-from project_manager.l0.record_store import RecordStore
-from project_manager.l2.agent_tab import AgentTab
-from project_manager.l3.tab_manager import TabManager
+from ...l0.decision_store import DecisionStore
+from ...l0.module_map import ModuleMap
+from ...l0.project_finder import ProjectFinder
+from ...l0.record_store import RecordStore
+from ...l1.map_watcher import MapWatcher
+from ...l2.agent_tab import AgentTab
+from ...l3.tab_manager import TabManager
 
 ROOT = Path(__file__).resolve().parents[4]
 POLL_INTERVAL = 0.4
+# 모듈 지도의 소스 변경을 살피는 간격
+MAP_INTERVAL = 1.0
 
 
 # 패널 서버. 화면 파일(web/), API, 상태 알림과 터미널 WebSocket 을 한 포트에서 맡는다
@@ -28,6 +32,8 @@ class OverseerServer:
         mcp = {'command': sys.executable, 'args': [str(ROOT / 'scripts' / 'overseer_mcp.py')]}
         self.tabs = TabManager(self.store, data_dir / 'captures', claude_args, self.records, mcp)
         self.finder = ProjectFinder(roots=project_roots)
+        # 모듈 패널의 지도. 화면이 연 프로젝트만 지켜본다
+        self.maps = MapWatcher(ModuleMap())
         self.clients: set[web.WebSocketResponse] = set()
         self.app = web.Application(middlewares=[self._no_cache])
         self.app.add_routes([
@@ -43,6 +49,7 @@ class OverseerServer:
             web.post('/api/tabs/{id}/send', self._send),
             web.post('/api/tabs/{id}/clear', self._clear),
             web.put('/api/tabs/{id}/draft', self._draft),
+            web.get('/api/tabs/{id}/modules', self._modules),
             web.get('/ws/events', self._events),
             web.get('/ws/term/{id}', self._term),
         ])
@@ -74,9 +81,11 @@ class OverseerServer:
     async def _startup(self, app: web.Application) -> None:
         self.tabs.restore()
         app['poller'] = asyncio.create_task(self._poll_loop())
+        app['mapper'] = asyncio.create_task(self._map_loop())
 
     async def _cleanup(self, app: web.Application) -> None:
         app['poller'].cancel()
+        app['mapper'].cancel()
         self.tabs.shutdown()
 
     # 훅 기록과 프로세스 종료를 살펴 바뀐 탭 상태를 알린다
@@ -88,6 +97,17 @@ class OverseerServer:
                     await self._broadcast({'type': 'tab', 'tab': tab.state()})
             except Exception:
                 logger.exception("poll 실패")
+
+    # 화면이 연 프로젝트의 소스가 바뀌면 모듈 지도를 다시 받아 알린다. 닫힌 탭의 폴더는 그만 본다
+    async def _map_loop(self) -> None:
+        while True:
+            await asyncio.sleep(MAP_INTERVAL)
+            try:
+                self.maps.keep_only([tab.cwd for tab in self.tabs.tabs.values()])
+                for cwd, result in await asyncio.to_thread(self.maps.changed):
+                    await self._broadcast({'type': 'modules', 'cwd': cwd, 'modules': result})
+            except Exception:
+                logger.exception("모듈 지도 갱신 실패")
 
     async def _broadcast(self, message: dict) -> None:
         data = json.dumps(message, ensure_ascii=False)
@@ -193,6 +213,11 @@ class OverseerServer:
             return web.json_response({'error': str(e)}, status=409)
         await self._broadcast({'type': 'tab', 'tab': tab.state()})
         return web.json_response({'held': held, 'tab': tab.state()})
+
+    # 모듈 패널의 지도. 처음 열 때 받고, 그 뒤 바뀐 것은 modules 알림으로 간다
+    async def _modules(self, request: web.Request) -> web.Response:
+        tab = self._tab(request)
+        return web.json_response({'cwd': tab.cwd, 'modules': await asyncio.to_thread(self.maps.get, tab.cwd)})
 
     async def _draft(self, request: web.Request) -> web.Response:
         self.store.save_draft(request.match_info['id'], await request.json())

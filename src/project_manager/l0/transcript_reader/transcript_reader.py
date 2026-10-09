@@ -1,6 +1,9 @@
 import json
 from pathlib import Path
 
+# 파일 내용을 바꾸는 도구
+EDIT_TOOLS = ('Edit', 'Write', 'MultiEdit', 'NotebookEdit')
+
 
 # Claude Code 대화 기록(JSONL)에서 마지막 턴의 응답 텍스트를 꺼낸다
 class TranscriptReader:
@@ -64,6 +67,26 @@ class TranscriptReader:
         keys = ('input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens', 'output_tokens')
         usage = {k: sum(int(c.get(k) or 0) for c in calls.values()) for k in keys}
         return {'model': model, 'calls': len(calls), 'tools': tools, **usage}
+
+    # 이번 턴에 고친 파일. 파일 편집 도구(Edit, Write, MultiEdit, NotebookEdit)가 받은 경로를 처음 나온 순서로
+    # 서브에이전트가 고친 것도 코드가 바뀐 것이라 넣는다. 셸로 고친 파일은 알 수 없다. 경계를 모르면 None
+    def turn_files(self, since: int | None = None) -> list[str] | None:
+        rows = self._rows()
+        start = self._turn_start(rows, since)
+        if start is None:
+            return None
+        files: dict[str, None] = {}
+        for row in rows[start:]:
+            if row.get('type') != 'assistant':
+                continue
+            for b in self._blocks(row):
+                if b.get('type') != 'tool_use' or b.get('name') not in EDIT_TOOLS:
+                    continue
+                args = b.get('input') or {}
+                path = args.get('file_path') or args.get('notebook_path')
+                if isinstance(path, str) and path:
+                    files[path] = None
+        return list(files)
 
     # 기록 줄 수. 훅이 남겨 두었다가 다음 턴의 since 로 넘긴다
     def row_count(self) -> int:

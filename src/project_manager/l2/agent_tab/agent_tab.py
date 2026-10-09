@@ -7,12 +7,12 @@ from pathlib import Path
 
 from loguru import logger
 
-from project_manager.l0.capture_log import CaptureLog
-from project_manager.l0.decision_store import DecisionStore
-from project_manager.l0.permission_gate import PermissionGate
-from project_manager.l0.record_store import RecordStore
-from project_manager.l0.turn_builder import TurnBuilder
-from project_manager.l1.pty_session import PtySession
+from ...l0.capture_log import CaptureLog
+from ...l0.decision_store import DecisionStore
+from ...l0.permission_gate import PermissionGate
+from ...l0.record_store import RecordStore
+from ...l0.turn_builder import TurnBuilder
+from ...l1.pty_session import PtySession
 
 # 부모가 Claude Code 세션이면 물려받는 표식들. 남아 있으면 자식 세션이 하위 세션으로 떠서 대화 기록 저장이 꺼진다
 SESSION_MARKERS = (

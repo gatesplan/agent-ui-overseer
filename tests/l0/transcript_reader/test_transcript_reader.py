@@ -117,3 +117,20 @@ def test_turn_usage_counts_each_call_once_after_last_turn_end(tmp_path):
         'model': 'claude-opus', 'calls': 2, 'tools': 1,
         'input_tokens': 3, 'cache_creation_input_tokens': 20, 'cache_read_input_tokens': 200, 'output_tokens': 12,
     }
+
+
+def test_turn_files_lists_edited_paths_once_after_last_turn_end(tmp_path):
+    path = tmp_path / 't.jsonl'
+    edit = lambda name, **kw: {'type': 'tool_use', 'name': name, 'input': kw}
+    _write(path, [
+        {'type': 'user', 'message': {'content': '이전'}},
+        {'type': 'assistant', 'message': {'content': [edit('Edit', file_path='C:/p/old.py')]}},
+        {'type': 'system', 'subtype': 'turn_duration'},
+        {'type': 'user', 'message': {'content': '이번'}},
+        {'type': 'assistant', 'message': {'content': [edit('Read', file_path='C:/p/read.py'), edit('Edit', file_path='C:/p/a.py')]}},
+        {'type': 'assistant', 'message': {'content': [edit('Write', file_path='C:/p/b.py'), edit('MultiEdit', file_path='C:/p/a.py')]}},
+        # 서브에이전트가 고친 것도 넣는다
+        {'type': 'assistant', 'isSidechain': True, 'message': {'content': [edit('NotebookEdit', notebook_path='C:/p/n.ipynb')]}},
+        {'type': 'assistant', 'message': {'content': [edit('Bash', command='echo > C:/p/c.py')]}},
+    ])
+    assert TranscriptReader(path).turn_files() == ['C:/p/a.py', 'C:/p/b.py', 'C:/p/n.ipynb']

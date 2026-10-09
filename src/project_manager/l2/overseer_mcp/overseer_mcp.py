@@ -1,7 +1,7 @@
 from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
 
-from project_manager.l1.archive_query import ArchiveQuery
+from ...l1.archive_query import ArchiveQuery
 
 INSTRUCTIONS = (
     '이 프로젝트에서 사용자가 내린 결정을 읽는 읽기 전용 도구다. '

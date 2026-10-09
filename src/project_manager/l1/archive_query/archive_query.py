@@ -1,10 +1,10 @@
 import re
 from pathlib import Path
 
-from project_manager.l0.capture_log import CaptureLog
-from project_manager.l0.decision_store import DecisionStore
-from project_manager.l0.record_store import RecordStore
-from project_manager.l0.turn_builder import TurnBuilder
+from ...l0.capture_log import CaptureLog
+from ...l0.decision_store import DecisionStore
+from ...l0.record_store import RecordStore
+from ...l0.turn_builder import TurnBuilder
 
 LABEL = {'answer': '답변', 'approve': '승인', 'revise': '수정', 'hold': '보류', 'reject': '기각', 'confirm': '확인', 'feedback': '피드백', 'close': '닫음'}
 BASIS = re.compile(r'^근거:(.*)$', re.M)

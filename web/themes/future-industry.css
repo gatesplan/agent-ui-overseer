@@ -80,17 +80,9 @@
 [data-theme="future-industry"] .col-prompt { border-left-color: var(--line-strong); background: rgba(4, 7, 11, .55); }
 
 
-/* 다음 입력: 오른쪽에 붙어 있는 패널 */
-[data-theme="future-industry"] .col-next {
-  padding: 16px 18px 18px;
-  background: rgba(15, 25, 36, .97);
-  border: 1px solid var(--line-strong); border-top: 2px solid var(--accent);
-  box-shadow: -28px 0 48px rgba(0, 0, 0, .6);
-}
-[data-theme="future-industry"] .col-next .col-head { border-bottom: 0; padding-bottom: 4px; }
-[data-theme="future-industry"] .col-next .col-head::after { display: none; }
-[data-theme="future-industry"] .prog-bar i { box-shadow: 0 0 8px var(--accent); }
-[data-theme="future-industry"] .run-ghost { border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
+/* 보내기 줄: 커맨드 패널 아래에 붙어 있다 */
+[data-theme="future-industry"] .send-bar { background: rgba(15, 25, 36, .97); border-top: 2px solid var(--accent); }
+[data-theme="future-industry"] .mp-detail, [data-theme="future-industry"] .mp-throw { background: rgba(13, 20, 28, .97); }
 
 
 /* 영역 머리줄: IDE 서브창처럼 왼쪽에 신호색 막대 */

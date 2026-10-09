@@ -4,10 +4,10 @@ from pathlib import Path
 
 from loguru import logger
 
-from project_manager.l0.permission_gate import PermissionGate
-from project_manager.l0.record_store import RecordStore
-from project_manager.l0.transcript_reader import TranscriptReader
-from project_manager.l1.item_splitter import ItemSplitter
+from ...l0.permission_gate import PermissionGate
+from ...l0.record_store import RecordStore
+from ...l0.transcript_reader import TranscriptReader
+from ...l1.item_splitter import ItemSplitter
 
 # 권한 요청 기록에 남길 도구 입력 문자열 길이. Write 본문 같은 큰 입력을 다 남기지 않는다
 INPUT_PREVIEW = 2000
@@ -92,14 +92,15 @@ class CaptureHook:
         text, source = self._text(hook_input, transcript_path)
         preamble, items = self.splitter.split(text)
         record = {'source': source, 'text': text, 'preamble': preamble, 'items': [item.to_dict() for item in items],
-                  'prompts': None, 'usage': None, 'transcript_rows': None}
-        # 입력과 토큰 사용량은 기록 파일에서 읽는다. 실패해도 응답 기록은 남긴다
+                  'prompts': None, 'usage': None, 'files': None, 'transcript_rows': None}
+        # 입력, 토큰 사용량, 고친 파일은 기록 파일에서 읽는다. 실패해도 응답 기록은 남긴다
         if transcript_path and Path(transcript_path).exists():
             try:
                 reader = TranscriptReader(transcript_path)
                 since = self._since(tab_id, session_id)
                 record['prompts'] = reader.turn_prompts(since)
                 record['usage'] = reader.turn_usage(since)
+                record['files'] = reader.turn_files(since)
                 record['transcript_rows'] = reader.row_count()
             except Exception:
                 logger.exception("기록 파일 읽기 실패")
