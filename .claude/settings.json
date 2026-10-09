@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python -m lntools hook session-start"
+            "command": "lnt hook session-start"
           }
         ]
       }
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python -m lntools hook post-edit",
+            "command": "lnt hook post-edit",
             "timeout": 30
           }
         ]
