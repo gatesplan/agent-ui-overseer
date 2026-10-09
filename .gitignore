@@ -1,6 +1,9 @@
 # 실행 산출물: 캡처 기록, 로그
 data/
 
+# 이 프로젝트의 패널 기록(대화 원문). 폴더 안 .gitignore 로도 빠지지만 hatchling sdist 는 루트 .gitignore 만 본다
+.overseer/
+
 # uv 가상환경
 .venv/
 
