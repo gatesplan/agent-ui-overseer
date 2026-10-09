@@ -7,6 +7,8 @@ dependencies = [
     "aiohttp",
     "pywinpty; sys_platform == 'win32'",
     "mcp>=2.3.0",
+    # 모듈 패널의 지도(lnt map --json). 같은 환경의 lnt 를 쓴다
+    "ff-lntools>=0.4.1",
 ]
 
 [project.scripts]

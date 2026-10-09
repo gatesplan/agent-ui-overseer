@@ -59,3 +59,16 @@ def test_signature_changes_when_source_or_layerinfo_changes(tmp_path):
     (proj / 'src' / 'shop' / 'l0' / 'money' / 'money.py').write_text('class Money:\n    pass\n', encoding='utf-8')
     assert maps.signature(proj) != second
     assert maps.signature(tmp_path / 'nothing') == (0, 0, 0)
+
+
+def test_default_command_prefers_lnt_in_same_environment(tmp_path, monkeypatch):
+    scripts = tmp_path / 'venv' / 'Scripts'
+    scripts.mkdir(parents=True)
+    monkeypatch.setattr(sys, 'executable', str(scripts / 'python.exe'))
+    monkeypatch.setenv('OVERSEER_LNT', 'other-lnt')
+    # 같은 환경에 lnt 가 없으면 환경변수
+    assert ModuleMap().command == ['other-lnt']
+    (scripts / 'lnt.exe').write_bytes(b'')
+    assert ModuleMap().command == [str(scripts / 'lnt.exe')]
+    # 직접 준 명령이 가장 앞선다
+    assert ModuleMap(command=['x']).command == ['x']

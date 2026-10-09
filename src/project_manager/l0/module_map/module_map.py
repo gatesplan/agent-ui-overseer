@@ -3,6 +3,7 @@ import os
 import shlex
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 LAYER_DIR = ('l0', 'l1', 'l2', 'l3', 'l4', 'l5', 'l6', 'l7', 'l8', 'l9')
@@ -11,10 +12,20 @@ LAYER_DIR = ('l0', 'l1', 'l2', 'l3', 'l4', 'l5', 'l6', 'l7', 'l8', 'l9')
 # 프로젝트의 ln 모듈 지도를 lnt 에게서 받아 온다. 소스가 바뀌었는지는 파일 서명으로 알아본다
 # 지도 계산은 lnt 가 맡는다. overseer 는 ln 규칙을 따로 해석하지 않는다
 class ModuleMap:
-    # command: lnt 실행 명령. 없으면 환경변수 OVERSEER_LNT, 그것도 없으면 PATH 의 lnt
+    # command: lnt 실행 명령. 없으면 overseer 와 같은 환경의 lnt(의존성으로 함께 설치된다),
+    # 그것도 없으면 환경변수 OVERSEER_LNT, 그다음 PATH 의 lnt. 같은 환경을 먼저 보는 것은 설치한 판끼리 맞물리게 하려는 것
     def __init__(self, command: list[str] | None = None, timeout: float = 30):
-        self.command = command or shlex.split(os.environ.get('OVERSEER_LNT', 'lnt'), posix=False)
+        self.command = command or self._own_lnt() or shlex.split(os.environ.get('OVERSEER_LNT', 'lnt'), posix=False)
         self.timeout = timeout
+
+    # 이 파이썬과 같은 가상환경의 lnt 실행 파일. 없으면 None
+    @staticmethod
+    def _own_lnt() -> list[str] | None:
+        scripts = Path(sys.executable).parent
+        for name in ('lnt.exe', 'lnt'):
+            if (scripts / name).is_file():
+                return [str(scripts / name)]
+        return None
 
     # 지도 하나. status 는 ok(map 에 지도), none(ln 프로젝트 아님), missing(lnt 없음),
     # unsupported(lnt 가 --json 을 모름), error(그 밖의 실패, message 에 이유)

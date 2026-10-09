@@ -8,7 +8,7 @@
 - Claude Code CLI: `claude` 명령이 PATH 에 있고 로그인되어 있어야 한다
 - [uv](https://docs.astral.sh/uv/), git
 - 인터넷: 화면이 xterm.js 와 글꼴을 CDN 에서 받는다
-- 선택: 모듈 패널은 ln 구조 프로젝트의 모듈 지도를 `lnt map --json` 으로 받는다. `lnt`(ff-lntools)가 PATH 에 없으면 모듈 패널만 비고 나머지는 그대로 동작한다. 설치: `uv tool install ff-lntools`
+- 모듈 패널은 ln 구조 프로젝트의 모듈 지도를 `lnt map --json` 으로 받는다. `lnt`(ff-lntools)는 의존성이라 `uv sync` 로 같은 환경에 설치되고, 패널은 그것을 먼저 쓴다. 없으면 `OVERSEER_LNT`, 그다음 PATH 의 `lnt`
 
 ## 1. 설치
 
