@@ -8,6 +8,7 @@ from pathlib import Path
 from aiohttp import WSMsgType, web
 from loguru import logger
 
+from ...l0.install_layout import InstallLayout
 from ...l0.module_map import ModuleMap
 from ...l0.panel_store import PanelStore
 from ...l0.project_finder import ProjectFinder
@@ -16,7 +17,8 @@ from ...l1.map_watcher import MapWatcher
 from ...l2.agent_tab import AgentTab
 from ...l3.tab_manager import TabManager
 
-ROOT = Path(__file__).resolve().parents[4]
+# 화면, 규약, MCP 스크립트가 있는 곳. 저장소에서 돌 때와 설치한 패키지로 돌 때가 다르다
+LAYOUT = InstallLayout()
 POLL_INTERVAL = 0.4
 # 모듈 지도의 소스 변경을 살피는 간격
 MAP_INTERVAL = 1.0
@@ -29,7 +31,7 @@ class OverseerServer:
         self.store = PanelStore(data_dir / 'overseer.db')
         self.records = RecordStore()
         # 결정 아카이브 조회 MCP 서버. 이 서버와 같은 파이썬으로 띄운다
-        mcp = {'command': sys.executable, 'args': [str(ROOT / 'scripts' / 'overseer_mcp.py')]}
+        mcp = {'command': sys.executable, 'args': [str(LAYOUT.mcp_script)]}
         self.tabs = TabManager(self.store, data_dir / 'captures', claude_args, self.records, mcp)
         self.finder = ProjectFinder(roots=project_roots)
         # 모듈 패널의 지도. 화면이 연 프로젝트만 지켜본다
@@ -53,7 +55,7 @@ class OverseerServer:
             web.get('/ws/events', self._events),
             web.get('/ws/term/{id}', self._term),
         ])
-        self.app.router.add_static('/', ROOT / 'web')
+        self.app.router.add_static('/', LAYOUT.web)
         self.app.on_startup.append(self._startup)
         self.app.on_cleanup.append(self._cleanup)
 
@@ -63,7 +65,8 @@ class OverseerServer:
         parser.add_argument('--host', default='127.0.0.1')
         parser.add_argument('--port', type=int, default=47310)
         parser.add_argument('--claude-args', default='', help='새 탭의 claude 실행 인자. 예: "--dangerously-skip-permissions"')
-        parser.add_argument('--data', type=Path, default=ROOT / 'data')
+        parser.add_argument('--data', type=Path, default=InstallLayout.data(),
+                            help='이 컴퓨터의 패널 기록 폴더(탭, 캡처, 로그). 기본은 환경변수 OVERSEER_DATA, 없으면 ~/.overseer')
         parser.add_argument('--projects', action='append', metavar='DIR',
                             help='새 세션 창에 보일 프로젝트 루트. 여러 번 줄 수 있다. 환경변수 OVERSEER_PROJECTS(; 로 구분)로도 된다. '
                                  '없으면 드라이브마다 루트의 Projects 폴더')
@@ -138,7 +141,7 @@ class OverseerServer:
         return response
 
     async def _index(self, request: web.Request) -> web.FileResponse:
-        return web.FileResponse(ROOT / 'web' / 'index.html')
+        return web.FileResponse(LAYOUT.web / 'index.html')
 
     async def _list(self, request: web.Request) -> web.Response:
         return web.json_response([tab.state() for tab in self.tabs.tabs.values()])

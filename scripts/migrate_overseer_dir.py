@@ -20,6 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / 'src'))
 
+from project_manager.l0.install_layout import InstallLayout  # noqa: E402
 from project_manager.l0.project_journal import ProjectJournal  # noqa: E402
 from project_manager.l0.record_store import RecordStore  # noqa: E402
 from project_manager.l0.turn_builder import TurnBuilder  # noqa: E402
@@ -126,7 +127,7 @@ def temp_folder(cwd: str) -> bool:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument('--dry-run', action='store_true', help='프로젝트, DB, 캡처를 건드리지 않고 임시 폴더에 써 보고 대조만 한다')
-    parser.add_argument('--data', type=Path, default=ROOT / 'data')
+    parser.add_argument('--data', type=Path, default=InstallLayout.data())
     args = parser.parse_args()
     data, dry = args.data, args.dry_run
     captures = data / 'captures'

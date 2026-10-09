@@ -5,7 +5,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / 'src'))
+if (ROOT / 'src' / 'project_manager').is_dir():
+    sys.path.insert(0, str(ROOT / 'src'))
 
 from project_manager.l0.record_store import RecordStore
 from project_manager.l1.archive_query import ArchiveQuery

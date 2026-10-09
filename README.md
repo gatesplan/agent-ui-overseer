@@ -10,10 +10,12 @@ Windows 전용. Claude Code CLI, [uv](https://docs.astral.sh/uv/) 가 있어야 
 에이전트에게 설치를 맡길 때는 이 저장소 주소와 함께 `INSTALL.md 를 따라 설치해 줘` 라고 하면 된다.
 
 ```bash
-uv sync
-uv run python scripts/setup.py   # 전역 훅 등록과 점검. 처음 한 번
-uv run overseer                  # http://127.0.0.1:47310/
+uv tool install git+https://github.com/gatesplan/agent-ui-overseer
+overseer-setup   # 전역 훅 등록과 점검. 처음 한 번
+overseer         # http://127.0.0.1:47310/
 ```
+
+저장소에서 고치면서 쓸 때는 `uv sync` 뒤 `uv run overseer-setup`, `uv run overseer`.
 
 - `+` 로 작업 폴더를 고르면 그 폴더에서 `claude` 가 뜬다. 목록은 드라이브 루트의 `Projects` 폴더(`--projects` 로 바꿀 수 있다)
 - 턴이 끝나면 응답이 사안 카드로 나온다. 카드마다 처리를 고르고 `승인 및 작업`(Ctrl+Shift+Enter)을 누르면 전송 시안이 claude 입력으로 들어간다
@@ -27,14 +29,15 @@ uv run overseer                  # http://127.0.0.1:47310/
 ## 구성
 
 - `docs/item-protocol.md`: 에이전트에게 주는 사안 출력 규약. 패널 세션에는 SessionStart 훅이 넣는다
-- `scripts/capture_hook.py`: 훅. 세션 시작, 입력, 턴 끝을 `data/captures/<탭 ID>.jsonl` 에 쌓는다
-- `scripts/setup.py`: 훅 등록, 점검, 제거
+- `scripts/capture_hook.py`: 훅. 세션 시작, 입력, 턴 끝을 `~/.overseer/captures/<탭 ID>.jsonl` 에 쌓는다
+- `overseer-setup`(`l1/hook_installer`, 저장소에서는 `scripts/setup.py` 도 같다): 훅 등록, 점검, 제거
+- 설치한 패키지에는 `web/`, 규약, 훅과 MCP 스크립트가 패키지 안 `_assets/` 로 들어간다(`l0/install_layout` 이 찾는다)
 - `<프로젝트>/.overseer/`: 그 프로젝트의 세션 이력(`sessions/<번호>.jsonl`: 사안, 결정, 책임 변경)과 보존 기록(`records/D-3.md`). 폴더 안 `.gitignore` 로 git 에서 빠진다
-- `data/overseer.db`: 이 컴퓨터의 탭, 보낸 메시지, 작성 중 초안 (SQLite)
+- `~/.overseer/overseer.db`: 이 컴퓨터의 탭, 보낸 메시지, 작성 중 초안 (SQLite). 로그도 `~/.overseer/logs/`
 - `src/project_manager/`: 캡처, 저장, PTY, 서버 (Ln 구조)
 - `web/`: 화면. 턴을 기둥으로, 사안을 카드로 보인다. 서버 API 가 없으면 목업 모드(`python scripts/serve_mock.py`, 47311)
 
 ## 상태
 
 기본 제어 패널. 결정 아카이브(`[D]`, `[W]` 보존, 조회)는 아직 없다. 방향은 `개발계획.md`.
-macOS, Linux 지원은 없다. PTY(`l1/pty_session`)와 실행 명령(`l2/agent_tab`), 훅 경로(`scripts/setup.py`)를 운영체제별로 나누면 된다.
+macOS, Linux 지원은 없다. PTY(`l1/pty_session`)와 실행 명령(`l2/agent_tab`), 훅 경로(`l1/hook_installer`)를 운영체제별로 나누면 된다.

@@ -3,6 +3,7 @@ import importlib
 # 층 표면. 이름 -> 모듈 경로. 지연 로드. lnt doc 이 생성한다
 _EXPORTS = {
     "ArchiveQuery": "archive_query",
+    "HookInstaller": "hook_installer",
     "ItemSplitter": "item_splitter",
     "MapWatcher": "map_watcher",
     "PtySession": "pty_session",

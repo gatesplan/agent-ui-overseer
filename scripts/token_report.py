@@ -1,15 +1,15 @@
 # Overseer 세션과 일반 Claude Code 세션의 토큰 사용량을 턴 단위로 비교한다
-# Overseer 세션은 data/captures 의 훅 기록에 남은 세션 ID 로 가린다. 사용량은 ~/.claude/projects 의 대화 기록에서 읽는다
+# Overseer 세션은 패널 기록 폴더(~/.overseer/captures)의 훅 기록에 남은 세션 ID 로 가린다. 사용량은 ~/.claude/projects 의 대화 기록에서 읽는다
 # 대화 기록은 Claude Code 가 기본 30일 뒤 지운다(cleanupPeriodDays). 그보다 오래된 세션은 비교할 수 없다
 # 사용: python scripts/token_report.py [--days 7] [--turns 5] [--model opus] [--min-turns 3]
 #   --turns N: 세션마다 처음 N턴만 센다. 대화가 길수록 맥락이 커져 턴당 입력이 늘어나므로 길이를 맞춰 비교할 때 쓴다
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
 TRANSCRIPTS = Path.home() / '.claude' / 'projects'
 COLUMNS = [
     ('turns', '턴'), ('calls', '호출/턴'), ('tools', '도구/턴'), ('out', '출력/턴'),
@@ -19,7 +19,8 @@ COLUMNS = [
 
 def overseer_sessions() -> set[str]:
     ids = set()
-    for f in (ROOT / 'data' / 'captures').glob('*.jsonl'):
+    data = Path(os.environ.get('OVERSEER_DATA') or Path.home() / '.overseer')
+    for f in (data / 'captures').glob('*.jsonl'):
         for line in f.open(encoding='utf-8'):
             try:
                 sid = json.loads(line).get('session_id')

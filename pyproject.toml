@@ -1,5 +1,5 @@
 [project]
-name = "project-manager"
+name = "project-overseer"
 version = "0.2.0"
 requires-python = ">=3.12"
 dependencies = [
@@ -13,6 +13,8 @@ dependencies = [
 
 [project.scripts]
 overseer = "project_manager:OverseerServer.cli"
+# 훅 등록, 점검, 제거
+overseer-setup = "project_manager.l1.hook_installer:HookInstaller.main"
 
 [dependency-groups]
 dev = ["pytest"]
@@ -23,6 +25,13 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/project_manager"]
+
+# 설치한 패키지만으로 돌게 화면, 규약, 훅과 MCP 스크립트를 패키지 안 _assets 에 담는다(InstallLayout 이 찾는다)
+[tool.hatch.build.targets.wheel.force-include]
+"web" = "project_manager/_assets/web"
+"docs/item-protocol.md" = "project_manager/_assets/item-protocol.md"
+"scripts/capture_hook.py" = "project_manager/_assets/scripts/capture_hook.py"
+"scripts/overseer_mcp.py" = "project_manager/_assets/scripts/overseer_mcp.py"
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

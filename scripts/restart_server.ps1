@@ -1,5 +1,5 @@
 # Overseer 서버를 다시 띄운다. 패널 탭 안의 에이전트도 쓸 수 있다
-#   pwsh scripts/restart_server.ps1           재시작을 예약하고 바로 끝난다. 진행은 data/logs/restart.log
+#   pwsh scripts/restart_server.ps1           재시작을 예약하고 바로 끝난다. 진행은 ~/.overseer/logs/restart.log
 #   pwsh scripts/restart_server.ps1 -DryRun   멈추지 않고 탭, 서버 프로세스, 시작 방식만 점검해 기록한다
 #   pwsh scripts/restart_server.ps1 -WhileStopped scripts/migrate_item_ids.py   멈춘 동안 그 파이썬 스크립트를 돌린다(DB 이전 등)
 #
@@ -10,7 +10,10 @@
 param([switch]$DryRun, [switch]$Detached, [int]$Port = 47310, [string]$WhileStopped = '')
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$log = Join-Path $root 'data\logs\restart.log'
+# 이 컴퓨터의 패널 기록 폴더. 서버 기본값과 같다(OVERSEER_DATA, 없으면 ~/.overseer). WMI 로 띄운 쪽은 환경변수를 물려받지 않아 ~/.overseer
+$data = if ($env:OVERSEER_DATA) { $env:OVERSEER_DATA } else { Join-Path $HOME '.overseer' }
+New-Item -ItemType Directory -Force (Join-Path $data 'logs') | Out-Null
+$log = Join-Path $data 'logs\restart.log'
 $api = "http://127.0.0.1:$Port/api/tabs"
 $task = 'Overseer'
 
