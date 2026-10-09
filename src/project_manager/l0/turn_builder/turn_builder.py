@@ -1,3 +1,5 @@
+import re
+
 # 사용자 응답이 아니라 상태만 알리는 알림. 화면에 띄우지 않는다
 QUIET_NOTICES = ('idle_prompt', 'auth_success')
 # 턴에 더하는 토큰 사용량 항목
@@ -6,7 +8,13 @@ USAGE_KEYS = ('calls', 'tools', 'input_tokens', 'cache_creation_input_tokens', '
 SYSTEM_PROMPT_PREFIXES = ('<task-notification>',)
 
 
-# 훅 기록을 턴 목록으로 조립한다. 턴 번호는 응답이 있는 turn 기록의 순서, 사안 ID 는 `턴-순번`
+# 예전 사안 ID(`#턴-순번`, 턴 번호가 탭 안에서 이어짐). 지난 기록의 본문과 출처를 새 ID 로 바꿀 때 쓴다
+LEGACY_REF = re.compile(r'#(\d+)-(\d+)\b')
+LEGACY_ID = re.compile(r'^(\d+)-(\d+)$')
+
+
+# 훅 기록을 턴 목록으로 조립한다. 세션은 /clear 구간, 턴 번호는 세션 안에서 응답이 있는 turn 기록의 순서
+# 사안 ID 는 `<세션>S-<턴>-<순번>`
 # 터미널에서 사용자 응답을 기다리는 것(권한 요청, 확인 알림)도 함께 가린다
 class TurnBuilder:
     def build(self, events: list[dict]) -> dict:
@@ -14,8 +22,10 @@ class TurnBuilder:
         # 아직 어느 턴에도 들어가지 않은 입력 훅 기록. 입력 훅은 대기열에 넣는 순간 불려 앞 턴보다 먼저 올 수 있다
         waiting: list[str] = []
         after: str | None = None
-        # 마지막 /clear 때 이미 있던 턴 수. 화면은 그 앞 턴을 숨긴다
-        cleared = 0
+        # 지금 세션 번호. /clear 마다 하나씩 올라간다. 화면은 앞 세션의 턴을 접는다
+        session = 1
+        # 지금 세션의 턴 수
+        count = 0
         session_id: str | None = None
         # 패널의 결정을 기다리는 권한 요청(요청 ID 별), 마지막 확인 알림
         permissions: dict[str, dict] = {}
@@ -31,7 +41,7 @@ class TurnBuilder:
                 if e.get('source') in ('clear', 'compact'):
                     after = e['source']
                 if e.get('source') == 'clear':
-                    cleared = len(turns)
+                    session, count = session + 1, 0
                 # 세션이 새로 뜨면 앞 세션에서 기다리던 권한 요청은 끝났다
                 permissions.clear()
             elif kind == 'prompt':
@@ -71,24 +81,27 @@ class TurnBuilder:
                 if turns and (turns[-1]['open'] or joins):
                     self._extend(turns[-1], e, prompts)
                 else:
-                    turns.append(self._new(len(turns) + 1, e, prompts, after))
+                    count += 1
+                    turns.append(self._new(session, count, e, prompts, after))
                     after = None
                 # 응답이 끝났을 때 대기열에 입력이 남아 있으면 에이전트는 쉬지 않고 이어 간다. 다음 응답을 같은 턴에 붙인다
                 turns[-1]['open'] = bool(waiting)
         for t in turns:
             del t['open']
+        self._relabel(turns)
         return {
-            'turns': turns, 'session_id': session_id, 'cleared': cleared,
+            'turns': turns, 'session_id': session_id, 'session': session,
             # 남은 입력이 있으면 에이전트가 그것을 처리하는 중이다
             'pending': '\n\n'.join(waiting) if waiting else None,
             'permission': list(permissions.values())[-1] if permissions else None,
             'attention': attention,
         }
 
-    def _new(self, n: int, e: dict, prompts: list[str], after: str | None) -> dict:
-        items = [self._item(item, f'{n}-{k}') for k, item in enumerate(e.get('items') or [], 1)]
+    def _new(self, session: int, n: int, e: dict, prompts: list[str], after: str | None) -> dict:
+        tid = f'{session}S-{n}'
+        items = [self._item(item, f'{tid}-{k}') for k, item in enumerate(e.get('items') or [], 1)]
         return {
-            'turn': n, 'prompt': '\n\n'.join(prompts), 'text': e.get('text') or '',
+            'id': tid, 'session': session, 'turn': n, 'prompt': '\n\n'.join(prompts), 'text': e.get('text') or '',
             'preamble': e.get('preamble') or '', 'items': items, 'parts': 1,
             'usage': self._usage(None, e.get('usage')), 'files': list(e.get('files') or []),
             'session_id': e.get('session_id'), 'at': e.get('at'), 'after': after, 'open': False,
@@ -96,8 +109,8 @@ class TurnBuilder:
 
     # 이어진 응답을 턴에 붙인다. 사안 ID 는 그 턴 안에서 이어 매긴다
     def _extend(self, turn: dict, e: dict, prompts: list[str]) -> None:
-        n, start = turn['turn'], len(turn['items'])
-        turn['items'] += [self._item(item, f'{n}-{start + k}') for k, item in enumerate(e.get('items') or [], 1)]
+        tid, start = turn['id'], len(turn['items'])
+        turn['items'] += [self._item(item, f'{tid}-{start + k}') for k, item in enumerate(e.get('items') or [], 1)]
         turn['prompt'] = '\n\n'.join(p for p in [turn['prompt'], *prompts] if p)
         turn['text'] = f"{turn['text']}\n\n{e.get('text') or ''}"
         turn['preamble'] = '\n\n'.join(p for p in [turn['preamble'], e.get('preamble') or ''] if p)
@@ -111,6 +124,27 @@ class TurnBuilder:
         if item.get('kind') in ('D', 'W') and not item.get('tag'):
             item = {**item, 'kind': '제안', 'tag': item['kind'], 'known_kind': True}
         return {**item, 'id': item_id}
+
+    # 예전 ID 로 쓴 참조를 새 ID 로 바꾼다. 예전에는 턴 번호가 탭 안에서 이어졌으니 n 은 탭 전체에서 n 번째 턴이다
+    # 새 ID 를 본 에이전트는 새 ID 를 옮겨 쓰니, 세션 표시가 없는 참조는 예전 기록에만 나온다
+    def _relabel(self, turns: list[dict]) -> None:
+        def turn_id(n: str) -> str | None:
+            return turns[int(n) - 1]['id'] if 0 < int(n) <= len(turns) else None
+
+        def ref(m: re.Match) -> str:
+            tid = turn_id(m.group(1))
+            return f'#{tid}-{m.group(2)}' if tid else m.group(0)
+
+        def sub(text: str) -> str:
+            return LEGACY_REF.sub(ref, text) if text and '#' in text else text
+
+        for t in turns:
+            t['prompt'], t['text'], t['preamble'] = sub(t['prompt']), sub(t['text']), sub(t['preamble'])
+            for i in t['items']:
+                i['title'], i['body'] = sub(i.get('title') or ''), sub(i.get('body') or '')
+                m = LEGACY_ID.match(i.get('parent') or '')
+                if m and turn_id(m.group(1)):
+                    i['parent'] = f'{turn_id(m.group(1))}-{m.group(2)}'
 
     # 토큰 사용량을 더한다. 기록이 없는 응답(이전 버전 훅)이 섞이면 아는 것만 더한다
     def _usage(self, total: dict | None, add: dict | None) -> dict | None:

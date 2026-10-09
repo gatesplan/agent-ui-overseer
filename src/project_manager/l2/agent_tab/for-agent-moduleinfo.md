@@ -72,7 +72,8 @@ acknowledge() -> bool
     터미널 창 입력이 들어오면 서버가 부른다. 떠 있던 확인 알림을 사용자가 본 것으로 치고 내린다. 내렸으면 True.
 
 state() -> dict
-    화면용 상태. {id, project, cwd, agent, args, status, alive, starting, running, permission, attention, records, turns, session_id, cleared, sent, summarySent, draft}
-    cleared: 마지막 /clear 앞의 턴 수(TurnBuilder). 화면은 그 턴들을 접고, 보류에서 꺼내 다시 처리 중인 사안이 있는 턴만 보인다
+    화면용 상태. {id, project, cwd, agent, args, status, alive, starting, running, permission, attention, records, turns, session_id, session, sent, summarySent, draft}
+    session: 지금 세션 번호(TurnBuilder). 화면은 앞 세션의 턴을 접고, 보류에서 꺼내 다시 처리 중인 사안이 있는 턴만 보인다
+    summarySent: 턴 ID(`2S-3`)별 보낸 종합 의견 피드백. 결정 저장소에는 `sum-<턴 ID>` 로 둔다
     status: exited(꺼짐) | attention(권한 결정이나 터미널 확인을 기다림) | working(입력 처리 중) | waiting(사안 처리 대기) | idle(아직 턴 없음)
     running: 처리 중인 입력문. 보낸 직후 훅 기록이 오기 전에는 마지막으로 보낸 메시지.

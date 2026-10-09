@@ -235,9 +235,9 @@ class AgentTab:
             # 이 프로젝트의 결정 기록과 용어. 대체된 것도 넣는다(카드의 대체 대상 표시)
             'records': self.records.records_in_scope(self.project) if self.records else [],
             'turns': built['turns'], 'session_id': built['session_id'],
-            # 마지막 /clear 앞의 턴 수. 화면이 그 턴들을 접는다
-            'cleared': built['cleared'],
-            # 종합 의견 피드백은 `sum-<턴>` 으로 저장한다
+            # 지금 세션 번호(/clear 구간). 화면이 앞 세션의 턴을 접는다
+            'session': built['session'],
+            # 종합 의견 피드백은 `sum-<턴 ID>` 로 저장한다
             'sent': {k: v for k, v in sent.items() if not k.startswith('sum-')},
             'summarySent': {k[4:]: v['note'] for k, v in sent.items() if k.startswith('sum-')},
             'draft': self.store.draft(self.id),

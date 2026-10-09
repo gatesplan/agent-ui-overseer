@@ -8,7 +8,7 @@ class Item:
     title: str
     body: str
     known_kind: bool = True
-    # 파생 출처 사안 ID. 제목 끝 `(← #1-4)` 표기에서 읽는다
+    # 파생 출처 사안 ID. 제목 끝 `(← #1S-1-4)` 표기에서 읽는다
     parent: str | None = None
     # 보존 표시. `[제안][D]` 의 D(결정 기록), W(용어)
     tag: str | None = None

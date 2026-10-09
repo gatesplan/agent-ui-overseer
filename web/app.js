@@ -35,11 +35,19 @@ const blank = { decisions: {}, sent: {}, log: [], extra: '', wrapup: false, runn
 let LIVE = false;
 let sessions = [];
 
+// 목업 데이터는 예전 ID(`턴-순번`)로 적혀 있다. 한 세션으로 보고 `1S-턴-순번` 으로 바꾼다
 function mockSessions() {
+  const id = k => /^\d+-\d+$/.test(k) ? `1S-${k}` : k;
+  const text = t => t.replace(/#(\d+-\d+)\b/g, '#1S-$1');
   const list = window.MOCK.sessions.map(s => ({
     ...blank, ...s,
-    decisions: Object.fromEntries(Object.entries(s.decisions).map(([k, [a, n]]) => [k, { action: a, note: n }])),
-    sent: Object.fromEntries((s.sent || []).map(id => [id, { action: s.decisions[id][0], note: s.decisions[id][1] }])),
+    session: 1,
+    turns: s.turns.map(t => ({
+      ...t, id: `1S-${t.turn}`, session: 1, prompt: text(t.prompt),
+      items: t.items.map(i => ({ ...i, id: id(i.id), parent: i.parent && id(i.parent), title: text(i.title), body: text(i.body) })),
+    })),
+    decisions: Object.fromEntries(Object.entries(s.decisions).map(([k, [a, n]]) => [id(k), { action: a, note: n }])),
+    sent: Object.fromEntries((s.sent || []).map(k => [id(k), { action: s.decisions[k][0], note: s.decisions[k][1] }])),
     log: [],
   }));
   list.push({ ...blank, id: 'fmp', project: 'fishmathpics', agent: 'codex', status: 'idle', log: [] });
@@ -96,13 +104,22 @@ const findItem = (s, id) => allItems(s).find(i => i.id === id);
 const cardEl = id => id && (document.getElementById(`c-${id}`) || document.getElementById(`p-${id}`));
 const actionsFor = item => ACTIONS[item.kind] || ACTIONS['질문'];
 const pad = n => String(n).padStart(2, '0');
-const turnOf = id => Number(id.split('-')[0]);
+// 사안 ID `2S-3-1` 의 턴 ID `2S-3`, 화면의 턴 이름 `2S-03`
+const turnOf = id => id.replace(/-\d+$/, '');
+const turnLabel = t => `${t.session}S-${pad(t.turn)}`;
+const lastTurnId = s => s.turns.length ? s.turns[s.turns.length - 1].id : '';
+// 다음 턴 이름. /clear 뒤면 새 세션의 1턴
+function nextTurnLabel(s) {
+  const t = s.turns[s.turns.length - 1];
+  return t && t.session === s.session ? turnLabel({ session: s.session, turn: t.turn + 1 }) : turnLabel({ session: s.session || 1, turn: 1 });
+}
+const ITEM_REF = /#(\d+S-\d+-\d+)/g;
 const label = item => `[${item.kind}]${item.tag ? `[${item.tag}]` : ''}`;
-// 보존 사안의 근거 줄: `근거: #1-2, #1-4`
+// 보존 사안의 근거 줄: `근거: #1S-1-2, #1S-1-4`
 const BASIS = /^근거:(.*)$/m;
 // 보존 사안의 대체 대상 줄: `대체: D-3`
 const REPLACES = /^대체:\s*([DW]-\d+).*$/m;
-const basisOf = item => item.tag ? [...((item.body.match(BASIS) || [])[1] || '').matchAll(/#(\d+-\d+)/g)].map(m => m[1]) : [];
+const basisOf = item => item.tag ? [...((item.body.match(BASIS) || [])[1] || '').matchAll(ITEM_REF)].map(m => m[1]) : [];
 
 function esc(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -164,14 +181,14 @@ function isReady(s, item) {
   if (!s.sent[item.id]) return true;
   return isHeld(s, item.id) && d.action !== 'hold';
 }
-// /clear 앞의 턴은 처리가 끝났으니 접는다. 보류에서 꺼내 다시 처리 중인 사안이 있는 턴은 보인다
+// 앞 세션(/clear 앞)의 턴은 처리가 끝났으니 접는다. 보류에서 꺼내 다시 처리 중인 사안이 있는 턴은 보인다
 function visibleTurns(s) {
-  if (!s.cleared || ui.showOld.has(s.id)) return s.turns;
-  return s.turns.filter(t => t.turn > s.cleared || t.items.some(i => ['todo', 'ready'].includes(statusOf(s, i))));
+  if (ui.showOld.has(s.id)) return s.turns;
+  return s.turns.filter(t => t.session >= s.session || t.items.some(i => ['todo', 'ready'].includes(statusOf(s, i))));
 }
 // 접힌 턴의 사안으로 가야 하면 앞 턴을 펼친다
 function reveal(s, id) {
-  if (s && !visibleTurns(s).some(t => t.turn === turnOf(id))) ui.showOld.add(s.id);
+  if (s && !visibleTurns(s).some(t => t.id === turnOf(id))) ui.showOld.add(s.id);
 }
 function editable(s, id) { return !s.sent[id] || isHeld(s, id); }
 function statusOf(s, item) {
@@ -195,14 +212,15 @@ function canSend(s) {
 // 관계: 출처(parent), 보존 사안의 근거(basis), 본문에서 앞 턴 사안을 #ID 로 언급한 것(ref)
 function edgesOf(s) {
   const ids = new Set(allItems(s).map(i => i.id));
+  const order = new Map(s.turns.map((t, n) => [t.id, n]));
   const edges = [];
   for (const i of allItems(s)) {
     if (i.parent && ids.has(i.parent)) edges.push({ from: i.parent, to: i.id, type: 'parent' });
     const basis = basisOf(i).filter(r => ids.has(r));
     basis.forEach(r => edges.push({ from: r, to: i.id, type: 'basis' }));
-    const refs = new Set([...i.body.matchAll(/#(\d+-\d+)/g)].map(m => m[1]));
+    const refs = new Set([...i.body.matchAll(ITEM_REF)].map(m => m[1]));
     for (const r of refs) {
-      if (r !== i.parent && !basis.includes(r) && ids.has(r) && turnOf(r) < turnOf(i.id)) edges.push({ from: r, to: i.id, type: 'ref' });
+      if (r !== i.parent && !basis.includes(r) && ids.has(r) && order.get(turnOf(r)) < order.get(turnOf(i.id))) edges.push({ from: r, to: i.id, type: 'ref' });
     }
   }
   return edges;
@@ -226,7 +244,7 @@ function relatedOf(s, id) {
 }
 
 // 전송 메시지
-function summaryNote(s) { return s.running ? '' : (s.summary[s.turns.length] || '').trim(); }
+function summaryNote(s) { return s.running ? '' : (s.summary[lastTurnId(s)] || '').trim(); }
 
 // 덧붙인 말 없이 확인만 한 사안. 한 줄 `확인: #a, #b` 로 묶어 보낸다. 에이전트가 하나씩 답하며 늘어지지 않게
 function bareConfirm(s, i) {
@@ -347,7 +365,7 @@ const UNPICK = `<button class="unpick" data-unpick title="선택 해제 (Esc)" a
 function card(s, item, isCur, prefix = 'c', veil = false) {
   const open = isCur || ui.open.has(item.id);
   const mods = itemModules(s, item);
-  const held = veil ? `<div class="veil"><div class="veil-title"><span>TURN ${pad(turnOf(item.id))}</span> - ${esc(item.title)}</div>
+  const held = veil ? `<div class="veil"><div class="veil-title"><span>TURN ${turnOf(item.id)}</span> - ${esc(item.title)}</div>
       <div class="veil-why ${s.sent[item.id]?.note ? '' : 'none'}">${esc(s.sent[item.id]?.note || '보류 이유 없음')}</div>
       <div class="veil-btns"><button data-unhold="${item.id}" title="막을 걷고 다시 처리를 고른다">꺼내기</button><button data-closeheld="${item.id}" title="에이전트에게 보내지 않고 끝낸다">닫기</button></div></div>` : '';
   return `<article class="card k-${esc(item.kind)} st-${statusOf(s, item)} ${open ? 'open' : ''} ${isCur ? 'fixed' : ''} ${veil ? 'held-card' : ''}" id="${prefix}-${item.id}" data-id="${item.id}">
@@ -375,14 +393,14 @@ function promptBlock(turn, text) {
 }
 
 // 종합 의견 카드: 응답에서 첫 사안 앞에 쓴 글. 피드백은 선택이고 승인 조건에 들지 않는다
-// 사안 카드처럼 선택할 수 있다. 선택 id 는 sum-<턴>. 이어진 사안은 없다
+// 사안 카드처럼 선택할 수 있다. 선택 id 는 sum-<턴 ID>. 이어진 사안은 없다
 function summaryCard(s, t, isCur, prefix = 'c') {
   if (!t.preamble) return '';
-  const sent = s.summarySent[t.turn];
+  const sent = s.summarySent[t.id];
   const input = isCur && !s.running
-    ? `<textarea class="note" data-summary="${t.turn}" placeholder="종합 의견에 대한 피드백 (선택)">${esc(s.summary[t.turn] || '')}</textarea>`
+    ? `<textarea class="note" data-summary="${t.id}" placeholder="종합 의견에 대한 피드백 (선택)">${esc(s.summary[t.id] || '')}</textarea>`
     : sent ? `<div class="sent-note"><b>피드백</b> · ${esc(sent)}</div>` : '';
-  return `<article class="card summary" id="${prefix}-sum-${t.turn}" data-id="sum-${t.turn}">
+  return `<article class="card summary" id="${prefix}-sum-${t.id}" data-id="sum-${t.id}">
     <div class="card-head"><div class="meta"><span class="kind k-종합">종합 의견</span><span class="spacer"></span>
       ${isCur ? '<kbd class="hk" title="Home 키로 이동">Home</kbd>' : ''}
       ${sent ? '<span class="state s-confirm sent">피드백</span>' : ''}${UNPICK}</div></div>
@@ -392,10 +410,10 @@ function summaryCard(s, t, isCur, prefix = 'c') {
 
 function column(s, t, isCur, prefix = 'c') {
   const todo = t.items.filter(i => statusOf(s, i) === 'todo').length;
-  return `<section class="col ${isCur ? 'col-cur' : 'col-prev'}" data-col="${t.turn}">
+  return `<section class="col ${isCur ? 'col-cur' : 'col-prev'}" data-col="${t.id}">
     <header class="col-head">
-      <div class="col-title"><b>TURN ${pad(t.turn)}${t.wrapup ? '<i class="wrap-tag">정리</i>' : ''}${t.after ? `<i class="wrap-tag" title="이 턴 앞에서 에이전트 맥락이 바뀌었다">${esc(t.after)}</i>` : ''}${t.parts > 1 ? `<i class="wrap-tag" title="작업 중에 넣은 입력까지 이어서 처리해 응답이 ${t.parts}번 나온 턴">응답 ${t.parts}</i>` : ''}</b><span>사안 ${t.items.length}${todo ? ` · 미처리 ${todo}` : ''}</span></div>
-      ${promptBlock(t.turn, t.prompt)}
+      <div class="col-title"><b>TURN ${turnLabel(t)}${t.wrapup ? '<i class="wrap-tag">정리</i>' : ''}${t.after ? `<i class="wrap-tag" title="이 턴 앞에서 에이전트 맥락이 바뀌었다">${esc(t.after)}</i>` : ''}${t.parts > 1 ? `<i class="wrap-tag" title="작업 중에 넣은 입력까지 이어서 처리해 응답이 ${t.parts}번 나온 턴">응답 ${t.parts}</i>` : ''}</b><span>사안 ${t.items.length}${todo ? ` · 미처리 ${todo}` : ''}</span></div>
+      ${promptBlock(t.id, t.prompt)}
     </header>
     <div class="col-items">${summaryCard(s, t, isCur, prefix)}${sorted(t.items).map(i => card(s, i, isCur, prefix)).join('')}</div>
   </section>`;
@@ -414,9 +432,9 @@ function commandColumn(s, last) {
   const held = allItems(s).filter(veiled);
   const todo = live.filter(i => statusOf(s, i) === 'todo').length;
   const head = last
-    ? `<div class="col-title"><b>TURN ${pad(last.turn)}${last.wrapup ? '<i class="wrap-tag">정리</i>' : ''}${last.after ? `<i class="wrap-tag" title="이 턴 앞에서 에이전트 맥락이 바뀌었다">${esc(last.after)}</i>` : ''}${last.parts > 1 ? `<i class="wrap-tag" title="작업 중에 넣은 입력까지 이어서 처리해 응답이 ${last.parts}번 나온 턴">응답 ${last.parts}</i>` : ''}</b><span>사안 ${last.items.length}${todo ? ` · 미처리 ${todo}` : ''}</span></div>
-      ${promptBlock(last.turn, last.prompt)}`
-    : `<div class="col-title"><b>TURN ${pad(s.turns.length + 1)}</b><span>${todo ? `앞 맥락 미처리 ${todo}` : ''}</span></div>`;
+    ? `<div class="col-title"><b>TURN ${turnLabel(last)}${last.wrapup ? '<i class="wrap-tag">정리</i>' : ''}${last.after ? `<i class="wrap-tag" title="이 턴 앞에서 에이전트 맥락이 바뀌었다">${esc(last.after)}</i>` : ''}${last.parts > 1 ? `<i class="wrap-tag" title="작업 중에 넣은 입력까지 이어서 처리해 응답이 ${last.parts}번 나온 턴">응답 ${last.parts}</i>` : ''}</b><span>사안 ${last.items.length}${todo ? ` · 미처리 ${todo}` : ''}</span></div>
+      ${promptBlock(last.id, last.prompt)}`
+    : `<div class="col-title"><b>TURN ${nextTurnLabel(s)}</b><span>${todo ? `앞 맥락 미처리 ${todo}` : ''}</span></div>`;
   const empty = !last && !live.length
     ? `<div class="empty">${s.running ? '에이전트 작업 중. 턴이 끝나면 사안 카드가 생긴다' : s.turns.length ? '맥락을 지웠다' : '아직 사안 없음'}<br>
       <small>${s.running ? '' : s.turns.length ? '아래 지시 칸이나 터미널 창에서 입력한다'
@@ -458,7 +476,7 @@ function sendBar(s, fresh = false) {
     return `<div class="send-bar"><div class="run-line">세션 꺼짐. 작성 중인 처리는 그대로 남는다</div>
       <button class="primary send" data-resume="${s.id}">이어서 띄우기</button></div>`;
   }
-  const run = s.running ? `<details class="run-line"><summary><span class="dot working"></span>TURN ${pad(s.turns.length + 1)} 에이전트 작업 중</summary>
+  const run = s.running ? `<details class="run-line"><summary><span class="dot working"></span>TURN ${nextTurnLabel(s)} 에이전트 작업 중</summary>
     <div class="run-msg">${esc(s.running)}</div></details>` : '';
   const extra = fresh
     ? `<textarea class="note" data-extra placeholder="에이전트에게 보낼 지시. 보내기로 터미널에 입력된다">${esc(s.extra)}</textarea>`
@@ -531,12 +549,12 @@ function renderMain(s) {
   }
   // 지금 맥락의 턴. /clear 뒤 아직 응답이 없으면 앞 맥락의 마지막 턴은 가운데 칸에 두지 않는다
   const tail = s.turns[s.turns.length - 1];
-  const last = tail && (!s.cleared || tail.turn > s.cleared || ui.showOld.has(s.id)) ? tail : null;
+  const last = tail && (tail.session >= s.session || ui.showOld.has(s.id)) ? tail : null;
   const fresh = !last && !roundItems(s).length;
   const shown = visibleTurns(s);
   const past = shown.filter(t => t !== last);
   const folded = s.turns.length - shown.length;
-  const old = s.cleared && (folded || ui.showOld.has(s.id))
+  const old = s.turns.some(t => t.session < s.session) && (folded || ui.showOld.has(s.id))
     ? `<button class="pane-rec pane-old ${ui.showOld.has(s.id) ? 'on' : ''}" data-oldturns title="마지막 /clear 앞의 턴">${folded ? `이전 맥락 ${folded}턴 보기` : '이전 맥락 접기'}</button>` : '';
   return `<button class="past-strip ${ui.past ? 'on' : ''}" data-past title="${ui.past ? '지난 턴 접기' : '지난 턴 펼치기'}" ${past.length ? '' : 'disabled'}><span>지난 턴 · ${past.length}</span></button>
     <section class="cmd-pane">
@@ -732,12 +750,12 @@ async function send() {
   const ready = allItems(s).filter(i => isReady(s, i));
   if (LIVE) {
     const decisions = ready.map(i => ({ id: i.id, action: s.decisions[i.id].action, note: s.decisions[i.id].note.trim() }));
-    if (summaryNote(s)) decisions.push({ id: `sum-${s.turns.length}`, action: 'feedback', note: summaryNote(s) });
+    if (summaryNote(s)) decisions.push({ id: `sum-${lastTurnId(s)}`, action: 'feedback', note: summaryNote(s) });
     const res = await api(`/api/tabs/${s.id}/send`, 'POST', { message: msg, decisions });
     if (!res) return;
   }
   ready.forEach(i => { s.sent[i.id] = { ...s.decisions[i.id] }; ui.open.delete(i.id); });
-  if (summaryNote(s)) { s.summarySent[s.turns.length] = summaryNote(s); s.summary[s.turns.length] = ''; }
+  if (summaryNote(s)) { s.summarySent[lastTurnId(s)] = summaryNote(s); s.summary[lastTurnId(s)] = ''; }
   s.log.push(msg);
   s.running = msg;
   s.extra = '';
@@ -764,14 +782,14 @@ async function clearContext() {
   if (!confirm(msg.join('\n'))) return;
   if (LIVE) {
     const decisions = ready.map(i => ({ id: i.id, action: s.decisions[i.id].action, note: s.decisions[i.id].note.trim() }));
-    if (summaryNote(s)) decisions.push({ id: `sum-${s.turns.length}`, action: 'feedback', note: summaryNote(s) });
+    if (summaryNote(s)) decisions.push({ id: `sum-${lastTurnId(s)}`, action: 'feedback', note: summaryNote(s) });
     const res = await api(`/api/tabs/${s.id}/clear`, 'POST', { decisions });
     if (!res) return;
   }
   ready.forEach(i => { s.sent[i.id] = { ...s.decisions[i.id] }; ui.open.delete(i.id); });
   todo.forEach(i => { s.sent[i.id] = { action: 'hold', note: '' }; ui.open.delete(i.id); });
   ui.unveil.clear();
-  if (summaryNote(s)) { s.summarySent[s.turns.length] = summaryNote(s); s.summary[s.turns.length] = ''; }
+  if (summaryNote(s)) { s.summarySent[lastTurnId(s)] = summaryNote(s); s.summary[lastTurnId(s)] = ''; }
   s.wrapup = false;
   saveDraft(s);
   render();
@@ -978,7 +996,7 @@ function act(e) {
   else if (t.dataset.jump) { e.stopPropagation(); jumpTo(t.dataset.jump); }
   else if ('oldturns' in t.dataset) { ui.showOld.has(s.id) ? ui.showOld.delete(s.id) : ui.showOld.add(s.id); render(); }
   else if (t.dataset.prompt) {
-    const n = Number(t.dataset.prompt);
+    const n = t.dataset.prompt;
     ui.promptOpen.has(n) ? ui.promptOpen.delete(n) : ui.promptOpen.add(n);
     render();
   }

@@ -1,12 +1,13 @@
 # Overseer 서버를 다시 띄운다. 패널 탭 안의 에이전트도 쓸 수 있다
 #   pwsh scripts/restart_server.ps1           재시작을 예약하고 바로 끝난다. 진행은 data/logs/restart.log
 #   pwsh scripts/restart_server.ps1 -DryRun   멈추지 않고 탭, 서버 프로세스, 시작 방식만 점검해 기록한다
+#   pwsh scripts/restart_server.ps1 -WhileStopped scripts/migrate_item_ids.py   멈춘 동안 그 파이썬 스크립트를 돌린다(DB 이전 등)
 #
 # 패널 탭 안에서 부른 프로세스는 서버를 멈출 때 같이 죽는다. 그래서 WMI 로 서버와 무관한 프로세스를 띄워 거기서 한다(-Detached)
 # 순서: 모든 탭이 working/attention 이 아닐 때까지 기다린다(최대 10분) → 멈춘다 → 다시 띄운다 → 떠 있던 탭을 이어서 띄운다
 # 작업 스케줄러에 Overseer 작업이 있으면 그것으로 멈추고 띄운다. 없으면 프로세스를 끝내고 `uv run overseer` 를 창 없이 띄운다
 # WMI 로 띄운 프로세스에서는 CIM 호출이 실패하므로 그쪽에서는 CIM 을 쓰지 않는다(netstat, Get-Process, schtasks)
-param([switch]$DryRun, [switch]$Detached, [int]$Port = 47310)
+param([switch]$DryRun, [switch]$Detached, [int]$Port = 47310, [string]$WhileStopped = '')
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $log = Join-Path $root 'data\logs\restart.log'
@@ -15,7 +16,8 @@ $task = 'Overseer'
 
 if (-not $Detached) {
     $pwsh = (Get-Process -Id $PID).Path
-    $cmd = "`"$pwsh`" -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$PSCommandPath`" -Detached -Port $Port$(if ($DryRun) { ' -DryRun' })"
+    $run = if ($WhileStopped) { " -WhileStopped `"$WhileStopped`"" } else { '' }
+    $cmd = "`"$pwsh`" -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$PSCommandPath`" -Detached -Port $Port$(if ($DryRun) { ' -DryRun' })$run"
     $r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $cmd; CurrentDirectory = $root }
     if ($r.ReturnValue -ne 0) { Write-Error "재시작 프로세스를 띄우지 못함: $($r.ReturnValue)"; exit 1 }
     Write-Output "$(if ($DryRun) { '점검' } else { '재시작' }) 예약됨(PID $($r.ProcessId)). 진행: $log"
@@ -86,6 +88,11 @@ try {
     foreach ($id in $tree) { if (Get-Process -Id $id -ErrorAction SilentlyContinue) { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue } }
     for ($i = 0; $i -lt 15 -and (ServerPid); $i++) { Start-Sleep 1 }
     Log '멈춤'
+    # 실패해도 서버는 다시 띄운다. 결과는 로그로 본다
+    if ($WhileStopped) {
+        $out = (& uv run --project $root python (Join-Path $root $WhileStopped) 2>&1 | Out-String).Trim()
+        Log "$WhileStopped 실행(종료코드 $LASTEXITCODE): $out"
+    }
 
     for ($try = 1; $try -le 3; $try++) {
         StartServer

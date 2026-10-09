@@ -10,13 +10,14 @@ def test_turns_get_numbered_ids_and_prompts():
         {'event': 'session_start', 'session_id': 's1', 'source': 'startup'},
         {'event': 'prompt', 'prompt': '검토해 줘'},
         turn('### [질문] a\n### [제안] b', [{'kind': '질문', 'title': 'a'}, {'kind': '제안', 'title': 'b'}]),
-        {'event': 'prompt', 'prompt': '#1-1 답변: 예'},
+        {'event': 'prompt', 'prompt': '#1S-1-1 답변: 예'},
         turn('### [보고] c', [{'kind': '보고', 'title': 'c'}]),
     ]
     built = TurnBuilder().build(events)
-    assert [t['prompt'] for t in built['turns']] == ['검토해 줘', '#1-1 답변: 예']
-    assert [i['id'] for i in built['turns'][0]['items']] == ['1-1', '1-2']
-    assert built['turns'][1]['items'][0]['id'] == '2-1'
+    assert [t['prompt'] for t in built['turns']] == ['검토해 줘', '#1S-1-1 답변: 예']
+    assert [i['id'] for i in built['turns'][0]['items']] == ['1S-1-1', '1S-1-2']
+    assert built['turns'][1]['items'][0]['id'] == '1S-2-1'
+    assert [t['id'] for t in built['turns']] == ['1S-1', '1S-2']
     assert built['pending'] is None
     assert built['session_id'] == 's1'
 
@@ -38,7 +39,7 @@ def test_queued_prompt_response_joins_the_same_turn():
     built = TurnBuilder().build(events + [second])
     assert len(built['turns']) == 1
     t = built['turns'][0]
-    assert [i['id'] for i in t['items']] == ['1-1', '1-2', '1-3']
+    assert [i['id'] for i in t['items']] == ['1S-1-1', '1S-1-2', '1S-1-3']
     assert t['prompt'] == '상태 확인\n\n계속해봐\n\n이거  UI 때문이야?'
     assert t['preamble'] == '앞말 1\n\n앞말 2'
     assert t['parts'] == 2
@@ -88,24 +89,48 @@ def test_system_prompt_response_joins_previous_turn():
     built = TurnBuilder().build(events + later)
     assert len(built['turns']) == 1
     t = built['turns'][0]
-    assert [i['id'] for i in t['items']] == ['1-1', '1-2']
+    assert [i['id'] for i in t['items']] == ['1S-1-1', '1S-1-2']
     assert t['prompt'] == '실측해 봐'
     assert t['parts'] == 2
     assert built['pending'] is None
 
     # /clear 뒤 첫 응답은 입력이 없어도 새 턴
     built = TurnBuilder().build(events + [{'event': 'session_start', 'source': 'clear'}, {**turn('c'), 'prompts': []}])
-    assert [x['turn'] for x in built['turns']] == [1, 2]
+    assert [x['id'] for x in built['turns']] == ['1S-1', '2S-1']
 
 
-def test_cleared_counts_turns_before_last_clear():
-    # 화면은 마지막 /clear 앞의 턴을 접는다. compact 는 맥락을 이어 가므로 세지 않는다
-    events = [{'event': 'prompt', 'prompt': 'a'}, {**turn('a'), 'prompts': ['a']}]
-    assert TurnBuilder().build(events)['cleared'] == 0
+def test_clear_starts_a_new_session_number():
+    # /clear 마다 세션 번호가 오르고 턴 번호는 1부터. compact 는 맥락을 이어 가므로 세션을 나누지 않는다
+    events = [{'event': 'prompt', 'prompt': 'a'}, {**turn('### [질문] a', [{'kind': '질문', 'title': 'a'}]), 'prompts': ['a']}]
+    assert TurnBuilder().build(events)['session'] == 1
     events += [{'event': 'session_start', 'source': 'clear'}]
-    assert TurnBuilder().build(events)['cleared'] == 1
-    events += [{'event': 'prompt', 'prompt': 'b'}, {**turn('b'), 'prompts': ['b']}, {'event': 'session_start', 'source': 'compact'}]
-    assert TurnBuilder().build(events)['cleared'] == 1
+    assert TurnBuilder().build(events)['session'] == 2
+    events += [{'event': 'prompt', 'prompt': 'b'}, {**turn('### [제안] b', [{'kind': '제안', 'title': 'b'}]), 'prompts': ['b']},
+               {'event': 'session_start', 'source': 'compact'},
+               {'event': 'prompt', 'prompt': 'c'}, {**turn('c'), 'prompts': ['c']}]
+    built = TurnBuilder().build(events)
+    assert built['session'] == 2
+    assert [(t['id'], t['session'], t['turn']) for t in built['turns']] == [('1S-1', 1, 1), ('2S-1', 2, 1), ('2S-2', 2, 2)]
+    assert built['turns'][1]['items'][0]['id'] == '2S-1-1'
+
+
+def test_legacy_refs_are_relabeled_to_session_ids():
+    # 예전 ID 는 탭 전체에서 이어진 턴 번호였다. 본문, 입력, 출처의 `#n-k` 를 n 번째 턴의 새 ID 로 바꾼다
+    events = [
+        {'event': 'prompt', 'prompt': 'a'},
+        {**turn('### [질문] a', [{'kind': '질문', 'title': 'a', 'body': ''}]), 'prompts': ['a']},
+        {'event': 'session_start', 'source': 'clear'},
+        {'event': 'prompt', 'prompt': '#1-1 답변: 예'},
+        {**turn('### [제안] b (← #1-1)', [{'kind': '제안', 'title': 'b', 'body': '근거: #1-1, #2-1, #9-1', 'parent': '1-1'}]),
+         'prompts': ['#1-1 답변: 예']},
+    ]
+    t = TurnBuilder().build(events)['turns'][1]
+    assert t['prompt'] == '#1S-1-1 답변: 예'
+    assert t['text'] == '### [제안] b (← #1S-1-1)'
+    item = t['items'][0]
+    assert item['parent'] == '1S-1-1'
+    # 없는 턴을 가리키면 그대로 둔다
+    assert item['body'] == '근거: #1S-1-1, #2S-1-1, #9-1'
 
 
 def test_unmatched_older_prompts_are_dropped_when_later_one_matches():

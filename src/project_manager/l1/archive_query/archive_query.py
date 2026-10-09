@@ -56,7 +56,7 @@ class ArchiveQuery:
         item = self._item(rec['tab_id'], rec['item_id']) if rec['tab_id'] else None
         if item:
             lines += ['', f"## 원래 사안 #{rec['item_id']} ({self._date(rec['created_at'])})", self._clip(item['body'])]
-            basis = re.findall(r'#(\d+-\d+)', (BASIS.search(item['body'] or '') or [None, ''])[1])
+            basis = re.findall(r'#(\d+S-\d+-\d+)', (BASIS.search(item['body'] or '') or [None, ''])[1])
             if basis:
                 lines += ['', '## 근거 사안과 사용자 결정']
                 lines += [self._item_line(rec['tab_id'], b) for b in basis]
