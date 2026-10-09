@@ -55,6 +55,8 @@ class AgentTab:
         self._was_alive = False
         # 사용자가 터미널에서 응답한 시점의 기록 위치. 그보다 앞선 확인 알림은 처리된 것으로 본다
         self._ack_seq = -1
+        # 이번 실행을 띄운 시점의 기록 위치. 그 뒤 시작 기록이 오기 전에는 시작 중(확인 창이 떠 있을 수 있다)
+        self._start_seq: int | None = None
         self.gate = PermissionGate(captures_dir.parent / 'permissions', None)
         self.records = records
         self.project = RecordStore.project_key(cwd)
@@ -72,6 +74,8 @@ class AgentTab:
         env = self.child_env(dict(os.environ), self.id)
         self.pty = PtySession(argv, self.cwd, env, rows, cols)
         self.pty.listeners = self.listeners
+        self.log.poll()
+        self._start_seq = len(self.log.events)
         self.pty.start()
         self._was_alive = True
 
@@ -102,6 +106,14 @@ class AgentTab:
     def alive(self) -> bool:
         return bool(self.pty and self.pty.alive)
 
+    # 띄웠는데 아직 시작 기록이 없다. 시작 훅은 폴더 신뢰 같은 시작 확인 창이 닫혀야 불린다
+    # 이때 붙여넣으면 입력이 확인 창으로 간다
+    @property
+    def starting(self) -> bool:
+        if not self.alive or self._start_seq is None:
+            return False
+        return not any(e.get('event') == 'session_start' for e in self.log.events[self._start_seq:])
+
     # 새 훅 기록이 붙었거나 프로세스가 끝났으면 True
     def poll(self) -> bool:
         changed = self.log.poll()
@@ -115,6 +127,8 @@ class AgentTab:
     async def send(self, message: str, decisions: list[tuple[str, str, str]]) -> None:
         if not self.alive:
             raise RuntimeError('세션이 떠 있지 않다')
+        if self.starting:
+            raise RuntimeError('세션이 시작 중이다. 시작 확인 창은 터미널에서 처리한다')
         self.store.add_message(self.id, message, decisions + self.takeovers(decisions))
         self.sync_records()
         logger.info(f"전송: tab={self.id}, decisions={len(decisions)}, len={len(message)}")
@@ -128,6 +142,8 @@ class AgentTab:
     async def clear(self, decisions: list[tuple[str, str, str]]) -> list[str]:
         if not self.alive:
             raise RuntimeError('세션이 떠 있지 않다')
+        if self.starting:
+            raise RuntimeError('세션이 시작 중이다. 시작 확인 창은 터미널에서 처리한다')
         built = self.builder.build(self.log.events)
         if built['pending'] is not None or self._sending:
             raise RuntimeError('에이전트가 작업 중이다')
@@ -213,7 +229,8 @@ class AgentTab:
         permission = built['permission'] if self.alive else None
         return {
             'id': self.id, 'project': Path(self.cwd).name, 'cwd': self.cwd, 'agent': 'claude', 'args': self.claude_args,
-            'status': self._status(built, running, permission or attention), 'alive': self.alive, 'running': running,
+            'status': self._status(built, running, permission or attention), 'alive': self.alive, 'starting': self.starting,
+            'running': running,
             'permission': permission, 'attention': attention,
             # 이 프로젝트의 결정 기록과 용어. 대체된 것도 넣는다(카드의 대체 대상 표시)
             'records': self.records.records_in_scope(self.project) if self.records else [],

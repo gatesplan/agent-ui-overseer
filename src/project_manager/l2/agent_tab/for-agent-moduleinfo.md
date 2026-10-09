@@ -15,6 +15,7 @@ claude_args: str             # claude 실행 인자. 탭을 만들 때 정해져
 pty: PtySession | None       # 띄우기 전이나 복원 직후는 None
 listeners: list              # 터미널 창 출력 콜백. PTY 를 다시 띄워도 이 목록을 그대로 넘긴다
 alive: bool
+starting: bool               # 띄운 뒤 이번 실행의 session_start 기록이 아직 없음. 시작 훅은 폴더 신뢰 같은 시작 확인 창이 닫혀야 불린다
 
 ### __init__
 __init__(tab_id: str, cwd: str, claude_args: str, store: DecisionStore, captures_dir: Path, records: RecordStore | None = None, mcp: dict | None = None)
@@ -26,7 +27,7 @@ __init__(tab_id: str, cwd: str, claude_args: str, store: DecisionStore, captures
 
 start(resume: bool = False, rows: int = 40, cols: int = 120) -> None
     `cmd.exe /c claude <claude_args>` 를 띄운다. resume 이면 기록된 마지막 세션으로 `--resume <session_id>`.
-    환경은 child_env 로 만든다.
+    환경은 child_env 로 만든다. 띄우기 전 훅 기록 길이를 적어 두고 starting 판단에 쓴다.
 
 child_env(environ: dict[str, str], tab_id: str) -> dict[str, str]    # staticmethod
     자식 claude 에 줄 환경. environ 은 고치지 않는다.
@@ -38,11 +39,11 @@ poll() -> bool
     새 훅 기록이 붙었거나 프로세스가 끝났으면 True.
 
 async send(message: str, decisions: list[tuple[str, str, str]]) -> None
-    raise RuntimeError    # 프로세스가 꺼져 있을 때
+    raise RuntimeError    # 프로세스가 꺼져 있거나 시작 중(starting)일 때
     결정(과 takeovers)을 저장하고 메시지를 붙여넣은 뒤 SUBMIT_DELAY 뒤에 Enter 를 친다.
 
 async clear(decisions: list[tuple[str, str, str]]) -> list[str]
-    raise RuntimeError    # 프로세스가 꺼져 있거나 에이전트가 작업 중일 때
+    raise RuntimeError    # 프로세스가 꺼져 있거나 시작 중(starting)이거나 에이전트가 작업 중일 때
     결정 저장 후 /clear. 결정(과 takeovers)을 add_local 로 패널에만 저장하고(에이전트에게 보내지 않음) sync_records 한다.
     결정도 보낸 결정도 없는 사안은 hold 로 남긴다. 그다음 `/clear` 를 치고 SUBMIT_DELAY 뒤에 Enter. 보류로 넘긴 사안 ID 반환.
 
@@ -71,7 +72,7 @@ acknowledge() -> bool
     터미널 창 입력이 들어오면 서버가 부른다. 떠 있던 확인 알림을 사용자가 본 것으로 치고 내린다. 내렸으면 True.
 
 state() -> dict
-    화면용 상태. {id, project, cwd, agent, args, status, alive, running, permission, attention, records, turns, session_id, cleared, sent, summarySent, draft}
+    화면용 상태. {id, project, cwd, agent, args, status, alive, starting, running, permission, attention, records, turns, session_id, cleared, sent, summarySent, draft}
     cleared: 마지막 /clear 앞의 턴 수(TurnBuilder). 화면은 그 턴들을 접고, 보류에서 꺼내 다시 처리 중인 사안이 있는 턴만 보인다
     status: exited(꺼짐) | attention(권한 결정이나 터미널 확인을 기다림) | working(입력 처리 중) | waiting(사안 처리 대기) | idle(아직 턴 없음)
     running: 처리 중인 입력문. 보낸 직후 훅 기록이 오기 전에는 마지막으로 보낸 메시지.

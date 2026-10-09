@@ -77,6 +77,8 @@ const ui = {
   refs: pref('overseer.refs', '1') === '1',
   // 지난 턴 펼침, 보류 막을 걷은 사안, 추가 지시 칸
   past: false, unveil: new Set(), extraOpen: false,
+  // 띄우면서 터미널 창을 연 탭. 시작 훅이 오면 접고, 사용자가 직접 여닫으면 그대로 둔다
+  autoTerm: null,
   // 모듈 패널: 고정한 모듈, 탭별 펼친 중첩 모듈, 책임 카드 창
   mpPin: null, mpOpen: {}, mpThrow: false,
   peekDelay: Number(pref('overseer.peek', '0.5')),
@@ -187,7 +189,7 @@ function progress(s) {
 // 전부 처리했고 보낼 내용이 있어야 승인 가능
 function canSend(s) {
   const { done, total } = progress(s);
-  return s.alive && !s.running && done === total && !!compose(s);
+  return s.alive && !s.starting && !s.running && done === total && !!compose(s);
 }
 
 // 관계: 출처(parent), 보존 사안의 근거(basis), 본문에서 앞 턴 사안을 #ID 로 언급한 것(ref)
@@ -400,23 +402,28 @@ function column(s, t, isCur, prefix = 'c') {
 }
 
 // 커맨드 패널의 카드 열. 현재 턴 사안, 다른 턴에서 아직 처리할 사안(보류에서 꺼낸 것 포함), 맨 아래에 보류한 사안
-function commandColumn(s) {
-  const last = s.turns[s.turns.length - 1];
-  const here = new Set(last.items.map(i => i.id));
+// last: 지금 맥락의 마지막 턴. 맥락을 지운 뒤 아직 응답이 없으면 null 이고 앞 맥락에서 남은 사안만 보인다
+function commandColumn(s, last) {
+  const here = new Set(last ? last.items.map(i => i.id) : []);
   const veiled = i => statusOf(s, i) === 'held' && !ui.unveil.has(i.id);
   const others = allItems(s).filter(i => !here.has(i.id) && !veiled(i)
     && (['todo', 'ready'].includes(statusOf(s, i)) || ui.unveil.has(i.id)));
   // 보류함에서 닫은 사안은 에이전트에게 보내지 않고 끝낸 것이라 보이지 않는다
   const closed = i => s.sent[i.id]?.action === 'close';
-  const live = [...sorted(last.items).filter(i => !veiled(i) && !closed(i)), ...others];
+  const live = [...(last ? sorted(last.items) : []).filter(i => !veiled(i) && !closed(i)), ...others];
   const held = allItems(s).filter(veiled);
   const todo = live.filter(i => statusOf(s, i) === 'todo').length;
+  const head = last
+    ? `<div class="col-title"><b>TURN ${pad(last.turn)}${last.wrapup ? '<i class="wrap-tag">정리</i>' : ''}${last.after ? `<i class="wrap-tag" title="이 턴 앞에서 에이전트 맥락이 바뀌었다">${esc(last.after)}</i>` : ''}${last.parts > 1 ? `<i class="wrap-tag" title="작업 중에 넣은 입력까지 이어서 처리해 응답이 ${last.parts}번 나온 턴">응답 ${last.parts}</i>` : ''}</b><span>사안 ${last.items.length}${todo ? ` · 미처리 ${todo}` : ''}</span></div>
+      ${promptBlock(last.turn, last.prompt)}`
+    : `<div class="col-title"><b>TURN ${pad(s.turns.length + 1)}</b><span>${todo ? `앞 맥락 미처리 ${todo}` : ''}</span></div>`;
+  const empty = !last && !live.length
+    ? `<div class="empty">${s.running ? '에이전트 작업 중. 턴이 끝나면 사안 카드가 생긴다' : s.turns.length ? '맥락을 지웠다' : '아직 사안 없음'}<br>
+      <small>${s.running ? '' : s.turns.length ? '아래 지시 칸이나 터미널 창에서 입력한다'
+        : '아래 지시 칸이나 터미널 창에서 첫 입력을 한다. 시작 확인 창은 터미널에서 처리한다'}</small></div>` : '';
   return `<section class="col col-cur" data-col="cmd">
-    <header class="col-head">
-      <div class="col-title"><b>TURN ${pad(last.turn)}${last.wrapup ? '<i class="wrap-tag">정리</i>' : ''}${last.after ? `<i class="wrap-tag" title="이 턴 앞에서 에이전트 맥락이 바뀌었다">${esc(last.after)}</i>` : ''}${last.parts > 1 ? `<i class="wrap-tag" title="작업 중에 넣은 입력까지 이어서 처리해 응답이 ${last.parts}번 나온 턴">응답 ${last.parts}</i>` : ''}</b><span>사안 ${last.items.length}${todo ? ` · 미처리 ${todo}` : ''}</span></div>
-      ${promptBlock(last.turn, last.prompt)}
-    </header>
-    <div class="col-items">${summaryCard(s, last, true)}${live.map(i => card(s, i, true)).join('')}${held.length
+    <header class="col-head">${head}</header>
+    <div class="col-items">${last ? summaryCard(s, last, true) : ''}${empty}${live.map(i => card(s, i, true)).join('')}${held.length
       ? `<div class="held-sep">보류 ${held.length}</div>${held.map(i => card(s, i, true, 'c', true)).join('')}` : ''}</div>
   </section>`;
 }
@@ -441,22 +448,26 @@ function unhold(id) {
 function sendLabel(s) {
   const { done, total } = progress(s);
   const maps = mapCount(s);
+  if (s.starting) return '시작 대기';
   return `보내기<span class="send-n">${total ? `${done}/${total}` : ''}${maps ? ` · 지도 ${maps}` : ''}</span>`;
 }
 
-function sendBar(s) {
+// fresh: 처리할 카드가 없는 새 맥락(첫 실행, /clear 뒤). 지시 칸을 늘 열어 두고 거기서 첫 입력을 한다
+function sendBar(s, fresh = false) {
   if (!s.alive) {
     return `<div class="send-bar"><div class="run-line">세션 꺼짐. 작성 중인 처리는 그대로 남는다</div>
       <button class="primary send" data-resume="${s.id}">이어서 띄우기</button></div>`;
   }
   const run = s.running ? `<details class="run-line"><summary><span class="dot working"></span>TURN ${pad(s.turns.length + 1)} 에이전트 작업 중</summary>
     <div class="run-msg">${esc(s.running)}</div></details>` : '';
-  const extra = ui.extraOpen || s.extra.trim()
+  const extra = fresh
+    ? `<textarea class="note" data-extra placeholder="에이전트에게 보낼 지시. 보내기로 터미널에 입력된다">${esc(s.extra)}</textarea>`
+    : ui.extraOpen || s.extra.trim()
     ? `<textarea class="note" data-extra placeholder="추가 지시 (선택). 카드와 상관없는 지시. 보낼 메시지 끝에 붙는다">${esc(s.extra)}</textarea>` : '';
   return `<div class="send-bar">${run}${extra}
     <div class="send-row">
       <button class="wrapup ${s.wrapup ? 'on' : ''}" id="btn-wrapup" title="다음 세션에도 유효한 용어와 결정을 보존 사안으로 올리게 한다">정리 요청 ${s.wrapup ? '켬' : '끔'}</button>
-      <button class="bar-btn ${ui.extraOpen ? 'on' : ''}" data-extra-toggle title="카드와 상관없는 지시를 덧붙인다">+ 지시</button>
+      ${fresh ? '' : `<button class="bar-btn ${ui.extraOpen ? 'on' : ''}" data-extra-toggle title="카드와 상관없는 지시를 덧붙인다">+ 지시</button>`}
       <button class="clear-ctx" id="btn-clear" title="고른 처리를 패널에만 저장하고 에이전트 맥락을 지운다. 에이전트에게는 보내지 않는다">/clear</button>
       <button class="primary send" id="btn-send" ${canSend(s) ? '' : 'disabled'}>${sendLabel(s)}</button>
     </div></div>`;
@@ -485,6 +496,11 @@ function attentionBar(s) {
         <button data-perm="terminal" data-rid="${p.request_id}" title="원래 확인 창을 터미널에 띄운다">터미널에서</button>
       </div></div>`;
   }
+  // 띄운 뒤 시작 훅이 아직 오지 않았다. 폴더 신뢰 같은 시작 확인 창이 터미널에 떠 있을 수 있다
+  if (s.starting) {
+    return `<div class="attn"><div class="attn-head"><span class="attn-tag">시작 중</span><span>시작 확인 창이 떠 있으면 터미널에서 처리한다. 그때까지 패널에서 보낼 수 없다</span>
+      <button data-open-term>터미널 열기</button></div></div>`;
+  }
   if (s.attention) {
     return `<div class="attn"><div class="attn-head"><span class="attn-tag">터미널 확인 필요</span><span>${esc(s.attention.message || '')}</span>
       <button data-open-term>터미널 열기</button></div></div>`;
@@ -508,14 +524,15 @@ function renderMain(s) {
       ${extra}
       ${LIVE ? `<button class="pane-rec ${ui.drawer === 'records' ? 'on' : ''}" data-drawer="records" title="이 프로젝트의 결정 기록과 용어">기록 ${(s.records || []).filter(r => r.status === 'active').length}</button>` : ''}
       <button class="pane-gear ${ui.drawer === 'flow' ? 'on' : ''}" data-drawer="flow" title="커맨드 패널 설정">${GEAR}</button></header>`;
-  if (!s.turns.length) {
-    const msg = !s.alive ? '세션 꺼짐' : s.status === 'working' ? '에이전트 작업 중. 턴이 끝나면 사안 카드가 생긴다' : '아직 사안 없음';
-    const sub = !LIVE ? 'MOCK / 연결된 세션 아님'
-      : !s.alive ? `<button class="primary" data-resume="${s.id}">이어서 띄우기</button>`
-      : '터미널 창에서 첫 입력을 한다. 시작 확인 창도 거기서 처리한다';
+  if (!s.turns.length && !(LIVE && s.alive)) {
+    const msg = !s.alive ? '세션 꺼짐' : '아직 사안 없음';
+    const sub = !LIVE ? 'MOCK / 연결된 세션 아님' : `<button class="primary" data-resume="${s.id}">이어서 띄우기</button>`;
     return `<section class="cmd-pane">${bar('')}${attentionBar(s)}<div class="empty">${msg}<br><small>${sub}</small></div></section>`;
   }
-  const last = s.turns[s.turns.length - 1];
+  // 지금 맥락의 턴. /clear 뒤 아직 응답이 없으면 앞 맥락의 마지막 턴은 가운데 칸에 두지 않는다
+  const tail = s.turns[s.turns.length - 1];
+  const last = tail && (!s.cleared || tail.turn > s.cleared || ui.showOld.has(s.id)) ? tail : null;
+  const fresh = !last && !roundItems(s).length;
   const shown = visibleTurns(s);
   const past = shown.filter(t => t !== last);
   const folded = s.turns.length - shown.length;
@@ -525,8 +542,8 @@ function renderMain(s) {
     <section class="cmd-pane">
       ${bar(old)}
       ${attentionBar(s)}
-      ${commandColumn(s)}
-      ${sendBar(s)}
+      ${commandColumn(s, last)}
+      ${sendBar(s, fresh)}
     </section>
     ${ui.past && past.length ? `<div class="past-flow"><div class="flow" id="flow"><div class="flow-inner" id="flow-inner">${past.map(t => column(s, t, false, 'p')).join('')}</div></div></div>` : ''}`;
 }
@@ -738,7 +755,7 @@ async function send() {
 // 미처리 사안은 보류로 넘긴다. 추가 지시와 모듈 패널에서 한 일은 지우지 않고 남겨 새 세션에 보낼 수 있게 한다
 async function clearContext() {
   const s = cur();
-  if (!s || !s.alive || s.running) return;
+  if (!s || !s.alive || s.starting || s.running) return;
   const ready = allItems(s).filter(i => isReady(s, i));
   const todo = roundItems(s).filter(i => !isReady(s, i));
   const keep = todo.filter(i => i.tag).length;
@@ -931,7 +948,7 @@ function act(e) {
   if (t.dataset.unhold) { unhold(t.dataset.unhold); }
   else if (t.dataset.closeheld) { closeHeld(t.dataset.closeheld); }
   else if (t.dataset.perm) { decidePermission(t.dataset.rid, t.dataset.perm); }
-  else if ('openTerm' in t.dataset) { ui.term = true; render(); }
+  else if ('openTerm' in t.dataset) { ui.term = true; ui.autoTerm = null; render(); }
   else if (t.dataset.close) { closeTab(t.dataset.close); }
   else if ('newtab' in t.dataset) { if (LIVE) openTab(); }
   else if (t.dataset.resume) { resumeTab(t.dataset.resume); }
@@ -978,7 +995,7 @@ function act(e) {
     document.getElementById(`c-${id}`).classList.toggle('open');
     showFocus();
   }
-  else if (t.id === 'toggle-term') { ui.term = !ui.term; render(); }
+  else if (t.id === 'toggle-term') { ui.term = !ui.term; ui.autoTerm = null; render(); }
   else if (t.id === 'btn-send') { send(); }
   else if (t.id === 'btn-wrapup') { s.wrapup = !s.wrapup; saveDraft(s); render(); }
   else if (t.id === 'btn-clear') { clearContext(); }
@@ -1184,8 +1201,9 @@ async function openTab() {
   upsert(t);
   ui.cur = t.id;
   ui.active = null;
-  // 시작 확인 창과 첫 입력은 터미널에서 한다
+  // 시작 확인 창은 터미널에서 처리한다. 정상으로 시작하면 접는다
   ui.term = true;
+  ui.autoTerm = t.id;
   render({ keepScroll: false });
 }
 
@@ -1194,6 +1212,7 @@ async function resumeTab(id) {
   if (!t) return;
   upsert(t);
   ui.term = true;
+  ui.autoTerm = t.id;
   render();
 }
 
@@ -1240,11 +1259,20 @@ function listen() {
     if (msg.type === 'closed') { if (sessions.some(s => s.id === msg.id)) removeTab(msg.id); return; }
     if (msg.type === 'modules') { onModulesEvent(msg); return; }
     if (msg.type !== 'tab') return;
+    const was = sessions.find(s => s.id === msg.tab.id)?.starting;
     upsert(msg.tab);
+    autoFold(msg.tab, was);
     if (!ui.cur) ui.cur = msg.tab.id;
     if (msg.tab.id === ui.cur) renderKeepFocus(); else renderTabs();
   };
   ws.onclose = () => setTimeout(listen, 1000);
+}
+
+// 띄우며 연 터미널 창은 시작 훅이 오면 접는다. 시작이 막혔으면(확인 창, 실패로 꺼짐) 펼친 채로 두어 이유를 보게 한다
+function autoFold(t, was) {
+  if (ui.autoTerm !== t.id || !was || t.starting) return;
+  ui.autoTerm = null;
+  if (t.alive && ui.cur === t.id) ui.term = false;
 }
 
 // 터미널 창: 탭마다 xterm 하나. 처음 볼 때 만들고 WebSocket 으로 PTY 에 붙인다

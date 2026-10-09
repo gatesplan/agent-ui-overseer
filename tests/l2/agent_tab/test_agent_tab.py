@@ -114,3 +114,45 @@ def test_clear_saves_decisions_locally_holds_rest_and_types_clear(tmp_path):
     # 승인한 보존 사안은 기록이 된다
     assert [r['ref'] for r in tab.state()['records']] == ['D-1']
     assert FakePty.typed == ['/clear', '\r']
+
+
+def test_starting_until_session_start_after_launch_blocks_send(tmp_path):
+    import asyncio
+    import json
+    import pytest
+    from project_manager.l0.decision_store import DecisionStore
+    captures = tmp_path / 'captures'
+    captures.mkdir()
+    log = captures / 't.jsonl'
+    # 앞 실행의 시작 기록. 다시 띄우면 이것은 세지 않는다
+    log.write_text(json.dumps({'event': 'session_start', 'session_id': 'old', 'source': 'startup'}) + '\n', encoding='utf-8')
+    tab = AgentTab('t', str(tmp_path / 'proj'), '', DecisionStore(tmp_path / 'o.db'), captures)
+
+    class FakePty:
+        alive = True
+        typed = []
+
+        def write(self, data):
+            self.typed.append(data)
+
+        def paste(self, text):
+            self.typed.append(text)
+
+    # 띄우기 전(복원 직후)은 시작 중이 아니다
+    tab.pty = FakePty()
+    assert tab.starting is False
+    tab.log.poll()
+    tab._start_seq = len(tab.log.events)
+    assert tab.state()['starting'] is True
+    with pytest.raises(RuntimeError):
+        asyncio.run(tab.send('hi', []))
+    with pytest.raises(RuntimeError):
+        asyncio.run(tab.clear([]))
+    assert FakePty.typed == []
+
+    with log.open('a', encoding='utf-8') as f:
+        f.write(json.dumps({'event': 'session_start', 'session_id': 'new', 'source': 'resume'}) + '\n')
+    tab.poll()
+    assert tab.starting is False
+    asyncio.run(tab.send('hi', []))
+    assert FakePty.typed == ['hi', '\r']
