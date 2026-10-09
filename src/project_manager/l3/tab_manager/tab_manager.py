@@ -3,9 +3,9 @@ from pathlib import Path
 
 from loguru import logger
 
-from project_manager.l0.decision_store import DecisionStore
-from project_manager.l0.record_store import RecordStore
-from project_manager.l2.agent_tab import AgentTab
+from ...l0.decision_store import DecisionStore
+from ...l0.record_store import RecordStore
+from ...l2.agent_tab import AgentTab
 
 SKIP_PERMISSIONS = '--dangerously-skip-permissions'
 

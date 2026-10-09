@@ -4,10 +4,10 @@ from pathlib import Path
 
 from loguru import logger
 
-from project_manager.l0.permission_gate import PermissionGate
-from project_manager.l0.record_store import RecordStore
-from project_manager.l0.transcript_reader import TranscriptReader
-from project_manager.l1.item_splitter import ItemSplitter
+from ...l0.permission_gate import PermissionGate
+from ...l0.record_store import RecordStore
+from ...l0.transcript_reader import TranscriptReader
+from ...l1.item_splitter import ItemSplitter
 
 # 권한 요청 기록에 남길 도구 입력 문자열 길이. Write 본문 같은 큰 입력을 다 남기지 않는다
 INPUT_PREVIEW = 2000

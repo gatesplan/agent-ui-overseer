@@ -1,6 +1,6 @@
 import re
 
-from project_manager.l0.item import Item
+from ...l0.item import Item
 
 
 # 응답 텍스트를 `### [종류] 제목` 단위 사안으로 나눈다

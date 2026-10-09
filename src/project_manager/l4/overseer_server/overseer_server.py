@@ -8,11 +8,11 @@ from pathlib import Path
 from aiohttp import WSMsgType, web
 from loguru import logger
 
-from project_manager.l0.decision_store import DecisionStore
-from project_manager.l0.project_finder import ProjectFinder
-from project_manager.l0.record_store import RecordStore
-from project_manager.l2.agent_tab import AgentTab
-from project_manager.l3.tab_manager import TabManager
+from ...l0.decision_store import DecisionStore
+from ...l0.project_finder import ProjectFinder
+from ...l0.record_store import RecordStore
+from ...l2.agent_tab import AgentTab
+from ...l3.tab_manager import TabManager
 
 ROOT = Path(__file__).resolve().parents[4]
 POLL_INTERVAL = 0.4
