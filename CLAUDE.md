@@ -1,13 +1,10 @@
 # 프로젝트 프로토콜
 
-## 구조 및 코딩 규칙
+## 구조 규칙
 
-프로토콜 문서는 프로젝트 루트 기준 `.claude/`에서 찾는다.
+이 프로젝트는 ln-structure 를 따른다. 규칙과 해결 방법은 필요할 때 `.claude/for-agent-codingprotocol-ln-structure.md` 를 읽는다.
 
-- Ln 구조: `@.claude/for-agent-codingprotocol-ln-structure.md` 참조
-- Python 코딩: `@.claude/for-agent-codingprotocol-python.md` 참조
-
-`lnt check`, `lnt doc` 이 규칙과 문서를 검사한다. 훅이 편집마다 자동 실행된다.
+`lnt check`, `lnt doc` 이 규칙과 문서를 검사한다. 훅이 편집마다 자동 실행하고, 위반 메시지에 해결 방법이 함께 나온다.
 
 ## 프로젝트 설명
 
