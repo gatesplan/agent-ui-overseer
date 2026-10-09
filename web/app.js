@@ -406,7 +406,9 @@ function commandColumn(s) {
   const veiled = i => statusOf(s, i) === 'held' && !ui.unveil.has(i.id);
   const others = allItems(s).filter(i => !here.has(i.id) && !veiled(i)
     && (['todo', 'ready'].includes(statusOf(s, i)) || ui.unveil.has(i.id)));
-  const live = [...sorted(last.items).filter(i => !veiled(i)), ...others];
+  // 보류함에서 닫은 사안은 에이전트에게 보내지 않고 끝낸 것이라 보이지 않는다
+  const closed = i => s.sent[i.id]?.action === 'close';
+  const live = [...sorted(last.items).filter(i => !veiled(i) && !closed(i)), ...others];
   const held = allItems(s).filter(veiled);
   const todo = live.filter(i => statusOf(s, i) === 'todo').length;
   return `<section class="col col-cur" data-col="cmd">
@@ -616,6 +618,7 @@ function render({ keepScroll = true } = {}) {
   const scroll = keepScroll && prev ? prev.scrollLeft : null;
   const cols = keepScroll ? colScrolls() : {};
   document.documentElement.dataset.theme = ui.theme;
+  if (ui.cur) savePref('overseer.tab', ui.cur);
   renderTabs();
   $('#main').innerHTML = renderMain(s);
   $('#term').hidden = !ui.term;
@@ -806,7 +809,8 @@ document.addEventListener('click', e => {
   if (ui.drawer && !e.target.closest('#drawer, [data-drawer]')) { ui.drawer = null; renderDrawer(); }
   if (e.target.closest('[data-unpick]')) { unpick(); return; }
   // 카드를 누르면 선택, 흐름의 빈 곳을 누르면 해제
-  const picked = e.target.closest('.card[data-id]');
+  // 보류 막 위의 꺼내기·닫기는 카드를 고르지 않는다. 고르면 그 카드를 맨 위로 올리느라 남은 보류 카드가 밀려난다
+  const picked = !e.target.closest('.veil') && e.target.closest('.card[data-id]');
   // 이미 선택된 카드 안을 누를 때는 옮기지 않는다. 누른 자리가 손 밑에서 달아나지 않게
   const fresh = picked && picked.dataset.id !== ui.active;
   if (picked) { ui.active = picked.dataset.id; showFocus(); }
@@ -1300,7 +1304,9 @@ async function boot() {
     document.querySelector('.mock-tag').hidden = true;
     listen();
   }
-  ui.cur = sessions[0]?.id ?? null;
+  // 새로고침해도 보던 탭으로 돌아온다
+  const last = pref('overseer.tab', '');
+  ui.cur = sessions.some(s => s.id === last) ? last : sessions[0]?.id ?? null;
   applyFonts();
   render({ keepScroll: false });
   document.fonts?.ready.then(showFocus);
