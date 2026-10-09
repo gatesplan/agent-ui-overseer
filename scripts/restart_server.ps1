@@ -4,10 +4,10 @@
 #   pwsh scripts/restart_server.ps1 -WhileStopped scripts/migrate_item_ids.py   멈춘 동안 그 파이썬 스크립트를 돌린다(DB 이전 등)
 #
 # 패널 탭 안에서 부른 프로세스는 서버를 멈출 때 같이 죽는다. 그래서 WMI 로 서버와 무관한 프로세스를 띄워 거기서 한다(-Detached)
-# 순서: 모든 탭이 working/attention 이 아닐 때까지 기다린다(최대 10분) → 멈춘다 → 다시 띄운다 → 떠 있던 탭을 이어서 띄운다
+# 순서: 모든 탭이 working/attention 이 아닌 상태가 -Quiet 초(기본 15) 이어질 때까지 기다린다(최대 10분) → 멈춘다 → 다시 띄운다 → 떠 있던 탭을 이어서 띄운다
 # 작업 스케줄러에 Overseer 작업이 있으면 그것으로 멈추고 띄운다. 없으면 프로세스를 끝내고 `uv run overseer` 를 창 없이 띄운다
 # WMI 로 띄운 프로세스에서는 CIM 호출이 실패하므로 그쪽에서는 CIM 을 쓰지 않는다(netstat, Get-Process, schtasks)
-param([switch]$DryRun, [switch]$Detached, [int]$Port = 47310, [string]$WhileStopped = '')
+param([switch]$DryRun, [switch]$Detached, [int]$Port = 47310, [string]$WhileStopped = '', [int]$Quiet = 15)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 # 이 컴퓨터의 패널 기록 폴더. 서버 기본값과 같다(OVERSEER_DATA, 없으면 ~/.overseer). WMI 로 띄운 쪽은 환경변수를 물려받지 않아 ~/.overseer
@@ -20,7 +20,7 @@ $task = 'Overseer'
 if (-not $Detached) {
     $pwsh = (Get-Process -Id $PID).Path
     $run = if ($WhileStopped) { " -WhileStopped `"$WhileStopped`"" } else { '' }
-    $cmd = "`"$pwsh`" -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$PSCommandPath`" -Detached -Port $Port$(if ($DryRun) { ' -DryRun' })$run"
+    $cmd = "`"$pwsh`" -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$PSCommandPath`" -Detached -Port $Port -Quiet $Quiet$(if ($DryRun) { ' -DryRun' })$run"
     $r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $cmd; CurrentDirectory = $root }
     if ($r.ReturnValue -ne 0) { Write-Error "재시작 프로세스를 띄우지 못함: $($r.ReturnValue)"; exit 1 }
     Write-Output "$(if ($DryRun) { '점검' } else { '재시작' }) 예약됨(PID $($r.ProcessId)). 진행: $log"
@@ -67,12 +67,17 @@ function StartServer {
 try {
     Log '재시작 대기 시작'
     $deadline = (Get-Date).AddMinutes(10)
+    # 모든 탭이 Quiet 초 동안 이어서 쉬어야 멈춘다. 한 탭이 끝나자마자 다른 탭이 다음 입력을 받는 틈에 멈추지 않게
+    $idleSince = $null
     while (-not $DryRun) {
         Start-Sleep 3
         $busy = @(Tabs | Where-Object { $_.status -in 'working', 'attention' })
-        if (-not $busy.Count) { break }
+        if ($busy.Count) { $idleSince = $null }
+        elseif (-not $idleSince) { $idleSince = Get-Date }
+        if ($idleSince -and ((Get-Date) - $idleSince).TotalSeconds -ge $Quiet) { break }
         if ((Get-Date) -gt $deadline) { Log "작업 중인 탭이 있어 그만둠: $(($busy | ForEach-Object { $_.id }) -join ',')"; exit 1 }
     }
+    if (-not $DryRun) { Log "모든 탭이 $Quiet 초 동안 쉼" }
     # 부른 에이전트의 마지막 응답 카드가 화면에 그려질 틈
     if (-not $DryRun) { Start-Sleep 5 }
     $tabs = Tabs
