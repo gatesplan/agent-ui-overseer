@@ -1030,6 +1030,9 @@ if (location.hash.includes('drawer')) ui.drawer = 'flow';
 
 // 실제 모드 ---------------------------------------------------------------
 
+// https 로 열면(원격 접속) WebSocket 도 암호화한다
+const WS = location.protocol === 'https:' ? 'wss:' : 'ws:';
+
 async function api(path, method = 'GET', body) {
   try {
     const res = await fetch(path, { method, headers: { 'Content-Type': 'application/json' }, body: body && JSON.stringify(body) });
@@ -1227,7 +1230,7 @@ function renderKeepFocus() {
 
 // 탭 상태 알림. 끊기면 다시 붙는다
 function listen() {
-  const ws = new WebSocket(`ws://${location.host}/ws/events`);
+  const ws = new WebSocket(`${WS}//${location.host}/ws/events`);
   ws.onmessage = e => {
     const msg = JSON.parse(e.data);
     if (msg.type === 'closed') { if (sessions.some(s => s.id === msg.id)) removeTab(msg.id); return; }
@@ -1253,7 +1256,7 @@ function makeTerm(s) {
   const fit = new FitAddon.FitAddon();
   term.loadAddon(fit);
   term.open(host);
-  const ws = new WebSocket(`ws://${location.host}/ws/term/${s.id}`);
+  const ws = new WebSocket(`${WS}//${location.host}/ws/term/${s.id}`);
   const sendJSON = obj => { if (ws.readyState === 1) ws.send(JSON.stringify(obj)); };
   ws.onmessage = e => term.write(e.data);
   ws.onopen = () => sendJSON({ type: 'resize', rows: term.rows, cols: term.cols });
