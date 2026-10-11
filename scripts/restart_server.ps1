@@ -1,7 +1,7 @@
 # Overseer 서버를 다시 띄운다. 패널 탭 안의 에이전트도 쓸 수 있다
 #   pwsh scripts/restart_server.ps1           재시작을 예약하고 바로 끝난다. 진행은 ~/.overseer/logs/restart.log
 #   pwsh scripts/restart_server.ps1 -DryRun   멈추지 않고 탭, 서버 프로세스, 시작 방식만 점검해 기록한다
-#   pwsh scripts/restart_server.ps1 -WhileStopped scripts/migrate_item_ids.py   멈춘 동안 그 파이썬 스크립트를 돌린다(DB 이전 등)
+#   pwsh scripts/restart_server.ps1 -WhileStopped scripts/migrate_item_ids.py   멈춘 동안 그 파이썬 스크립트를 돌린다(DB 이전, 파이썬 판 바꾸기 등). 상대 경로는 저장소 기준
 #
 # 패널 탭 안에서 부른 프로세스는 서버를 멈출 때 같이 죽는다. 그래서 WMI 로 서버와 무관한 프로세스를 띄워 거기서 한다(-Detached)
 # 순서: 모든 탭이 working/attention 이 아닌 상태가 -Quiet 초(기본 15) 이어질 때까지 기다린다(최대 10분) → 멈춘다 → 다시 띄운다 → 떠 있던 탭을 이어서 띄운다
@@ -98,7 +98,9 @@ try {
     Log '멈춤'
     # 실패해도 서버는 다시 띄운다. 결과는 로그로 본다
     if ($WhileStopped) {
-        $out = (& uv run --project $root python (Join-Path $root $WhileStopped) 2>&1 | Out-String).Trim()
+        # uv run 이라 .python-version 이 바뀌었으면 여기서 .venv 를 그 판으로 다시 만든다. 서버가 멈춰 있어 파일이 잠겨 있지 않다
+        $script = if ([IO.Path]::IsPathRooted($WhileStopped)) { $WhileStopped } else { Join-Path $root $WhileStopped }
+        $out = (& uv run --project $root python $script 2>&1 | Out-String).Trim()
         Log "$WhileStopped 실행(종료코드 $LASTEXITCODE): $out"
     }
 
