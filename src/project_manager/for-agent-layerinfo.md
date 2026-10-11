@@ -3,8 +3,10 @@
 <!-- lnt:generated:start -->
 ## l0
 - capture_log: 탭마다 훅이 남긴 캡처 기록을 맡는다
+- conda_envs: 이 컴퓨터의 conda 환경 목록을 알려 준다
 - install_layout: overseer 가 놓인 자리에서 화면, 규약, 실행 스크립트, 기록 폴더를 찾아 준다
 - item: 사안 하나가 무엇인지 정한다
+- launch_env: 프로젝트의 탭 실행 환경을 그 프로젝트 폴더에 지킨다
 - module_map: 프로젝트의 모듈 지도를 lnt 에게서 받아 온다
 - panel_store: 이 컴퓨터의 패널 상태(탭, 보낸 메시지, 작성 중인 처리)를 지킨다
 - permission_gate: 에이전트의 권한 요청을 패널 사용자에게 넘기고 답을 돌려준다

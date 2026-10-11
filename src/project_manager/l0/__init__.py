@@ -3,8 +3,10 @@ import importlib
 # 층 표면. 이름 -> 모듈 경로. 지연 로드. lnt doc 이 생성한다
 _EXPORTS = {
     "CaptureLog": "capture_log",
+    "CondaEnvs": "conda_envs",
     "InstallLayout": "install_layout",
     "Item": "item",
+    "LaunchEnv": "launch_env",
     "ModuleMap": "module_map",
     "PanelStore": "panel_store",
     "PermissionGate": "permission_gate",

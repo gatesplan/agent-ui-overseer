@@ -128,6 +128,30 @@ code { font-family: var(--font-mono); font-size: .9em; padding: 0 4px; backgroun
 .nt-check small { display: block; margin-top: 2px; color: var(--muted); font-size: 0.857em; }
 .nt-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 .nt-actions button { padding: 6px 16px; }
+
+/* 실행 환경: 탭을 열 때 claude 보다 먼저 실행할 한 줄. 새 세션 창과 터미널 머리줄의 바꾸기 창이 함께 쓴다 */
+.nt-env { margin: 0 0 14px; padding: 12px; border: 1px solid var(--line); background: var(--bg); }
+.nt-env[hidden] { display: none; }
+.nt-env-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; font-size: 0.857em; color: var(--muted); }
+.nt-env-head b { color: var(--text); font-weight: 600; }
+.nt-env-head small { margin-left: auto; font: 0.857em var(--font-mono); }
+.env-pick { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.env-pick:empty { display: none; }
+.env-pick button { padding: 2px 10px; border: 1px solid var(--line-strong); background: none; color: var(--muted); font: 0.857em var(--font-mono); }
+.env-pick button:hover { color: var(--text); }
+.env-pick button.on { color: var(--accent); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.env-pick .lbl { align-self: center; margin-right: 2px; font-size: 0.786em; color: var(--muted); }
+.env-cmd { width: 100%; padding: 8px 10px; color: var(--text); background: var(--panel); border: 1px solid var(--line-strong); font: 0.929em var(--font-mono); }
+.env-note { margin-top: 6px; font-size: 0.786em; color: var(--muted); }
+.env-note code { font-size: 1em; }
+.term-side { display: flex; align-items: center; gap: 10px; }
+.env-badge { padding: 1px 8px; border: 1px solid var(--accent); color: var(--accent); background: none; font: 600 11px var(--font-mono); letter-spacing: .04em; text-transform: none; }
+.env-badge.dim { border-color: var(--line-strong); color: var(--muted); }
+.env-badge[hidden] { display: none; }
+.env-pop { position: absolute; top: 40px; right: 10px; z-index: 6; width: min(420px, calc(100% - 20px)); padding: 12px 14px; background: var(--panel); border: 1px solid var(--line-strong); border-top: 2px solid var(--accent); box-shadow: 0 12px 40px rgba(0, 0, 0, .55); font-size: 13px; color: var(--text); }
+.env-pop[hidden] { display: none; }
+.env-pop .nt-actions { margin-top: 12px; }
+.run-line .env-line { display: block; margin-top: 2px; font: 12px var(--font-mono); color: var(--muted); }
 @keyframes pulse { 50% { opacity: .3; } }
 
 .views { display: flex; align-items: center; gap: 6px; }
@@ -148,7 +172,7 @@ code { font-family: var(--font-mono); font-size: .9em; padding: 0 4px; backgroun
 .mod-host { flex: 1; min-width: 0; display: flex; position: relative; }
 .pane-main { flex: none; width: calc(var(--cmd-w) + 30px); min-width: 0; display: flex; position: relative; }
 .pane-main > .empty { width: 100%; }
-.pane-term { width: 40%; min-width: 380px; display: flex; flex-direction: column; background: var(--term-bg); border-left: 1px solid var(--line); }
+.pane-term { position: relative; width: 40%; min-width: 380px; display: flex; flex-direction: column; background: var(--term-bg); border-left: 1px solid var(--line); }
 .pane-term[hidden] { display: none; }
 .term-head { display: flex; justify-content: space-between; padding: 10px 14px; font: 0.786em var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--line); }
 .term-body { flex: 1; margin: 0; padding: 14px; overflow: auto; color: var(--term-text); font: 0.929em/1.55 var(--font-mono); white-space: pre-wrap; }

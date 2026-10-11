@@ -29,7 +29,8 @@
   <section class="pane-main" id="main"></section>
   <aside class="drawer" id="drawer"></aside>
   <aside class="pane-term" id="term" hidden>
-    <div class="term-head"><span id="term-title"></span><span class="term-note">PTY 자리 / 기록 재생</span></div>
+    <div class="term-head"><span id="term-title"></span><span class="term-side"><button class="env-badge" id="term-env" type="button" hidden></button><span class="term-note">PTY 자리 / 기록 재생</span></span></div>
+    <div class="env-pop" id="env-pop" hidden></div>
     <pre class="term-body" id="term-body"></pre>
   </aside>
 </main>
@@ -42,6 +43,12 @@
     <label class="nt-row"><span>작업 폴더</span>
       <input name="q" placeholder="검색, 새 폴더 이름, 또는 전체 경로" autocomplete="off" spellcheck="false"></label>
     <div class="nt-list" id="nt-list"></div>
+    <div class="nt-env" id="nt-env" hidden>
+      <div class="nt-env-head"><b>실행 환경</b>탭을 열 때 claude 보다 먼저 실행할 한 줄<small id="nt-env-where"></small></div>
+      <div class="env-pick" id="nt-env-pick"></div>
+      <input class="env-cmd" name="launch" placeholder="비우면 서버 환경 그대로" autocomplete="off" spellcheck="false">
+      <div class="env-note">비우면 지금처럼 서버 환경 그대로. conda 가 아닌 것도 직접 쓴다. 예: <code>set PATH=C:\node18;%PATH%</code></div>
+    </div>
     <label class="nt-check"><input type="checkbox" name="skip" checked>
       <span><code>--dangerously-skip-permissions</code><small>권한 확인 없이 띄운다. 끄면 확인은 터미널 창에서 응답한다</small></span></label>
     <div class="nt-actions">

@@ -3,11 +3,13 @@ import json
 import os
 import re
 import shlex
+import subprocess
 from pathlib import Path
 
 from loguru import logger
 
 from ...l0.capture_log import CaptureLog
+from ...l0.launch_env import LaunchEnv
 from ...l0.panel_store import PanelStore
 from ...l0.permission_gate import PermissionGate
 from ...l0.project_journal import ProjectJournal
@@ -66,25 +68,55 @@ class AgentTab:
         self.records = records
         self.project = RecordStore.project_key(cwd)
         self.journal = ProjectJournal(self.project)
+        self.launch = LaunchEnv(cwd)
         self.log.poll()
         self.write_journal()
         self.sync_records()
 
     def start(self, resume: bool = False, rows: int = 40, cols: int = 120) -> None:
-        argv = ['cmd.exe', '/c', 'claude', *shlex.split(self.claude_args)]
-        if self.mcp:
-            # 읽기 전용 도구라 권한 확인 없이 쓰게 한다
-            argv += ['--mcp-config', str(self._mcp_config()), '--allowedTools', f'mcp__{MCP_NAME}']
-        session_id = self.builder.build(self.log.events)['session_id']
-        if resume and session_id:
-            argv += ['--resume', session_id]
         env = self.child_env(dict(os.environ), self.id, self.cwd)
-        self.pty = PtySession(argv, self.cwd, env, rows, cols)
+        self.pty = PtySession(self.argv(resume), self.cwd, env, rows, cols)
         self.pty.listeners = self.listeners
         self.log.poll()
         self._start_seq = len(self.log.events)
         self.pty.start()
         self._was_alive = True
+
+    # 탭을 띄울 명령. 프로젝트에 실행 환경 한 줄이 있으면 그 줄을 먼저 실행하는 배치 파일로 띄운다
+    def argv(self, resume: bool = False) -> list[str]:
+        claude = ['claude', *shlex.split(self.claude_args)]
+        if self.mcp:
+            # 읽기 전용 도구라 권한 확인 없이 쓰게 한다
+            claude += ['--mcp-config', str(self._mcp_config()), '--allowedTools', f'mcp__{MCP_NAME}']
+        session_id = self.builder.build(self.log.events)['session_id']
+        if resume and session_id:
+            claude += ['--resume', session_id]
+        launch = self.launch.command()
+        if not launch:
+            return ['cmd.exe', '/c', *claude]
+        return ['cmd.exe', '/c', str(self._launch_script(launch, claude))]
+
+    # 실행 환경 한 줄을 먼저 실행하고 claude 를 띄우는 배치 파일. 한 줄은 고치지 않고 그대로 넣는다(따옴표, %PATH% 등)
+    # 그 줄이 실패하면 claude 를 띄우지 않고 터미널에 알린다. cmd 가 읽는 OEM 코드 페이지로 쓴다
+    def _launch_script(self, launch: str, claude: list[str]) -> Path:
+        path = self.data_dir / 'launch' / f'{self.id}.cmd'
+        path.parent.mkdir(parents=True, exist_ok=True)
+        lines = ['@echo off', f'call {launch}',
+                 'if errorlevel 1 (echo [overseer] launch env failed & exit /b 1)',
+                 subprocess.list2cmdline(claude)]
+        path.write_text('\n'.join(lines) + '\n', encoding='oem' if os.name == 'nt' else 'utf-8', newline='\r\n')
+        return path
+
+    # 실행 환경 한 줄을 바꾼다. 떠 있는 세션에는 다시 띄울 때 적용된다
+    # 배치 파일에 쓸 수 없는 글자(OEM 코드 페이지 밖)가 있으면 ValueError
+    def set_launch(self, command: str) -> None:
+        if os.name == 'nt':
+            try:
+                command.encode('oem')
+            except UnicodeEncodeError:
+                raise ValueError('실행 환경 한 줄에 cmd 가 읽지 못하는 글자가 있다')
+        self.launch.save(command)
+        logger.info(f"실행 환경: tab={self.id}, command={self.launch.command()!r}")
 
     # 탭마다 MCP 설정 파일을 쓴다. 조회할 프로젝트와 기록 폴더를 서버 환경으로 넘긴다
     def _mcp_config(self) -> Path:
@@ -295,6 +327,8 @@ class AgentTab:
         permission = built['permission'] if self.alive else None
         return {
             'id': self.id, 'project': Path(self.cwd).name, 'cwd': self.cwd, 'agent': 'claude', 'args': self.claude_args,
+            # 프로젝트의 실행 환경 한 줄. 비어 있으면 서버 환경 그대로 띄운다
+            'launch': self.launch.command(),
             'status': self._status(built, running, permission or attention), 'alive': self.alive, 'starting': self.starting,
             'running': running,
             'permission': permission, 'attention': attention,

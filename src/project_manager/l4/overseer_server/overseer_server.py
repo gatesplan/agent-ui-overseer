@@ -8,7 +8,9 @@ from pathlib import Path
 from aiohttp import WSMsgType, web
 from loguru import logger
 
+from ...l0.conda_envs import CondaEnvs
 from ...l0.install_layout import InstallLayout
+from ...l0.launch_env import LaunchEnv
 from ...l0.module_map import ModuleMap
 from ...l0.panel_store import PanelStore
 from ...l0.project_finder import ProjectFinder
@@ -42,11 +44,13 @@ class OverseerServer:
             web.get('/', self._index),
             web.get('/api/health', self._health),
             web.get('/api/projects', self._projects),
+            web.get('/api/launch', self._launch),
             web.post('/api/tabs/{id}/permission', self._permission),
             web.post('/api/tabs/{id}/close-held', self._close_held),
             web.get('/api/tabs', self._list),
             web.post('/api/tabs', self._open),
             web.post('/api/tabs/{id}/resume', self._resume),
+            web.put('/api/tabs/{id}/launch', self._set_launch),
             web.delete('/api/tabs/{id}', self._close),
             web.post('/api/tabs/{id}/send', self._send),
             web.post('/api/tabs/{id}/clear', self._clear),
@@ -168,18 +172,39 @@ class OverseerServer:
         await self._broadcast({'type': 'tab', 'tab': tab.state()})
         return web.json_response({'closed': closed})
 
-    # 새 세션 창의 폴더 목록: 드라이브마다 루트 Projects 폴더 안의 프로젝트
+    # 새 세션 창의 폴더 목록: 드라이브마다 루트 Projects 폴더 안의 프로젝트. 실행 환경 칸의 conda 단추 목록도 함께 준다
     async def _projects(self, request: web.Request) -> web.Response:
-        return web.json_response({'roots': self.finder.scan(), 'default_root': str(self.finder.default_root())})
+        return web.json_response({'roots': self.finder.scan(), 'default_root': str(self.finder.default_root()),
+                                  'conda': CondaEnvs().list()})
 
-    # 새 탭: {cwd} 로 기존 폴더를 열거나, {create: {root, name}} 으로 Projects 안에 폴더를 만들어 연다
+    # 새 세션 창에서 고른 폴더에 저장된 실행 환경 한 줄: ?cwd=
+    async def _launch(self, request: web.Request) -> web.Response:
+        cwd = request.query.get('cwd', '')
+        return web.json_response({'command': LaunchEnv(cwd).command() if cwd and Path(cwd).is_dir() else ''})
+
+    # 열린 탭의 실행 환경 바꾸기: {command, restart, rows, cols}. restart 면 세션을 끝내고 이어서 다시 띄운다
+    async def _set_launch(self, request: web.Request) -> web.Response:
+        tab = self._tab(request)
+        body = await request.json()
+        try:
+            tab.set_launch(str(body.get('command', '')))
+            if body.get('restart'):
+                await asyncio.to_thread(self.tabs.restart, tab.id, body.get('rows', 40), body.get('cols', 120))
+        except (ValueError, RuntimeError) as e:
+            return web.json_response({'error': str(e)}, status=400)
+        await self._broadcast({'type': 'tab', 'tab': tab.state()})
+        return web.json_response(tab.state())
+
+    # 새 탭: {cwd} 로 기존 폴더를 열거나, {create: {root, name}} 으로 Projects 안에 폴더를 만들어 연다. launch 는 실행 환경 한 줄
     async def _open(self, request: web.Request) -> web.Response:
         body = await request.json()
         try:
             cwd = body.get('cwd', '')
             if body.get('create'):
                 cwd = str(self.finder.create(body['create'].get('root', ''), body['create'].get('name', '')))
-            tab = self.tabs.open(cwd, body.get('rows', 40), body.get('cols', 120), bool(body.get('skip_permissions')))
+            launch = body.get('launch')
+            tab = self.tabs.open(cwd, body.get('rows', 40), body.get('cols', 120), bool(body.get('skip_permissions')),
+                                 None if launch is None else str(launch))
         except ValueError as e:
             return web.json_response({'error': str(e)}, status=400)
         await self._broadcast({'type': 'tab', 'tab': tab.state()})

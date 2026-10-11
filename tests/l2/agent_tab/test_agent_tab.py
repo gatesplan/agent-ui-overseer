@@ -169,6 +169,35 @@ def test_note_map_records_responsibility_changes_and_user_requests(tmp_path):
     assert [e['after'] for e in history['l1.a']] == ['새 책임', '더 새 책임']
 
 
+def test_argv_runs_launch_line_first_through_a_batch_file(tmp_path):
+    captures, project, store = setup(tmp_path)
+    tab = AgentTab('t', project, '--x', store, captures)
+    # 실행 환경이 없으면 지금처럼 바로 claude. 이어서 띄우면 마지막 세션을 붙인다
+    assert tab.argv() == ['cmd.exe', '/c', 'claude', '--x']
+    assert tab.argv(resume=True) == ['cmd.exe', '/c', 'claude', '--x', '--resume', 's']
+    tab.set_launch('call "C:\\my envs\\activate.bat" && set PATH=C:\\node18;%PATH%')
+    argv = tab.argv(resume=True)
+    assert argv[:2] == ['cmd.exe', '/c']
+    script = (tmp_path / 'launch' / 't.cmd').read_text(encoding='oem' if os.name == 'nt' else 'utf-8').splitlines()
+    assert argv[2] == str(tmp_path / 'launch' / 't.cmd')
+    # 한 줄은 따옴표와 %PATH% 를 고치지 않고 그대로 들어간다
+    assert script[1] == 'call call "C:\\my envs\\activate.bat" && set PATH=C:\\node18;%PATH%'
+    assert script[2].startswith('if errorlevel 1 (')
+    assert script[3] == 'claude --x --resume s'
+    assert tab.state()['launch'].startswith('call "C:\\my envs')
+    tab.set_launch('')
+    assert tab.argv() == ['cmd.exe', '/c', 'claude', '--x']
+
+
+@pytest.mark.skipif(os.name != 'nt', reason='OEM 코드 페이지는 Windows 에만 있다')
+def test_set_launch_rejects_characters_cmd_cannot_read(tmp_path):
+    captures, project, store = setup(tmp_path)
+    tab = AgentTab('t', project, '', store, captures)
+    with pytest.raises(ValueError):
+        tab.set_launch('echo \U0001F600')
+    assert tab.state()['launch'] == ''
+
+
 def test_starting_until_session_start_after_launch_blocks_send(tmp_path):
     captures, project, store = setup(tmp_path)
     log = captures / 't.jsonl'

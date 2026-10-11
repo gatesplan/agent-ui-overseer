@@ -17,7 +17,7 @@
 - 실행: `uv sync` 후 `uv run overseer` (http://127.0.0.1:47310/). 훅 등록과 점검은 `uv run overseer-setup` (전역 설정, 한 번). 설치 절차는 `INSTALL.md`
 - 배포 이름은 `project-overseer`(import 이름은 `project_manager`). wheel 에는 `web/`, 규약, 훅·MCP 스크립트가 `project_manager/_assets/` 로 들어가고 `l0/install_layout` 이 찾는다
 - 캡처: 훅 `scripts/capture_hook.py`(SessionStart, UserPromptSubmit, Stop) → `~/.overseer/captures/<탭 ID>.jsonl`. 패널이 띄운 세션(OVERSEER_TAB)에서만 동작
-- 저장: 프로젝트 기록은 각 프로젝트의 `.overseer/`(git 에서 스스로 빠짐). `sessions/<번호>.jsonl` 에 사안, 결정, 책임 변경, `records/D-3.md` 에 보존 기록.
+- 저장: 프로젝트 기록은 각 프로젝트의 `.overseer/`(git 에서 스스로 빠짐). `sessions/<번호>.jsonl` 에 사안, 결정, 책임 변경, `records/D-3.md` 에 보존 기록, `launch.json` 에 탭 실행 환경 한 줄.
   이 컴퓨터의 패널 상태는 `~/.overseer/`(`overseer.db`: 탭, 보낸 메시지, 초안. 캡처, 로그). 환경변수 `OVERSEER_DATA` 로 바꾼다. 세션 번호는 프로젝트 단위이고, 한 프로젝트에는 탭 하나만 연다
 - 목업만 볼 때: `python scripts/serve_mock.py` (http://127.0.0.1:47311/)
 

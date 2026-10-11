@@ -474,7 +474,7 @@ function sendLabel(s) {
 // fresh: 처리할 카드가 없는 새 맥락(첫 실행, /clear 뒤). 지시 칸을 늘 열어 두고 거기서 첫 입력을 한다
 function sendBar(s, fresh = false) {
   if (!s.alive) {
-    return `<div class="send-bar"><div class="run-line">세션 꺼짐. 작성 중인 처리는 그대로 남는다</div>
+    return `<div class="send-bar"><div class="run-line">세션 꺼짐. 작성 중인 처리는 그대로 남는다${s.launch ? `<span class="env-line">환경: ${esc(s.launch)}</span>` : ''}</div>
       <button class="primary send" data-resume="${s.id}">이어서 띄우기</button></div>`;
   }
   const run = s.running ? `<details class="run-line"><summary><span class="dot working"></span>TURN ${nextTurnLabel(s)} 에이전트 작업 중</summary>
@@ -545,7 +545,7 @@ function renderMain(s) {
       <button class="pane-gear ${ui.drawer === 'flow' ? 'on' : ''}" data-drawer="flow" title="커맨드 패널 설정">${GEAR}</button></header>`;
   if (!s.turns.length && !(LIVE && s.alive)) {
     const msg = !s.alive ? '세션 꺼짐' : '아직 사안 없음';
-    const sub = !LIVE ? 'MOCK / 연결된 세션 아님' : `<button class="primary" data-resume="${s.id}">이어서 띄우기</button>`;
+    const sub = !LIVE ? 'MOCK / 연결된 세션 아님' : `${s.launch ? `환경: ${esc(s.launch)}<br>` : ''}<button class="primary" data-resume="${s.id}">이어서 띄우기</button>`;
     return `<section class="cmd-pane">${bar('')}${attentionBar(s)}<div class="empty">${msg}<br><small>${sub}</small></div></section>`;
   }
   // 지금 맥락의 턴. /clear 뒤 아직 응답이 없으면 앞 맥락의 마지막 턴은 가운데 칸에 두지 않는다
@@ -634,6 +634,7 @@ function renderDrawer() {
 }
 
 function renderTerm(s) {
+  envBadge(s);
   if (LIVE) { showTerm(s); return; }
   $('#term-title').textContent = `${s.project} · ${s.agent}`;
   const parts = s.turns.flatMap(t => [`<span class="prompt">&gt; ${esc(t.prompt)}</span>`, esc(t.text)]);
@@ -1162,6 +1163,23 @@ function renderPicker() {
   const empty = picker.roots.length ? '맞는 폴더 없음' : `드라이브 루트에 Projects 폴더가 없다. 이름을 입력하면 ${esc(picker.defaultRoot)} 에 만든다`;
   $('#nt-list').innerHTML = rows.join('') || `<div class="nt-empty">${empty}</div>`;
   $('#nt-list .nt-opt.on')?.scrollIntoView({ block: 'nearest' });
+  pickerEnv();
+}
+
+// 고른 폴더가 바뀌면 그 프로젝트에 저장된 실행 환경을 채운다. 새로 만들 폴더는 빈 칸
+async function pickerEnv() {
+  const o = picker.options[picker.sel];
+  const key = o ? `${o.type}:${o.cwd || o.name}` : '';
+  if (key === picker.envFor) return;
+  picker.envFor = key;
+  $('#nt-env').hidden = !o;
+  if (!o) return;
+  const name = o.type === 'create' ? o.name : (o.name || o.cwd.split(/[\\/]/).filter(Boolean).pop());
+  $('#nt-env-where').textContent = `${name}/.overseer 에 저장`;
+  const data = o.type === 'create' ? { command: '' } : await api(`/api/launch?cwd=${encodeURIComponent(o.cwd)}`);
+  if (picker.envFor !== key) return;
+  $('#newtab [name=launch]').value = data?.command || '';
+  envSync($('#nt-env'));
 }
 
 async function askNewTab() {
@@ -1171,6 +1189,8 @@ async function askNewTab() {
   picker.defaultRoot = data.default_root;
   picker.createRoot = data.default_root;
   picker.sel = 0;
+  picker.envFor = null;
+  $('#nt-env-pick').innerHTML = envPickHTML(data.conda || []);
   const dlg = $('#newtab');
   const form = dlg.querySelector('form');
   form.q.value = '';
@@ -1183,7 +1203,7 @@ async function askNewTab() {
       const o = picker.options[picker.sel];
       dlg.close();
       if (!ok || !o) return resolve(null);
-      const base = { skip_permissions: form.skip.checked };
+      const base = { skip_permissions: form.skip.checked, launch: form.launch.value };
       resolve(o.type === 'create' ? { ...base, create: { root: picker.createRoot, name: o.name } } : { ...base, cwd: o.cwd });
     };
     form.q.oninput = () => { picker.sel = 0; renderPicker(); };
@@ -1216,10 +1236,12 @@ async function askNewTab() {
 async function openTab() {
   const opts = await askNewTab();
   if (!opts) return;
+  // 서버는 새 탭 알림을 응답보다 먼저 보낸다. 응답을 받은 뒤 목록을 보면 새 탭도 이미 있으니 보내기 전에 적어 둔다
+  const before = new Set(sessions.map(s => s.id));
   const t = await api('/api/tabs', 'POST', { ...opts, ...termSize() });
   if (!t) return;
   // 한 프로젝트에는 탭 하나. 이미 열린 폴더면 서버가 그 탭을 돌려준다. 그 탭으로 옮기기만 한다
-  const existed = sessions.some(s => s.id === t.id);
+  const existed = before.has(t.id);
   upsert(t);
   ui.cur = t.id;
   ui.active = null;
@@ -1229,6 +1251,90 @@ async function openTab() {
   ui.autoTerm = t.id;
   render({ keepScroll: false });
 }
+
+// 실행 환경 ----------------------------------------------------------------
+// 탭을 열 때 claude 보다 먼저 실행할 한 줄. 새 세션 창과 터미널 머리줄의 바꾸기 창이 같은 단추 줄과 입력칸을 쓴다
+
+// conda 단추 줄. 단추를 누르면 그 환경의 activate 한 줄이 칸에 채워진다. conda 가 없으면 줄을 숨긴다
+function envPickHTML(conda) {
+  if (!conda.length) return '';
+  return `<span class="lbl">conda</span><button type="button" data-env="">없음</button>${conda.map(e =>
+    `<button type="button" data-env="${esc(e.activate)}" title="${esc(e.prefix)}">${esc(e.name)}</button>`).join('')}`;
+}
+
+// 입력칸의 한 줄과 같은 단추를 켠다
+function envSync(box) {
+  const line = box.querySelector('.env-cmd').value.trim();
+  box.querySelectorAll('[data-env]').forEach(b => b.classList.toggle('on', b.dataset.env === line));
+}
+
+// 머리줄에 보일 짧은 이름. conda 면 환경 이름, 아니면 줄 앞부분
+function envLabel(line) {
+  const m = /^(?:call\s+)?conda\s+activate\s+(.+)$/i.exec(line);
+  if (m) return m[1].trim().split(/[\\/]/).filter(Boolean).pop();
+  return line.length > 18 ? `${line.slice(0, 17)}…` : line;
+}
+
+function envBadge(s) {
+  const b = $('#term-env');
+  b.hidden = !s || !LIVE;
+  if (b.hidden) { $('#env-pop').hidden = true; return; }
+  b.textContent = s.launch ? `환경 ${envLabel(s.launch)}` : '환경 기본';
+  b.title = s.launch || '서버 환경 그대로 띄운다. 눌러서 정한다';
+  b.classList.toggle('dim', !s.launch);
+  const pop = $('#env-pop');
+  if (!pop.hidden && pop.dataset.tab !== s.id) pop.hidden = true;
+}
+
+async function openEnvPop() {
+  const s = cur();
+  const pop = $('#env-pop');
+  if (!s || !pop.hidden) { pop.hidden = true; return; }
+  const data = await api('/api/projects');
+  if (!data) return;
+  const line = s.launch || '';
+  pop.dataset.tab = s.id;
+  pop.innerHTML = `<div class="ps-title">이 프로젝트의 실행 환경<button class="x" type="button" data-env-close>×</button></div>
+    <div class="env-pick">${envPickHTML(data.conda || [])}</div>
+    <input class="env-cmd" value="${esc(line)}" placeholder="비우면 서버 환경 그대로" autocomplete="off" spellcheck="false">
+    <div class="env-note">${s.alive ? '지금 떠 있는 세션은 그대로다. 바로 적용하려면 저장하고 다시 띄운다(대화는 이어진다).' : '다음 이어서 띄우기부터 적용된다.'}</div>
+    <div class="nt-actions"><button type="button" data-env-save>저장</button>
+      <button type="button" class="primary" data-env-save="restart">${s.alive ? '저장하고 다시 띄우기' : '저장하고 이어서 띄우기'}</button></div>`;
+  envSync(pop);
+  pop.hidden = false;
+  pop.querySelector('.env-cmd').focus();
+}
+
+async function saveEnv(restart) {
+  const s = cur();
+  const pop = $('#env-pop');
+  if (!s || pop.dataset.tab !== s.id) return;
+  if (restart && s.alive && !confirm(`${s.project} 세션을 끝내고 바꾼 환경으로 다시 띄운다. 대화는 이어진다`)) return;
+  const t = await api(`/api/tabs/${s.id}/launch`, 'PUT', { command: pop.querySelector('.env-cmd').value, restart, ...termSize() });
+  if (!t) return;
+  pop.hidden = true;
+  upsert(t);
+  if (restart) { ui.term = true; ui.autoTerm = t.id; }
+  render();
+}
+
+$('#term-env').addEventListener('click', openEnvPop);
+// 단추 줄과 입력칸은 새 세션 창과 바꾸기 창에서 같이 동작한다
+document.addEventListener('click', e => {
+  const pick = e.target.closest('.env-pick [data-env]');
+  if (pick) {
+    const box = pick.closest('.nt-env, .env-pop');
+    box.querySelector('.env-cmd').value = pick.dataset.env;
+    envSync(box);
+    return;
+  }
+  if (e.target.closest('[data-env-close]')) $('#env-pop').hidden = true;
+  const save = e.target.closest('[data-env-save]');
+  if (save) saveEnv(save.dataset.envSave === 'restart');
+});
+document.addEventListener('input', e => {
+  if (e.target.classList?.contains('env-cmd')) envSync(e.target.closest('.nt-env, .env-pop'));
+});
 
 async function resumeTab(id) {
   const t = await api(`/api/tabs/${id}/resume`, 'POST', termSize());
