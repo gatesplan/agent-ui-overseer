@@ -477,7 +477,7 @@ kbd.tag {
 .mp-legend .lg-layer b { height: 1px; border: 0; background: repeating-linear-gradient(90deg, color-mix(in srgb, var(--accent) 45%, transparent) 0 5px, transparent 5px 8px); }
 
 .mp-scroll { flex: 1; min-height: 0; overflow: auto; position: relative; scrollbar-width: thin; }
-.map { position: relative; min-width: max-content; padding: 22px 28px 140px 0; }
+.map { position: relative; padding: 22px 28px 140px 0; }
 .edges { position: absolute; inset: 0; pointer-events: none; overflow: visible; z-index: 0; }
 .edges path { fill: none; stroke: var(--line-strong); stroke-width: 1.3; transition: stroke .15s, opacity .15s; }
 .edges path.vocab { opacity: .38; stroke-dasharray: 2 3; }
@@ -503,7 +503,9 @@ kbd.tag {
 .map .row.tray { padding-bottom: 18px; border-bottom: 1px dashed var(--line-strong); }
 .map .row.tray .row-label { color: var(--accent); }
 .row-label { flex: none; width: 56px; padding-top: 12px; text-align: right; padding-right: 14px; font: 600 12px var(--font-mono); color: var(--muted); letter-spacing: .08em; }
-.row-nodes { display: flex; gap: 26px; align-items: flex-start; }
+/* 한 층의 모듈이 폭을 넘으면 옆으로 밀지 않고 여러 줄로 쌓는다. 줄 사이는 층 간격보다 좁게 */
+.row-nodes { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 18px 26px; align-items: flex-start; }
+.row-nodes > .nest { max-width: 100%; }
 
 .node, .nest-head {
   position: relative; z-index: 1; padding: 8px 11px 9px; background: var(--panel); border: 1px solid var(--line); cursor: pointer;

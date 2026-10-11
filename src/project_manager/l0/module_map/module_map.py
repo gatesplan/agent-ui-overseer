@@ -7,6 +7,8 @@ import sys
 from pathlib import Path
 
 LAYER_DIR = ('l0', 'l1', 'l2', 'l3', 'l4', 'l5', 'l6', 'l7', 'l8', 'l9')
+# lnt 가 읽는 언어의 소스 확장자 (Python, Rust)
+SOURCE_EXT = ('.py', '.rs')
 
 
 # 프로젝트의 ln 모듈 지도를 lnt 에게서 받아 온다. 소스가 바뀌었는지는 파일 서명으로 알아본다
@@ -53,7 +55,7 @@ class ModuleMap:
         except json.JSONDecodeError:
             return {'status': 'error', 'message': 'lnt 출력이 JSON 이 아니다'}
 
-    # 소스 서명: src 아래 .py 와 layerinfo 문서의 (개수, 가장 늦은 수정 시각, 크기 합). 하나라도 바뀌면 다시 받는다
+    # 소스 서명: src 아래 소스(.py, .rs)와 layerinfo 문서의 (개수, 가장 늦은 수정 시각, 크기 합). 하나라도 바뀌면 다시 받는다
     def signature(self, cwd: str | Path) -> tuple:
         src = Path(cwd) / 'src'
         if not src.is_dir():
@@ -62,7 +64,7 @@ class ModuleMap:
         for root, dirs, files in os.walk(src):
             dirs[:] = [d for d in dirs if not d.startswith(('.', '__pycache__'))]
             for name in files:
-                if not (name.endswith('.py') or name == 'for-agent-layerinfo.md'):
+                if not (name.endswith(SOURCE_EXT) or name == 'for-agent-layerinfo.md'):
                     continue
                 try:
                     st = os.stat(os.path.join(root, name))
@@ -73,10 +75,11 @@ class ModuleMap:
                 size += st.st_size
         return (count, latest, size)
 
-    # src/<패키지>/l0 같은 층 폴더가 있는지. 없으면 lnt 를 띄우지 않는다
+    # 층 폴더가 있는지. Python 은 src/<패키지>/l0, Rust 크레이트는 src/l0. 없으면 lnt 를 띄우지 않는다
     @staticmethod
     def _has_layers(cwd: Path) -> bool:
         src = cwd / 'src'
         if not src.is_dir():
             return False
-        return any((pkg / layer).is_dir() for pkg in src.iterdir() if pkg.is_dir() for layer in LAYER_DIR)
+        roots = [src, *(pkg for pkg in src.iterdir() if pkg.is_dir())]
+        return any((root / layer).is_dir() for root in roots for layer in LAYER_DIR)

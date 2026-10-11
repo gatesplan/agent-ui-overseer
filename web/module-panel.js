@@ -189,7 +189,7 @@ const MP_LEGEND = `<div class="mp-legend">
   <span class="lg-vocab"><b></b>l0 공용 모듈로 가는 선</span><span class="lg-layer"><b></b>층 경계</span></div>`;
 
 const MP_STATUS = {
-  none: '이 프로젝트는 ln 구조가 아니다 (src/&lt;패키지&gt;/lN 이 없다)',
+  none: '이 프로젝트는 ln 구조가 아니다 (src/&lt;패키지&gt;/lN 이나 src/lN 이 없다)',
   missing: 'lnt 명령이 없다. <code>uv tool install ff-lntools</code>',
   unsupported: 'lnt 가 <code>map --json</code> 을 모른다. ff-lntools 를 새 판으로 올린다',
 };
@@ -345,6 +345,9 @@ function mpDrawEdges(s, ix, open, fs) {
   const map = $('#mp-map');
   if (!svg || !map) return;
   const base = map.getBoundingClientRect();
+  // 지난 크기의 선 그림이 지도 폭을 붙잡지 않게 비우고 잰다. 좁아질 때 옆 스크롤이 남지 않는다
+  svg.setAttribute('width', 0);
+  svg.setAttribute('height', 0);
   svg.setAttribute('width', map.scrollWidth);
   svg.setAttribute('height', map.scrollHeight);
   const drawn = new Map();
@@ -556,4 +559,6 @@ document.addEventListener('pointerover', e => {
   mpHover(null);
 });
 
-window.addEventListener('resize', () => requestAnimationFrame(mpRepaint));
+// 패널 폭이 바뀌면 층 줄이 다시 접히니 선을 다시 긋는다 (창 크기 변경도 여기로 온다)
+// $ 는 뒤에 읽히는 app.js 가 정의하므로 여기서는 쓰지 않는다
+new ResizeObserver(() => requestAnimationFrame(mpRepaint)).observe(document.getElementById('modhost'));

@@ -42,6 +42,17 @@ def test_scan_reports_old_lnt_and_failures(tmp_path):
     assert ModuleMap(command=['no-such-lnt-command']).scan(proj)['status'] == 'missing'
 
 
+def test_rust_crate_layers_and_sources_count(tmp_path):
+    # Rust 크레이트는 층이 src/lN 에 바로 놓인다
+    crate = tmp_path / 'crate'
+    (crate / 'src' / 'l0' / 'money').mkdir(parents=True)
+    maps = fake_lnt(tmp_path, "print('{}')")
+    assert maps.scan(crate)['status'] == 'ok'
+    first = maps.signature(crate)
+    (crate / 'src' / 'l0' / 'money' / 'mod.rs').write_text('pub struct Money;\n', encoding='utf-8')
+    assert maps.signature(crate) != first
+
+
 def test_signature_changes_when_source_or_layerinfo_changes(tmp_path):
     proj = ln_project(tmp_path)
     maps = ModuleMap(command=['lnt'])
