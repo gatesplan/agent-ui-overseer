@@ -10,6 +10,7 @@ from loguru import logger
 
 from ...l0.capture_log import CaptureLog
 from ...l0.launch_env import LaunchEnv
+from ...l0.module_map import ModuleMap
 from ...l0.panel_store import PanelStore
 from ...l0.permission_gate import PermissionGate
 from ...l0.project_journal import ProjectJournal
@@ -232,7 +233,7 @@ class AgentTab:
     # 모듈 지도가 바뀌었을 때 책임이 바뀐 모듈을 지금 세션 파일에 남긴다. 남긴 사건 목록
     # 마지막 턴 뒤에 보낸 메시지가 그 모듈의 책임 수정이나 새 책임 카드면 사용자가 요청한 변경(request)이다
     def note_map(self, before: dict | None, after: dict | None) -> list[dict]:
-        old, new = self._responsibilities(before), self._responsibilities(after)
+        old, new = ModuleMap.responsibilities(before), ModuleMap.responsibilities(after)
         if old is None or new is None:
             return []
         built = self.builder.build(self.log.events)
@@ -249,23 +250,19 @@ class AgentTab:
             prev = old.get(name)
             if prev == resp or (prev is None and not resp):
                 continue
-            short = name.rsplit('.', 1)[-1]
+            # 새 책임 카드는 끝 이름으로 쓴다. 패키지가 여럿이면 '패키지/끝 이름'
+            bare = name.rsplit('/', 1)[-1]
+            short = bare.rsplit('.', 1)[-1]
+            called = {name, short, name[:len(name) - len(bare)] + short}
             request = asked.get(name)
-            if request is None and prev is None and any(c and (c == name or c == short) for c in cards):
-                request = next(m.group(2).strip() for m in CARD_LINE.finditer(text) if (m.group(1) or '').strip() in (name, short))
+            if request is None and prev is None and any(c in called for c in cards):
+                request = next(m.group(2).strip() for m in CARD_LINE.finditer(text) if (m.group(1) or '').strip() in called)
             event = {'module': name, 'before': prev, 'after': resp, 'request': request, 'turn': last['id'] if last else None}
             self.journal.add_module_change(n, event)
             events.append(event)
         if events:
             logger.info(f"책임 변경: tab={self.id}, modules={[e['module'] for e in events]}")
         return events
-
-    # 지도의 모듈별 책임 {모듈: 책임}. 지도가 없으면 None
-    @staticmethod
-    def _responsibilities(result: dict | None) -> dict[str, str] | None:
-        if not result or result.get('status') != 'ok':
-            return None
-        return {m['name']: m.get('responsibility') or '' for m in (result.get('map') or {}).get('modules') or []}
 
     # 지금 보류 중인 사안 ID
     def held(self) -> set[str]:

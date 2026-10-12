@@ -490,6 +490,45 @@ kbd.tag {
 .live.tick i { animation: tick .6s ease-out; }
 @keyframes tick { from { box-shadow: 0 0 0 6px color-mix(in srgb, var(--ok) 40%, transparent); } }
 
+/* 패키지 탭: 패널 머리 바로 아래, 범례 위. src/ 아래 ln 패키지가 여럿일 때만 */
+.mp-pkgs {
+  display: flex; align-items: stretch; gap: 2px; padding: 0 10px;
+  border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; flex: none;
+}
+.mp-pkgs::-webkit-scrollbar { display: none; }
+.mp-pkgs .pkg {
+  position: relative; display: inline-flex; align-items: center; gap: 7px; flex: none;
+  height: 32px; padding: 0 12px; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px;
+  background: none; color: var(--muted); font: 600 12px var(--font-mono); white-space: nowrap; cursor: pointer;
+  transition: color .15s, background .15s, border-color .15s;
+}
+.mp-pkgs .pkg:hover { color: var(--text); background: color-mix(in srgb, var(--accent) 5%, transparent); }
+.mp-pkgs .pkg:focus-visible { outline: 1px solid var(--accent); outline-offset: -3px; }
+.mp-pkgs .pkg.on { color: var(--accent); border-bottom-color: var(--accent); background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.pkg-lang { font-size: 9px; letter-spacing: .08em; padding: 0 4px; border: 1px solid var(--line-strong); color: var(--muted); }
+.pkg.on .pkg-lang { border-color: color-mix(in srgb, var(--accent) 50%, transparent); color: var(--accent); }
+.pkg-n { font-weight: 400; color: var(--muted); font-variant-numeric: tabular-nums; }
+.mp-pkgs .chip { margin: 0; }
+/* 이번 턴에 고친 모듈이 이 패키지에 있다 */
+.pkg-turn { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 6px var(--accent); flex: none; }
+/* 고른 카드가 이 (다른) 패키지의 모듈을 언급한다 */
+.mp-pkgs .pkg.ment { color: var(--text); background: color-mix(in srgb, var(--p) 12%, transparent); border-bottom-color: color-mix(in srgb, var(--p) 70%, transparent); }
+.mp-pkgs .pkg.ment::after {
+  content: "언급 " attr(data-ment); font: 600 10px var(--font-mono); color: var(--p);
+  padding: 0 5px; border: 1px solid currentColor;
+}
+/* 읽을 소스가 없는 패키지는 탭이 아니라 끝에 흐린 글로 */
+.pkg-off {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 6px; padding: 0 4px 0 14px;
+  font: 11px var(--font-mono); color: var(--muted); opacity: .6; white-space: nowrap; cursor: help;
+}
+.pkg-off small { font-size: 10px; padding: 0 4px; border: 1px dashed var(--line-strong); }
+/* 커맨드 패널 카드의 모듈 칩과 상세 제목: 패키지 부분은 흐리게 */
+.mods .mod-pkg, .mp-detail .d-pkg { color: var(--muted); font-size: .92em; font-weight: 400; }
+.mp-detail h3 .d-pkg { margin-right: -8px; }
+/* 책임 카드 창의 패키지 고르기 */
+.mp-throw select { display: block; width: 100%; margin-top: 4px; padding: 5px 8px; background: var(--bg); border: 1px solid var(--line-strong); color: var(--text); font: 13px var(--font-mono); }
+
 .mp-legend { display: flex; gap: 12px; padding: 6px 14px; border-bottom: 1px solid var(--line); font: 11px var(--font-mono); color: var(--muted); flex-wrap: wrap; }
 .mp-legend span { display: inline-flex; align-items: center; gap: 6px; }
 .mp-legend b { display: inline-block; width: 14px; height: 10px; border: 1px solid var(--line-strong); background: var(--panel); }

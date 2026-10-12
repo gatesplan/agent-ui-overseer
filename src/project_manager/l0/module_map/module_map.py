@@ -55,6 +55,26 @@ class ModuleMap:
         except json.JSONDecodeError:
             return {'status': 'error', 'message': 'lnt 출력이 JSON 이 아니다'}
 
+    # 지도의 패키지 목록. lnt 0.7 의 format 2 는 src/ 아래 ln 패키지마다 지도 하나, format 1 은 패키지 하나짜리로 읽는다
+    # 읽을 소스(.py, .rs)가 없는 패키지는 모듈이 비어 있다. 지도가 없으면 빈 목록
+    @staticmethod
+    def packages(result: dict | None) -> list[dict]:
+        if not result or result.get('status') != 'ok':
+            return []
+        map = result.get('map') or {}
+        return list(map.get('packages') or []) if (map.get('format') or 1) >= 2 else [map]
+
+    # 지도의 모듈별 책임 {모듈: 책임}. 지도가 있는 패키지가 여럿이면 모듈은 '패키지/모듈' 로 가리킨다(이름이 패키지끼리 겹칠 수 있다)
+    # 지도가 없으면 None
+    @classmethod
+    def responsibilities(cls, result: dict | None) -> dict[str, str] | None:
+        if not result or result.get('status') != 'ok':
+            return None
+        readable = [p for p in cls.packages(result) if p.get('modules')]
+        multi = len(readable) > 1
+        return {f"{p.get('package')}/{m['name']}" if multi else m['name']: m.get('responsibility') or ''
+                for p in readable for m in p['modules']}
+
     # 소스 서명: src 아래 소스(.py, .rs)와 layerinfo 문서의 (개수, 가장 늦은 수정 시각, 크기 합). 하나라도 바뀌면 다시 받는다
     def signature(self, cwd: str | Path) -> tuple:
         src = Path(cwd) / 'src'

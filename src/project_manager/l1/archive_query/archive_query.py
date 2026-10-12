@@ -90,10 +90,11 @@ class ArchiveQuery:
         return '\n'.join(lines)
 
     # 모듈 하나의 책임 변경 이력과 그 모듈을 언급한 결정 기록. name 은 `l1.item_splitter` 나 끝 이름 `item_splitter`
+    # ln 패키지가 여럿인 프로젝트에서는 이력이 `패키지/모듈` 로 묶여 있다. 패키지를 붙여도, 빼도 찾는다
     def module(self, name: str) -> str:
         name = name.strip()
         history = self.journals[0][1].module_history() if self.journals else {}
-        hits = [m for m in history if m == name or m.rsplit('.', 1)[-1] == name]
+        hits = [m for m in history if name in self._module_names(m)]
         lines = []
         for m in hits:
             lines.append(f'# {m} 책임 이력 (오래된 것부터)')
@@ -102,12 +103,19 @@ class ArchiveQuery:
                 before = '(새 모듈)' if e.get('before') is None else (e['before'] or '(없음)')
                 where = f" {e['turn']} 뒤" if e.get('turn') else ''
                 lines.append(f"- {self._date(e.get('at'))}{where}: {before} → {e.get('after') or '(없음)'} [{who}]")
-        short = name.rsplit('.', 1)[-1]
-        recs = [r for r in self.records.records_in_scope(self.project, active_only=True) if short in f"{r['text']} {r['note']} {r['body']}"]
+        short = name.rsplit('/', 1)[-1].rsplit('.', 1)[-1]
+        recs =[r for r in self.records.records_in_scope(self.project, active_only=True) if short in f"{r['text']} {r['note']} {r['body']}"]
         if recs:
             lines += ['', f'# {short} 를 언급한 결정 기록']
             lines += [f"- {r['ref']} {r['text']}" for r in recs]
         return '\n'.join(lines) if lines else f'{name} 에 대한 책임 이력과 기록이 없다.'
+
+    # 이력 키 하나를 가리킬 수 있는 이름들: 그대로, 패키지 뺀 것, 끝 이름, 패키지/끝 이름
+    @staticmethod
+    def _module_names(key: str) -> set[str]:
+        bare = key.rsplit('/', 1)[-1]
+        short = bare.rsplit('.', 1)[-1]
+        return {key, bare, short, key[:len(key) - len(bare)] + short}
 
     # 대체 관계를 따라 가장 오래된 기록부터 지금 유효한 기록까지
     def _chain(self, rec: dict) -> list[dict]:

@@ -26,7 +26,7 @@ class OverseerMcp:
                              description='이 프로젝트의 지난 사안과 사용자 결정(답변, 승인, 수정, 보류, 기각, 확인)을 최근 순으로 찾는다. '
                                          'action="reject" 면 기각된 것과 그 사유만. 같은 제안을 다시 내기 전에 확인한다.')
         self.server.add_tool(self.module, name='module', annotations=READ_ONLY,
-                             description='모듈 하나(예: l1.item_splitter 나 item_splitter)의 책임 변경 이력과 그 모듈을 언급한 결정 기록. '
+                             description='모듈 하나(예: l1.item_splitter 나 item_splitter. ln 패키지가 여럿이면 fmp_harness/l1.cli_io 처럼 패키지를 붙여도 된다)의 책임 변경 이력과 그 모듈을 언급한 결정 기록. '
                                          '변경마다 이전 책임, 새 책임, 사용자가 요청한 것인지를 보인다. 책임을 바꾸기 전에 확인한다.')
 
     def records(self, query: str = '', kind: str = '', include_replaced: bool = False) -> str:

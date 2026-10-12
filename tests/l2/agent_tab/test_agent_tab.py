@@ -169,6 +169,21 @@ def test_note_map_records_responsibility_changes_and_user_requests(tmp_path):
     assert [e['after'] for e in history['l1.a']] == ['새 책임', '더 새 책임']
 
 
+def test_note_map_keys_modules_by_package_when_several_packages_have_maps(tmp_path):
+    captures, project, store = setup(tmp_path, [{'kind': '보고', 'title': '가', 'body': ''}])
+    tab = AgentTab('t', project, '', store, captures)
+
+    def result(engine, harness):
+        pkg = lambda name, mods: {'package': name, 'modules': [{'name': k, 'responsibility': v} for k, v in mods.items()]}
+        return {'status': 'ok', 'map': {'format': 2, 'packages': [pkg('engine', engine), pkg('harness', harness), pkg('web', {})]}}
+
+    store.add_message('t', '[책임 수정] harness/l0.money: 하네스 금액\n[새 책임 카드] engine/ledger: 장부를 맡는다 → 타당성을 [제안]으로 올린다')
+    events = tab.note_map(result({'l0.money': '엔진 금액'}, {'l0.money': ''}),
+                          result({'l0.money': '엔진 금액', 'l1.ledger': '장부를 맡는다'}, {'l0.money': '하네스 금액'}))
+    assert sorted((e['module'], e['request']) for e in events) == [('engine/l1.ledger', '장부를 맡는다'), ('harness/l0.money', '하네스 금액')]
+    assert set(tab.state()['moduleHistory']) == {'engine/l1.ledger', 'harness/l0.money'}
+
+
 def test_argv_runs_launch_line_first_through_a_batch_file(tmp_path):
     captures, project, store = setup(tmp_path)
     tab = AgentTab('t', project, '--x', store, captures)

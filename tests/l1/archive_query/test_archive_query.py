@@ -86,3 +86,18 @@ def test_module_history_and_mentioning_records(tmp_path):
     assert '1S-2 뒤: 응답을 나눈다 → 응답을 사안 단위로 나눈다 [사용자 요청: 응답을 사안 단위로 나눈다]' in text
     assert '- D-1 item_splitter 는 제목 줄만 본다' in text
     assert q.module('없는모듈') == '없는모듈 에 대한 책임 이력과 기록이 없다.'
+
+
+def test_module_history_with_package_prefix(tmp_path):
+    cwd = str(tmp_path / 'proj')
+    project = RecordStore.project_key(cwd)
+    j = ProjectJournal(project)
+    n = j.open_session('s', 't', 'startup')
+    j.add_module_change(n, {'module': 'engine/l0.money', 'before': None, 'after': '엔진 금액', 'request': None, 'turn': None})
+    j.add_module_change(n, {'module': 'harness/l0.money', 'before': None, 'after': '하네스 금액', 'request': None, 'turn': None})
+    q = ArchiveQuery(RecordStore(), cwd)
+    # 패키지를 붙이면 그 패키지만, 빼면 이름이 같은 모듈 모두
+    for name in ('engine/l0.money', 'engine/money'):
+        text = q.module(name)
+        assert '# engine/l0.money 책임 이력' in text and 'harness' not in text
+    assert q.module('l0.money').count('책임 이력') == 2 and q.module('money').count('책임 이력') == 2

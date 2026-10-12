@@ -378,7 +378,7 @@ function card(s, item, isCur, prefix = 'c', veil = false) {
         <span class="spacer"></span>${keptBadge(s, item)}${stateChip(s, item)}${isCur ? '' : '<span class="chev">›</span>'}${UNPICK}
       </div>
       <div class="title">${esc(item.title)}</div>
-      ${mods.length ? `<div class="mods">${mods.map(m => `<button data-mod="${esc(m)}" title="모듈 패널에서 보기">${esc(m)}</button>`).join('')}</div>` : ''}
+      ${mods.length ? `<div class="mods">${mods.map(m => `<button data-mod="${esc(m)}" title="모듈 패널에서 보기">${m.includes('/') ? `<small class="mod-pkg">${esc(m.split('/')[0])}/</small>${esc(m.split('/')[1])}` : esc(m)}</button>`).join('')}</div>` : ''}
     </div>
     <div class="card-body"><div class="md">${md(item.tag ? item.body.replace(BASIS, '').replace(REPLACES, '') : item.body)}</div>${basisBlock(s, item)}${veil ? '' : decideBlock(s, item)}</div>${held}
   </article>`;

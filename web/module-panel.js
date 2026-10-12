@@ -1,6 +1,7 @@
 // 모듈 패널: 지금 코드베이스의 ln 모듈 지도. 지도 계산은 lnt 가 하고(서버가 lnt map --json 으로 받아 준다) 화면은 그리기만 한다
 // 파일이 바뀌면 서버가 modules 알림을 보내고 다시 그린다. 지도는 파일을 직접 쓰지 않는다. 사용자가 한 일은 보내기에 실린다
 // app.js 보다 먼저 읽힌다. app.js 의 전역(ui, sessions, cur, esc, api, LIVE, GEAR)은 함수 안에서만 쓴다
+// src/ 아래 ln 패키지가 여럿이면(format 2) 패키지마다 탭. 하나면(format 1 또는 패키지 하나) 지금과 같다
 'use strict';
 
 // 그려 둔 탭, 폴더별 노드 순서(새 모듈은 줄 끝에 붙여 기존 노드가 움직이지 않게), 마우스 미리보기
@@ -41,11 +42,49 @@ function onModulesEvent(msg) {
   if (hit) { renderModules(); mpTick(); }
 }
 
-// 지도 색인 -----------------------------------------------------------------
+// 패키지 --------------------------------------------------------------------
 
-function mpIndex(s) {
-  if (s._mpIndex) return s._mpIndex;
-  const map = s.modules?.map;
+// format 2 는 src/ 아래 ln 패키지마다 지도 하나. format 1 은 패키지 하나짜리로 읽는다
+function mpPackages(s) {
+  const map = s?.modules?.status === 'ok' ? s.modules.map : null;
+  if (!map) return [];
+  return map.format >= 2 ? map.packages || [] : [map];
+}
+// 읽을 소스(.py, .rs)가 없는 패키지는 lnt 가 language null, 모듈 0 으로 낸다
+const mpReadable = p => (p.modules || []).length > 0;
+// 이름에 패키지를 붙이는 것은 지도가 있는 패키지가 여럿일 때. 서버(AgentTab)도 같은 기준으로 책임 이력을 묶는다
+const mpMulti = s => mpPackages(s).filter(mpReadable).length > 1;
+const MP_LANG = { python: 'PY', rust: 'RS' };
+
+// 보이는 패키지. 이 탭에서 고른 것 > 이 폴더에서 마지막으로 본 것 > 모듈이 있는 첫 패키지
+function mpPkg(s) {
+  const pk = mpPackages(s).filter(mpReadable);
+  if (!pk.length) return null;
+  const want = (ui.mpPkg ||= {})[s.id] ?? pref(`overseer.mppkg.${mpNorm(s.cwd)}`, '');
+  return (pk.find(p => p.package === want) || pk[0]).package;
+}
+function mpSetPkg(s, name) {
+  (ui.mpPkg ||= {})[s.id] = name;
+  savePref(`overseer.mppkg.${mpNorm(s.cwd)}`, name);
+  ui.mpPin = null;
+  ui.mpThrow = false;
+  MP.peek = null;
+  MP.editing = null;
+}
+// 패키지가 여럿이면 모듈은 '패키지/모듈' 로 가리킨다. 모듈 이름이 패키지끼리 겹칠 수 있다(l0.money)
+const mpRef = (s, pkg, name) => mpMulti(s) ? `${pkg}/${name}` : name;
+function mpSplit(s, ref) {
+  const i = ref.indexOf('/');
+  return i < 0 ? [mpPkg(s), ref] : [ref.slice(0, i), ref.slice(i + 1)];
+}
+
+// 지도 색인 (패키지마다) ---------------------------------------------------------
+
+function mpIndex(s, pkg = mpPkg(s)) {
+  if (!pkg) return null;
+  const cache = s._mpIndex ||= {};
+  if (cache[pkg]) return cache[pkg];
+  const map = mpPackages(s).find(p => p.package === pkg);
   if (!map) return null;
   const mods = {};
   for (const m of map.modules || []) mods[m.name] = { ...m, bad: [], parseErr: false, orphan: false, kids: [] };
@@ -58,7 +97,7 @@ function mpIndex(s) {
   for (const o of map.orphans || []) if (mods[o]) mods[o].orphan = true;
   for (const m of Object.values(mods)) if (m.scope && mods[m.scope]) mods[m.scope].kids.push(m.name);
 
-  const good = s._mpGood ||= {};
+  const good = (s._mpGood ||= {})[pkg] ||= {};
   const edges = [];
   const seen = new Set();
   const add = e => {
@@ -78,12 +117,11 @@ function mpIndex(s) {
     else good[m.name] = fresh[m.name] || [];
   }
 
-  // 노드 순서: 처음 본 순서를 기억하고 새 모듈은 뒤에 붙인다
-  const order = MP.order[mpNorm(s.cwd)] ||= [];
+  // 노드 순서: 처음 본 순서를 기억하고 새 모듈은 뒤에 붙인다. 패키지마다 따로
+  const order = MP.order[`${mpNorm(s.cwd)}|${pkg}`] ||= [];
   Object.keys(mods).sort().forEach(n => { if (!order.includes(n)) order.push(n); });
   const rank = Object.fromEntries(order.map((n, i) => [n, i]));
-  s._mpIndex = { map, mods, edges, rank };
-  return s._mpIndex;
+  return cache[pkg] = { pkg, map, mods, edges, rank };
 }
 
 function mpMembers(ix, id) {
@@ -111,10 +149,16 @@ function mpUps(ix, id) {
   return out;
 }
 
+// 펼친 중첩 모듈은 패키지마다 따로 기억한다. 패키지가 하나면 예전 키 그대로
+const mpOpenKey = s => mpMulti(s) ? `${mpNorm(s.cwd)}|${mpPkg(s)}` : mpNorm(s.cwd);
 const mpOpenSet = s => {
-  ui.mpOpen[s.id] ||= new Set(ui.rememberOpen ? JSON.parse(pref(`overseer.mpopen.${mpNorm(s.cwd)}`, '[]')) : []);
-  return ui.mpOpen[s.id];
+  const k = mpOpenKey(s);
+  const all = ui.mpOpen[s.id] ||= {};
+  all[k] ||= new Set(ui.rememberOpen ? JSON.parse(pref(`overseer.mpopen.${k}`, '[]')) : []);
+  return all[k];
 };
+const mpSaveOpen = s => { if (ui.rememberOpen) savePref(`overseer.mpopen.${mpOpenKey(s)}`, JSON.stringify([...mpOpenSet(s)])); };
+
 // 접힌 중첩 모듈 안의 모듈은 그 중첩 모듈로 보인다
 function mpVisible(ix, open, id) {
   const m = ix.mods[id];
@@ -138,37 +182,57 @@ function mpModuleOf(s, ix, file) {
 }
 // 이번 턴(마지막 턴)에 고친 모듈
 function mpTurnMods(s, ix) {
-  const t = s.turns[s.turns.length - 1];
+  const t = s.turns?.[s.turns.length - 1];
   return new Set((t?.files || []).map(f => mpModuleOf(s, ix, f)).filter(Boolean));
 }
-// 사안이 언급한 모듈: 점 경로(l1.cli_io), 백틱 안의 이름이나 경로. 이름이 겹치는 짧은 이름은 쓰지 않는다
+// 사안이 언급한 모듈. 돌려주는 것은 mpRef 모양(패키지가 여럿이면 '패키지/모듈')
+// 패키지를 붙인 이름과 경로는 그 패키지로. 맨 이름은 그 이름을 가진 패키지가 하나면 그쪽, 여럿이면 지금 보는 탭 쪽
 function itemModules(s, item) {
-  const ix = s.modules?.status === 'ok' && mpIndex(s);
-  if (!ix) return [];
+  const ixs = mpPackages(s).filter(mpReadable).map(p => mpIndex(s, p.package));
+  if (!ixs.length) return [];
+  const multi = mpMulti(s);
+  const active = mpPkg(s);
   const text = `${item.title}\n${item.body}`;
-  const names = Object.keys(ix.mods);
+  const owners = {};
   const byShort = {};
-  names.forEach(n => (byShort[mpShort(n)] ||= []).push(n));
-  const out = new Set(names.filter(n => n.includes('.') && new RegExp(`(^|[^\\w.])${n.replace(/\./g, '\\.')}(?![\\w])`).test(text)));
+  for (const ix of ixs) for (const n of Object.keys(ix.mods)) {
+    (owners[n] ||= []).push(ix.pkg);
+    (byShort[mpShort(n)] ||= []).push([ix.pkg, n]);
+  }
+  const ref = (p, n) => mpRef(s, p, n);
+  const out = new Set();
+  for (const ix of ixs) for (const n of Object.keys(ix.mods)) {
+    if (!n.includes('.')) continue;
+    const pat = n.replace(/\./g, '\\.');
+    if (multi && new RegExp(`(^|[^\\w./])${ix.pkg}/${pat}(?![\\w])`).test(text)) { out.add(ref(ix.pkg, n)); continue; }
+    if (!new RegExp(`(^|[^\\w./])${pat}(?![\\w])`).test(text)) continue;
+    const o = owners[n];
+    const pick = o.length === 1 ? o[0] : o.includes(active) ? active : null;
+    if (pick === ix.pkg) out.add(ref(ix.pkg, n));
+  }
   for (const [, tok] of text.matchAll(/`([^`\n]+)`/g)) {
     const t = tok.trim().replace(/\\/g, '/');
     if (t.includes('/')) {
-      const m = mpModuleOf(s, ix, t);
-      if (m) { out.add(m); continue; }
-      const seg = t.split('/').filter(Boolean);
-      for (const part of seg) if (byShort[part]?.length === 1) out.add(byShort[part][0]);
-    } else if (byShort[t]?.length === 1) out.add(byShort[t][0]);
+      const hit = ixs.map(ix => [ix.pkg, mpModuleOf(s, ix, t)]).find(([, m]) => m);
+      if (hit) { out.add(ref(...hit)); continue; }
+      for (const part of t.split('/').filter(Boolean)) if (byShort[part]?.length === 1) out.add(ref(...byShort[part][0]));
+    } else if (byShort[t]?.length === 1) out.add(ref(...byShort[t][0]));
   }
   // 안쪽 모듈과 그 바깥 중첩 모듈이 함께 걸리면 가장 안쪽 것만 남긴다
   return [...out].filter(n => ![...out].some(o => o !== n && o.startsWith(`${n}.`)));
 }
 
 // 보낼 것: 책임 수정, 모듈 질문, 새 책임 카드 ------------------------------------------------
+// 패키지가 여럿이면 줄에 패키지를 붙인다: [책임 수정] fmp_harness/l1.cli_io: ...
 
 const mpQueue = s => (s.map ||= { resp: {}, ask: {}, cards: [] });
 function mapCount(s) {
   const q = s.map;
   return q ? Object.keys(q.resp).length + Object.keys(q.ask).length + q.cards.length : 0;
+}
+function mpCardWho(s, c) {
+  if (!mpMulti(s) || !c.pkg) return c.name ? `${c.name}: ` : '';
+  return c.name ? `${c.pkg}/${c.name}: ` : `${c.pkg}: `;
 }
 function mapLines(s) {
   const q = s.map;
@@ -176,7 +240,7 @@ function mapLines(s) {
   return [
     ...Object.entries(q.resp).map(([m, t]) => `[책임 수정] ${m}: ${t}`),
     ...Object.entries(q.ask).map(([m, t]) => `[모듈 질문] ${m}: ${t}`),
-    ...q.cards.map(c => `[새 책임 카드] ${c.name ? `${c.name}: ` : ''}${c.resp} → 타당성, 이름과 경계, 놓을 층, 공용 모듈 사용, 하위 구성을 [제안]으로 올린다`),
+    ...q.cards.map(c => `[새 책임 카드] ${mpCardWho(s, c)}${c.resp} → 타당성, 이름과 경계, 놓을 층, 공용 모듈 사용, 하위 구성을 [제안]으로 올린다`),
   ];
 }
 function mapClear(s) { s.map = { resp: {}, ask: {}, cards: [] }; }
@@ -194,6 +258,28 @@ const MP_STATUS = {
   unsupported: 'lnt 가 <code>map --json</code> 을 모른다. ff-lntools 를 새 판으로 올린다',
 };
 
+// 패키지 탭 줄. 패키지가 하나면 그리지 않는다
+// 탭마다: 이름, 언어, 모듈 수, 위반 수, 이번 턴에 고친 모듈이 있으면 점, 보낼 것이 있으면 그 수
+// 고른 카드가 다른 패키지의 모듈을 언급하면 그 탭이 밝아진다(mpRepaint 가 칠한다)
+function mpTabsHTML(s, active) {
+  const pk = mpPackages(s);
+  if (pk.length < 2) return '';
+  const q = s.map || { resp: {}, ask: {}, cards: [] };
+  const queued = [...Object.keys(q.resp), ...Object.keys(q.ask)];
+  const tabs = pk.filter(mpReadable).map(p => {
+    const n = p.package;
+    const ix = mpIndex(s, n);
+    const bad = Object.values(ix.mods).reduce((k, m) => k + m.bad.length, 0);
+    const turn = mpTurnMods(s, ix).size;
+    const wait = queued.filter(r => mpSplit(s, r)[0] === n).length + q.cards.filter(c => (c.pkg || mpPkg(s)) === n).length;
+    return `<button class="pkg ${n === active ? 'on' : ''}" data-mp-pkg="${esc(n)}" title="${esc(p.package_root)}${turn ? ` · 이번 턴 수정 ${turn}` : ''}">
+      ${turn ? '<i class="pkg-turn"></i>' : ''}<span class="pkg-name">${esc(n)}</span><span class="pkg-lang">${MP_LANG[p.language] || '?'}</span><span class="pkg-n">${Object.keys(ix.mods).length}</span>${bad ? `<span class="chip c-bad">${bad}</span>` : ''}${wait ? `<span class="chip c-wait">보낼 ${wait}</span>` : ''}</button>`;
+  });
+  const off = pk.filter(p => !mpReadable(p));
+  const offHTML = off.length ? `<span class="pkg-off" title="읽을 소스(.py, .rs)가 없어 지도가 없다: ${esc(off.map(p => p.package_root).join(', '))}">${off.map(p => esc(p.package)).join(' · ')}<small>소스 없음</small></span>` : '';
+  return `<nav class="mp-pkgs" aria-label="패키지">${tabs.join('')}${offHTML}</nav>`;
+}
+
 function renderModules() {
   const host = $('#modhost');
   if (!host) return;
@@ -202,25 +288,33 @@ function renderModules() {
   if (!s) { host.innerHTML = ''; return; }
   mpLoad(s);
   const r = s.modules;
-  const ix = r?.status === 'ok' ? mpIndex(s) : null;
+  const pkgs = mpPackages(s);
+  const pkg = mpPkg(s);
+  const ix = r?.status === 'ok' ? mpIndex(s, pkg) : null;
   const scroll = $('#mp-scroll');
-  const pos = scroll && MP.scrollFor === s.id ? [scroll.scrollLeft, scroll.scrollTop] : null;
+  const pos = scroll && MP.scrollFor === `${s.id}|${pkg}` ? [scroll.scrollLeft, scroll.scrollTop] : null;
   const bad = ix ? Object.values(ix.mods).reduce((n, m) => n + m.bad.length, 0) : 0;
   const info = !r ? '불러오는 중' : ix
     ? `<span class="live" id="mp-live"><i></i>LIVE</span> · 모듈 ${Object.keys(ix.mods).length} · 위반 ${bad} · ${esc(ix.map.package_root || '')}`
     : '';
-  const open = mpOpenSet(s);
+  // ln 패키지는 있는데 읽을 소스가 있는 패키지가 없다
+  const allOff = r?.status === 'ok' && !ix && pkgs.length
+    ? `src/ 아래 ln 패키지 ${pkgs.length}개 (${pkgs.map(p => esc(p.package)).join(', ')}) 에 lnt 가 읽는 소스(.py, .rs)가 없다` : null;
+  const open = ix ? mpOpenSet(s) : new Set();
   const nests = ix ? Object.values(ix.mods).filter(m => m.nested) : [];
+  const readable = pkgs.filter(mpReadable);
   host.innerHTML = `<section class="mod-pane">
     <header class="pane-bar"><span class="pane-name">모듈 패널</span><span class="pane-info">${info}</span>
       ${nests.length ? `<button class="bar-btn" data-mp-expand>${nests.every(m => open.has(m.name)) ? '모두 접기' : '모두 펼치기'}</button>` : ''}
       ${ix ? '<button class="bar-btn" data-mp-throw>+ 책임 카드</button>' : ''}
       <button class="pane-gear ${ui.drawer === 'map' ? 'on' : ''}" data-drawer="map" title="모듈 패널 설정">${GEAR}</button></header>
+    ${ix ? mpTabsHTML(s, pkg) : ''}
     ${ix ? MP_LEGEND : ''}
-    <div class="mp-scroll" id="mp-scroll">${ix ? mpMapHTML(s, ix, open) : `<div class="empty">${!r ? '모듈 지도를 불러오는 중' : MP_STATUS[r.status] || esc(r.message || '모듈 지도를 받지 못했다')}</div>`}</div>
+    <div class="mp-scroll" id="mp-scroll">${ix ? mpMapHTML(s, ix, open) : `<div class="empty">${!r ? '모듈 지도를 불러오는 중' : allOff || MP_STATUS[r.status] || esc(r.message || '모듈 지도를 받지 못했다')}</div>`}</div>
     <div class="mp-detail" id="mp-detail" hidden></div>
     <form class="mp-throw" id="mp-throw" ${ui.mpThrow ? '' : 'hidden'}>
       <div class="ps-title">책임 카드 던지기</div>
+      ${readable.length > 1 ? `<label>패키지<select name="pkg">${readable.map(p => `<option value="${esc(p.package)}" ${p.package === pkg ? 'selected' : ''}>${esc(p.package)} (${MP_LANG[p.language] || '?'})</option>`).join('')}</select></label>` : ''}
       <label>모듈 이름 (선택)<input name="name" placeholder="비우면 에이전트가 이름과 경계를 제안" autocomplete="off"></label>
       <label>책임 (필수)<textarea name="resp" placeholder="무엇을 맡는지. 예: 에이전트의 보고를 슬랙 채널로 전달한다"></textarea></label>
       <div class="mp-hint">놓을 자리(층, 중첩, 공용 모듈 사용)는 정하지 않는다. 보내면 에이전트가 타당성 분석과 함께 [제안]으로 올린다.</div>
@@ -231,27 +325,28 @@ function renderModules() {
   if (ui.mpPin && ix && !ix.mods[ui.mpPin]) ui.mpPin = null;
   if (ui.mpPin) mpShowDetail(s, ui.mpPin);
   const sc = $('#mp-scroll');
-  MP.scrollFor = s.id;
+  MP.scrollFor = `${s.id}|${pkg}`;
   if (pos) { sc.scrollLeft = pos[0]; sc.scrollTop = pos[1]; }
   requestAnimationFrame(mpRepaint);
 }
 
-function mpChips(s, m) {
+function mpChips(s, ix, m) {
   const q = s.map || { resp: {}, ask: {} };
+  const ref = mpRef(s, ix.pkg, m.name);
   const c = [...new Set(m.bad.map(v => v.code))].map(code => `<span class="chip c-bad">${code === 'E' ? '파싱 실패' : code}</span>`);
   if (m.orphan) c.push('<span class="chip c-orphan">고아</span>');
   // 사용자가 모듈 패널에서 정한 책임(책임 수정, 새 책임 카드)이 들어간 모듈. 나머지는 에이전트가 정한 것이다
-  if (mpHistory(s, m.name).some(e => e.request)) c.push('<span class="chip c-spec" title="사용자가 정한 책임">사용자 스펙</span>');
-  if (q.resp[m.name]) c.push('<span class="chip c-wait">수정 대기</span>');
-  if (q.ask[m.name]) c.push('<span class="chip c-wait">질문 대기</span>');
+  if (mpHistory(s, ref).some(e => e.request)) c.push('<span class="chip c-spec" title="사용자가 정한 책임">사용자 스펙</span>');
+  if (q.resp[ref]) c.push('<span class="chip c-wait">수정 대기</span>');
+  if (q.ask[ref]) c.push('<span class="chip c-wait">질문 대기</span>');
   if (m.external) c.push('<span class="chip c-ext">+ext</span>');
   return c.join('');
 }
-// 모듈의 책임 변경 이력. 서버가 프로젝트 세션 이력(.overseer/sessions)에서 모아 준다. 오래된 것부터
-const mpHistory = (s, name) => (s.moduleHistory || {})[name] || [];
+// 책임 변경 이력. 패키지가 여럿이면 서버도 '패키지/모듈' 로 묶어 준다
+const mpHistory = (s, ref) => (s.moduleHistory || {})[ref] || [];
 
-function mpHistoryHTML(s, id) {
-  const h = mpHistory(s, id);
+function mpHistoryHTML(s, ref) {
+  const h = mpHistory(s, ref);
   if (!h.length) return '';
   const rows = h.slice().reverse().map(e => {
     const who = e.request ? '<span class="chip c-spec">사용자 요청</span>' : '<span class="chip c-orphan">에이전트</span>';
@@ -262,25 +357,25 @@ function mpHistoryHTML(s, id) {
   return '<div class="d-sec">책임 이력</div>' + rows.join('');
 }
 
-function mpResp(s, m) {
-  const want = s.map?.resp[m.name];
+function mpResp(s, ix, m) {
+  const want = s.map?.resp[mpRef(s, ix.pkg, m.name)];
   if (want) return `<div class="n-resp pending">${esc(want)}</div>`;
   return m.responsibility ? `<div class="n-resp">${esc(m.responsibility)}</div>` : '<div class="n-resp empty">책임 한 줄 없음</div>';
 }
 function mpNodeHTML(s, ix, name) {
   const m = ix.mods[name];
   const cls = ['node', m.bad.length && 'bad', m.parseErr && 'parse-err', m.orphan && 'orphan'].filter(Boolean).join(' ');
-  return `<div class="${cls}" data-mod-id="${esc(name)}"><div class="n-head"><span class="n-name">${esc(mpShort(name))}</span><span class="n-path">l${m.layer}</span></div>${mpResp(s, m)}<div class="chips">${mpChips(s, m)}</div></div>`;
+  return `<div class="${cls}" data-mod-id="${esc(name)}"><div class="n-head"><span class="n-name">${esc(mpShort(name))}</span><span class="n-path">l${m.layer}</span></div>${mpResp(s, ix, m)}<div class="chips">${mpChips(s, ix, m)}</div></div>`;
 }
 function mpNestHTML(s, ix, open, name) {
   const m = ix.mods[name];
   const all = [...mpMembers(ix, name)].filter(n => n !== name);
   const bad = all.filter(n => ix.mods[n].bad.length).length;
   const isOpen = open.has(name);
-  const chips = [mpChips(s, m), `<span class="chip c-orphan">안쪽 ${m.kids.length}</span>`,
+  const chips = [mpChips(s, ix, m), `<span class="chip c-orphan">안쪽 ${m.kids.length}</span>`,
     bad && !isOpen ? `<span class="chip c-bad">안쪽 위반 ${bad}</span>` : ''].join('');
   const cls = ['nest', isOpen && 'open', (bad && !isOpen || m.bad.length) && 'bad'].filter(Boolean).join(' ');
-  return `<div class="${cls}" data-nest="${esc(name)}"><div class="nest-head" data-mod-id="${esc(name)}"><div class="n-head"><span class="n-name">${esc(mpShort(name))}</span><span class="n-path">l${m.layer} · 중첩</span><button class="nest-tog" data-mp-tog="${esc(name)}">${isOpen ? '접기' : '펼치기'}</button></div>${mpResp(s, m)}<div class="chips">${chips}</div></div>
+  return `<div class="${cls}" data-nest="${esc(name)}"><div class="nest-head" data-mod-id="${esc(name)}"><div class="n-head"><span class="n-name">${esc(mpShort(name))}</span><span class="n-path">l${m.layer} · 중첩</span><button class="nest-tog" data-mp-tog="${esc(name)}">${isOpen ? '접기' : '펼치기'}</button></div>${mpResp(s, ix, m)}<div class="chips">${chips}</div></div>
     ${isOpen ? `<div class="nest-body">${mpRowsHTML(s, ix, open, m.kids, true)}</div>` : ''}</div>`;
 }
 function mpRowsHTML(s, ix, open, names, inner) {
@@ -291,8 +386,9 @@ function mpRowsHTML(s, ix, open, names, inner) {
   }).join('');
 }
 function mpMapHTML(s, ix, open) {
-  const cards = s.map?.cards || [];
-  const tray = cards.length ? `<div class="row tray"><div class="row-label">제안 대기</div><div class="row-nodes">${cards.map((g, i) => `<div class="node ghost">
+  // 책임 카드는 넣은 패키지의 탭에만 보인다
+  const cards = (s.map?.cards || []).map((g, i) => [g, i]).filter(([g]) => !g.pkg || g.pkg === ix.pkg);
+  const tray = cards.length ? `<div class="row tray"><div class="row-label">제안 대기</div><div class="row-nodes">${cards.map(([g, i]) => `<div class="node ghost">
       <div class="n-head"><span class="n-name">${esc(g.name || '(이름 제안 대기)')}</span><span class="n-path">층 미정</span><button class="x" data-mp-uncard="${i}" title="빼기">×</button></div>
       <div class="n-resp">${esc(g.resp)}</div><div class="chips"><span class="chip c-wait">보낼 예정</span></div></div>`).join('')}</div></div>` : '';
   const top = Object.keys(ix.mods).filter(n => !ix.mods[n].scope || !ix.mods[ix.mods[n].scope]);
@@ -302,15 +398,24 @@ function mpMapHTML(s, ix, open) {
 const mpEl = id => document.querySelector(`#mp-map [data-mod-id="${CSS.escape(id)}"]`);
 const mpHolder = id => { const e = mpEl(id); return e?.classList.contains('nest-head') ? e.parentElement : e; };
 
-// 강조할 대상. 마우스 미리보기 > 누른 모듈 > 커맨드 패널에서 고른 카드가 언급한 모듈
+// 미리보기 중이거나 고른 카드가 언급한 모듈(mpRef 모양)
+function mpCardRefs(s) {
+  if (MP.peek) return MP.peek.mods || [];
+  if (ui.mpPin) return [];
+  const item = ui.active && findItem(s, ui.active);
+  return item ? itemModules(s, item) : [];
+}
+
+// 강조할 대상. 마우스 미리보기 > 누른 모듈 > 커맨드 패널에서 고른 카드가 언급한 모듈. 지금 탭의 패키지 안에서만
 function mpFocus(s, ix) {
   const f = MP.peek || (ui.mpPin ? { mod: ui.mpPin } : null) || (ui.active && findItem(s, ui.active) ? { mods: itemModules(s, findItem(s, ui.active)) } : null);
   if (!f) return null;
   if (f.mod) return ix.mods[f.mod] ? { mem: mpMembers(ix, f.mod), deps: mpDeps(ix, f.mod), ups: mpUps(ix, f.mod), sel: [f.mod] } : null;
-  if (!f.mods.length) return null;
+  const here = f.mods.map(r => mpSplit(s, r)).filter(([p, n]) => p === ix.pkg && ix.mods[n]).map(([, n]) => n);
+  if (!here.length) return null;
   const mem = new Set();
-  f.mods.forEach(m => mpMembers(ix, m).forEach(x => mem.add(x)));
-  return { mem, deps: new Set(), ups: new Set(), sel: f.mods };
+  here.forEach(m => mpMembers(ix, m).forEach(x => mem.add(x)));
+  return { mem, deps: new Set(), ups: new Set(), sel: here };
 }
 
 // 이번 턴, 영향 범위, 선택 강조와 의존선. 다시 그리지 않고 칠만 한다
@@ -337,6 +442,13 @@ function mpRepaint() {
     fs.sel.forEach(id => mpHolder(vis(id))?.classList.add('sel'));
     [...fs.mem, ...fs.deps, ...fs.ups].forEach(id => mpHolder(vis(id))?.classList.add('lit'));
   }
+  // 고른 카드가 다른 탭의 모듈을 언급하면 그 탭을 밝힌다
+  const refs = mpCardRefs(s);
+  document.querySelectorAll('#modhost [data-mp-pkg]').forEach(b => {
+    const n = refs.filter(r => r.startsWith(`${b.dataset.mpPkg}/`)).length;
+    b.classList.toggle('ment', n > 0 && b.dataset.mpPkg !== ix.pkg);
+    b.dataset.ment = n || '';
+  });
   mpDrawEdges(s, ix, open, fs);
 }
 
@@ -400,27 +512,30 @@ function mpShowDetail(s, id) {
   const ix = mpIndex(s);
   const m = ix?.mods[id];
   if (!box || !m) { if (box) box.hidden = true; return; }
+  const ref = mpRef(s, ix.pkg, id);
   const q = mpQueue(s);
-  const items = allItems(s).filter(i => itemModules(s, i).some(x => x === id || mpMembers(ix, id).has(x)));
+  const mem = mpMembers(ix, id);
+  const items = allItems(s).filter(i => itemModules(s, i).some(r => { const [p, n] = mpSplit(s, r); return p === ix.pkg && mem.has(n); }));
   const recs = (s.records || []).filter(r => r.status === 'active' && `${r.text} ${r.note || ''}`.includes(mpShort(id)));
   const where = m.bad.map(v => `<span class="bad">${esc(v.code)} ${esc(v.message)}${v.line > 0 ? ` (${esc(v.file)}:${v.line})` : ''}</span>`).join('<br>');
   const edit = MP.editing?.id === id ? MP.editing.kind : null;
   box.innerHTML = `
-    <h3>${esc(id)}<button class="x" data-mp-close>×</button></h3>
+    <h3>${mpMulti(s) ? `<small class="d-pkg">${esc(ix.pkg)}/</small>` : ''}${esc(id)}<button class="x" data-mp-close>×</button></h3>
     <div class="d-resp">${m.responsibility ? esc(m.responsibility) : '<i>책임 한 줄 없음</i>'}</div>
     <dl>
+      ${mpMulti(s) ? `<dt>패키지</dt><dd>${esc(ix.pkg)} · ${MP_LANG[ix.map.language] || '?'}</dd>` : ''}
       <dt>구분</dt><dd>${m.nested ? '중첩 모듈' : '모듈'}${m.orphan ? ' · 고아' : ''}${m.external ? ' · 외부 패키지 사용' : ''}</dd>
       <dt>층</dt><dd>선언 l${m.layer}${m.computed != null && m.computed !== m.layer ? ` · 계산 l${m.computed}` : ''}${where ? `<br>${where}` : ''}</dd>
       <dt>의존</dt><dd>${[...mpDeps(ix, id)].map(esc).join(', ') || '-'}</dd>
       <dt>영향 범위</dt><dd>${[...mpUps(ix, id)].map(esc).join(', ') || '-'}</dd>
       <dt>위치</dt><dd>${esc(m.path)}</dd>
     </dl>
-    ${mpHistoryHTML(s, id)}
+    ${mpHistoryHTML(s, ref)}
     ${recs.length ? '<div class="d-sec">결정 기록</div>' + recs.map(r => `<div class="rec"><code>${esc(r.ref)}</code> ${esc(r.text)}</div>`).join('') : ''}
     ${items.length ? '<div class="d-sec">언급한 사안</div>' + items.map(i => `<div class="rec"><button class="parent" data-jump="${esc(i.id)}">#${esc(i.id)}</button> ${esc(i.title)}</div>`).join('') : ''}
-    ${q.resp[id] ? `<div class="queued"><span>책임 수정 보낼 예정: ${esc(q.resp[id])}</span><button data-mp-unq="resp">×</button></div>` : ''}
-    ${q.ask[id] ? `<div class="queued"><span>질문 보낼 예정: ${esc(q.ask[id])}</span><button data-mp-unq="ask">×</button></div>` : ''}
-    ${edit ? `<div class="inline"><textarea class="note" data-mp-text placeholder="${edit === 'resp' ? '새 책임 한 줄. 무엇을 하는지가 아니라 무엇을 맡는지' : '이 모듈에 대해 물을 것'}">${esc(edit === 'resp' ? (q.resp[id] || m.responsibility || '') : (q.ask[id] || ''))}</textarea>
+    ${q.resp[ref] ? `<div class="queued"><span>책임 수정 보낼 예정: ${esc(q.resp[ref])}</span><button data-mp-unq="resp">×</button></div>` : ''}
+    ${q.ask[ref] ? `<div class="queued"><span>질문 보낼 예정: ${esc(q.ask[ref])}</span><button data-mp-unq="ask">×</button></div>` : ''}
+    ${edit ? `<div class="inline"><textarea class="note" data-mp-text placeholder="${edit === 'resp' ? '새 책임 한 줄. 무엇을 하는지가 아니라 무엇을 맡는지' : '이 모듈에 대해 물을 것'}">${esc(edit === 'resp' ? (q.resp[ref] || m.responsibility || '') : (q.ask[ref] || ''))}</textarea>
       <div class="row-btns"><button data-mp-inline="cancel">취소</button><button data-mp-inline="ok" class="primary">넣기</button></div></div>`
       : '<div class="acts"><button data-mp-act="resp">책임 고치기</button><button data-mp-act="ask">이 모듈에 대해 묻기</button></div>'}`;
   box.hidden = false;
@@ -472,12 +587,13 @@ function mpSaved(s) {
 document.addEventListener('click', e => {
   const s = cur();
   if (!s) return;
-  // 커맨드 패널 카드의 모듈 칩: 그 모듈을 펼쳐 고정하고 보이게 한다
+  // 커맨드 패널 카드의 모듈 칩: 그 패키지 탭으로 가서 모듈을 펼쳐 고정한다
   const chip = e.target.closest('[data-mod]');
   if (chip) {
-    const ix = mpIndex(s);
-    const id = chip.dataset.mod;
+    const [pkg, id] = mpSplit(s, chip.dataset.mod);
+    const ix = mpIndex(s, pkg);
     if (!ix?.mods[id]) return;
+    if (pkg !== mpPkg(s)) mpSetPkg(s, pkg);
     const open = mpOpenSet(s);
     for (let p = ix.mods[id].scope; p && ix.mods[p]; p = ix.mods[p].scope) open.add(p);
     ui.mpPin = null;
@@ -494,17 +610,20 @@ document.addEventListener('click', e => {
   if (!e.target.closest('#modhost')) return;
   const ix = mpIndex(s);
   const t = e.target;
-  if (t.closest('[data-mp-tog]')) {
+  if (t.closest('[data-mp-pkg]')) {
+    const n = t.closest('[data-mp-pkg]').dataset.mpPkg;
+    if (n !== mpPkg(s)) { mpSetPkg(s, n); renderModules(); }
+  } else if (t.closest('[data-mp-tog]')) {
     const id = t.closest('[data-mp-tog]').dataset.mpTog;
     const open = mpOpenSet(s);
     open.has(id) ? open.delete(id) : open.add(id);
-    if (ui.rememberOpen) savePref(`overseer.mpopen.${mpNorm(s.cwd)}`, JSON.stringify([...open]));
+    mpSaveOpen(s);
     renderModules();
   } else if (t.closest('[data-mp-expand]')) {
     const open = mpOpenSet(s);
     const nests = Object.values(ix.mods).filter(m => m.nested).map(m => m.name);
     if (nests.every(n => open.has(n))) open.clear(); else nests.forEach(n => open.add(n));
-    if (ui.rememberOpen) savePref(`overseer.mpopen.${mpNorm(s.cwd)}`, JSON.stringify([...open]));
+    mpSaveOpen(s);
     renderModules();
   } else if (t.closest('[data-mp-throw]')) {
     ui.mpThrow = !ui.mpThrow;
@@ -519,7 +638,7 @@ document.addEventListener('click', e => {
   } else if (t.closest('[data-mp-close]')) {
     mpPin(ui.mpPin);
   } else if (t.closest('[data-mp-unq]')) {
-    delete mpQueue(s)[t.closest('[data-mp-unq]').dataset.mpUnq][ui.mpPin];
+    delete mpQueue(s)[t.closest('[data-mp-unq]').dataset.mpUnq][mpRef(s, ix.pkg, ui.mpPin)];
     mpSaved(s);
   } else if (t.closest('[data-mp-act]')) {
     MP.editing = { id: ui.mpPin, kind: t.closest('[data-mp-act]').dataset.mpAct };
@@ -527,7 +646,7 @@ document.addEventListener('click', e => {
   } else if (t.closest('[data-mp-inline]')) {
     const ok = t.closest('[data-mp-inline]').dataset.mpInline === 'ok';
     const text = ($('#mp-detail [data-mp-text]')?.value || '').trim();
-    if (ok && text) mpQueue(s)[MP.editing.kind][MP.editing.id] = text;
+    if (ok && text) mpQueue(s)[MP.editing.kind][mpRef(s, ix.pkg, MP.editing.id)] = text;
     MP.editing = null;
     if (ok && text) mpSaved(s); else mpShowDetail(s, ui.mpPin);
   } else if (t.closest('#mp-map .node:not(.ghost), #mp-map .nest-head')) {
@@ -542,7 +661,7 @@ document.addEventListener('submit', e => {
   const f = e.target;
   const resp = f.resp.value.trim();
   if (!resp) { f.resp.focus(); return; }
-  mpQueue(s).cards.push({ name: f.name.value.trim(), resp });
+  mpQueue(s).cards.push({ pkg: f.pkg?.value || mpPkg(s), name: f.name.value.trim(), resp });
   ui.mpThrow = false;
   mpSaved(s);
 });
