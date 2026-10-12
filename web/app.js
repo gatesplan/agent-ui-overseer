@@ -85,6 +85,8 @@ const ui = {
   refs: pref('overseer.refs', '1') === '1',
   // 지난 턴 펼침, 보류 막을 걷은 사안, 추가 지시 칸
   past: false, unveil: new Set(), extraOpen: false,
+  // 보내기 요청이 오가는 중인 탭
+  sending: null,
   // 띄우면서 터미널 창을 연 탭. 시작 훅이 오면 접고, 사용자가 직접 여닫으면 그대로 둔다
   autoTerm: null,
   // 모듈 패널: 고정한 모듈, 탭별 펼친 중첩 모듈, 책임 카드 창
@@ -206,7 +208,7 @@ function progress(s) {
 // 전부 처리했고 보낼 내용이 있어야 승인 가능
 function canSend(s) {
   const { done, total } = progress(s);
-  return s.alive && !s.starting && !s.running && done === total && !!compose(s);
+  return s.alive && !s.starting && !s.running && ui.sending !== s.id && done === total && !!compose(s);
 }
 
 // 관계: 출처(parent), 보존 사안의 근거(basis), 본문에서 앞 턴 사안을 #ID 로 언급한 것(ref)
@@ -468,6 +470,7 @@ function sendLabel(s) {
   const { done, total } = progress(s);
   const maps = mapCount(s);
   if (s.starting) return '시작 대기';
+  if (ui.sending === s.id) return '보내는 중';
   return `보내기<span class="send-n">${total ? `${done}/${total}` : ''}${maps ? ` · 지도 ${maps}` : ''}</span>`;
 }
 
@@ -479,10 +482,12 @@ function sendBar(s, fresh = false) {
   }
   const run = s.running ? `<details class="run-line"><summary><span class="dot working"></span>TURN ${nextTurnLabel(s)} 에이전트 작업 중</summary>
     <div class="run-msg">${esc(s.running)}</div></details>` : '';
+  // 보내는 동안은 지시 칸을 잠근다. 보낸 뒤 비운다
+  const lock = ui.sending === s.id ? 'readonly' : '';
   const extra = fresh
-    ? `<textarea class="note" data-extra placeholder="에이전트에게 보낼 지시. 보내기로 터미널에 입력된다">${esc(s.extra)}</textarea>`
+    ? `<textarea class="note" data-extra ${lock} placeholder="에이전트에게 보낼 지시. 보내기로 터미널에 입력된다">${esc(s.extra)}</textarea>`
     : ui.extraOpen || s.extra.trim()
-    ? `<textarea class="note" data-extra placeholder="추가 지시 (선택). 카드와 상관없는 지시. 보낼 메시지 끝에 붙는다">${esc(s.extra)}</textarea>` : '';
+    ? `<textarea class="note" data-extra ${lock} placeholder="추가 지시 (선택). 카드와 상관없는 지시. 보낼 메시지 끝에 붙는다">${esc(s.extra)}</textarea>` : '';
   return `<div class="send-bar">${run}${extra}
     <div class="send-row">
       <button class="wrapup ${s.wrapup ? 'on' : ''}" id="btn-wrapup" title="다음 세션에도 유효한 용어와 결정을 보존 사안으로 올리게 한다">정리 요청 ${s.wrapup ? '켬' : '끔'}</button>
@@ -747,15 +752,20 @@ function flash(el) {
 }
 
 async function send() {
-  const s = cur();
+  let s = cur();
   if (!s || !canSend(s)) return;
   const msg = compose(s);
   const ready = allItems(s).filter(i => isReady(s, i));
   if (LIVE) {
     const decisions = ready.map(i => ({ id: i.id, action: s.decisions[i.id].action, note: s.decisions[i.id].note.trim() }));
     if (summaryNote(s)) decisions.push({ id: `sum-${lastTurnId(s)}`, action: 'feedback', note: summaryNote(s) });
+    ui.sending = s.id;
+    renderKeepFocus();
     const res = await api(`/api/tabs/${s.id}/send`, 'POST', { message: msg, decisions });
-    if (!res) return;
+    ui.sending = null;
+    // 기다리는 동안 탭 알림이 세션을 새 객체로 바꿨을 수 있다. 옛 객체를 비우면 화면의 지시 칸이 그대로 남는다
+    s = sessions.find(x => x.id === s.id);
+    if (!res || !s) { render(); return; }
   }
   ready.forEach(i => { s.sent[i.id] = { ...s.decisions[i.id] }; ui.open.delete(i.id); });
   if (summaryNote(s)) { s.summarySent[lastTurnId(s)] = summaryNote(s); s.summary[lastTurnId(s)] = ''; }
@@ -775,7 +785,7 @@ async function send() {
 // 결정 저장 후 /clear: 고른 처리는 패널에만 남기고 에이전트에게 보내지 않는다. 곧 지울 맥락이라 보낼 이유가 없다
 // 미처리 사안은 보류로 넘긴다. 추가 지시와 모듈 패널에서 한 일은 지우지 않고 남겨 새 세션에 보낼 수 있게 한다
 async function clearContext() {
-  const s = cur();
+  let s = cur();
   if (!s || !s.alive || s.starting || s.running) return;
   const ready = allItems(s).filter(i => isReady(s, i));
   const todo = roundItems(s).filter(i => !isReady(s, i));
@@ -787,7 +797,8 @@ async function clearContext() {
     const decisions = ready.map(i => ({ id: i.id, action: s.decisions[i.id].action, note: s.decisions[i.id].note.trim() }));
     if (summaryNote(s)) decisions.push({ id: `sum-${lastTurnId(s)}`, action: 'feedback', note: summaryNote(s) });
     const res = await api(`/api/tabs/${s.id}/clear`, 'POST', { decisions });
-    if (!res) return;
+    s = sessions.find(x => x.id === s.id);
+    if (!res || !s) return;
   }
   ready.forEach(i => { s.sent[i.id] = { ...s.decisions[i.id] }; ui.open.delete(i.id); });
   todo.forEach(i => { s.sent[i.id] = { action: 'hold', note: '' }; ui.open.delete(i.id); });
