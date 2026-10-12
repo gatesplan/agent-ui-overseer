@@ -90,7 +90,7 @@ class ArchiveQuery:
         return '\n'.join(lines)
 
     # 모듈 하나의 책임 변경 이력과 그 모듈을 언급한 결정 기록. name 은 `l1.item_splitter` 나 끝 이름 `item_splitter`
-    # ln 패키지가 여럿인 프로젝트에서는 이력이 `패키지/모듈` 로 묶여 있다. 패키지를 붙여도, 빼도 찾는다
+    # 이력은 `패키지/모듈` 로 묶여 있다(예전 기록은 패키지 없이). 패키지를 붙여도, 빼도 찾는다
     def module(self, name: str) -> str:
         name = name.strip()
         history = self.journals[0][1].module_history() if self.journals else {}

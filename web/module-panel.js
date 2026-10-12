@@ -52,7 +52,7 @@ function mpPackages(s) {
 }
 // 읽을 소스(.py, .rs)가 없는 패키지는 lnt 가 language null, 모듈 0 으로 낸다
 const mpReadable = p => (p.modules || []).length > 0;
-// 이름에 패키지를 붙이는 것은 지도가 있는 패키지가 여럿일 때. 서버(AgentTab)도 같은 기준으로 책임 이력을 묶는다
+// 지도가 있는 패키지가 여럿인지. 화면에 패키지를 보일지만 정한다(내부 이름은 늘 '패키지/모듈')
 const mpMulti = s => mpPackages(s).filter(mpReadable).length > 1;
 const MP_LANG = { python: 'PY', rust: 'RS' };
 
@@ -71,11 +71,26 @@ function mpSetPkg(s, name) {
   MP.peek = null;
   MP.editing = null;
 }
-// 패키지가 여럿이면 모듈은 '패키지/모듈' 로 가리킨다. 모듈 이름이 패키지끼리 겹칠 수 있다(l0.money)
-const mpRef = (s, pkg, name) => mpMulti(s) ? `${pkg}/${name}` : name;
+// 모듈은 늘 '패키지/모듈' 로 가리킨다: 보내기 줄, 사안의 모듈 언급, 책임 이력. 모듈 이름이 패키지끼리 겹칠 수 있다(l0.money)
+// 서버(ModuleMap.responsibilities)도 같은 이름으로 책임 이력을 묶는다. 패키지 없는 이름(예전 기록)은 지금 탭의 패키지로 본다
+const mpRef = (s, pkg, name) => `${pkg}/${name}`;
 function mpSplit(s, ref) {
   const i = ref.indexOf('/');
   return i < 0 ? [mpPkg(s), ref] : [ref.slice(0, i), ref.slice(i + 1)];
+}
+// 화면에 보일 패키지 이름. 지도가 있는 패키지가 하나면 보이지 않는다('')
+// 여럿이면 다른 패키지와 갈리는 글자까지 쓰고 줄인다. 최소 4글자: fmp_harness, fmp_engine → fmp_h…, fmp_e…
+function mpPkgLabel(s, pkg) {
+  const names = mpPackages(s).filter(mpReadable).map(p => p.package);
+  if (names.length < 2) return '';
+  const common = o => { let i = 0; while (i < pkg.length && pkg[i] === o[i]) i++; return i; };
+  const keep = Math.max(4, ...names.filter(o => o !== pkg).map(o => common(o) + 1));
+  return pkg.length <= keep ? pkg : `${pkg.slice(0, keep)}…`;
+}
+// 모듈 칩과 상세 제목에 붙이는 흐린 패키지 머리. 줄였으면 마우스를 올려 전체 이름을 본다
+function mpPkgHead(s, pkg, cls) {
+  const label = mpPkgLabel(s, pkg);
+  return label ? `<small class="${cls}" title="${esc(pkg)}">${esc(label)}/</small>` : '';
 }
 
 // 지도 색인 (패키지마다) ---------------------------------------------------------
@@ -185,12 +200,11 @@ function mpTurnMods(s, ix) {
   const t = s.turns?.[s.turns.length - 1];
   return new Set((t?.files || []).map(f => mpModuleOf(s, ix, f)).filter(Boolean));
 }
-// 사안이 언급한 모듈. 돌려주는 것은 mpRef 모양(패키지가 여럿이면 '패키지/모듈')
+// 사안이 언급한 모듈. 돌려주는 것은 mpRef 모양('패키지/모듈')
 // 패키지를 붙인 이름과 경로는 그 패키지로. 맨 이름은 그 이름을 가진 패키지가 하나면 그쪽, 여럿이면 지금 보는 탭 쪽
 function itemModules(s, item) {
   const ixs = mpPackages(s).filter(mpReadable).map(p => mpIndex(s, p.package));
   if (!ixs.length) return [];
-  const multi = mpMulti(s);
   const active = mpPkg(s);
   const text = `${item.title}\n${item.body}`;
   const owners = {};
@@ -204,7 +218,7 @@ function itemModules(s, item) {
   for (const ix of ixs) for (const n of Object.keys(ix.mods)) {
     if (!n.includes('.')) continue;
     const pat = n.replace(/\./g, '\\.');
-    if (multi && new RegExp(`(^|[^\\w./])${ix.pkg}/${pat}(?![\\w])`).test(text)) { out.add(ref(ix.pkg, n)); continue; }
+    if (new RegExp(`(^|[^\\w./])${ix.pkg}/${pat}(?![\\w])`).test(text)) { out.add(ref(ix.pkg, n)); continue; }
     if (!new RegExp(`(^|[^\\w./])${pat}(?![\\w])`).test(text)) continue;
     const o = owners[n];
     const pick = o.length === 1 ? o[0] : o.includes(active) ? active : null;
@@ -223,7 +237,7 @@ function itemModules(s, item) {
 }
 
 // 보낼 것: 책임 수정, 모듈 질문, 새 책임 카드 ------------------------------------------------
-// 패키지가 여럿이면 줄에 패키지를 붙인다: [책임 수정] fmp_harness/l1.cli_io: ...
+// 줄에는 늘 패키지를 붙인다: [책임 수정] fmp_harness/l1.cli_io: ..., [새 책임 카드] fmp_harness/이름: ... (이름이 없으면 fmp_harness: ...)
 
 const mpQueue = s => (s.map ||= { resp: {}, ask: {}, cards: [] });
 function mapCount(s) {
@@ -231,15 +245,18 @@ function mapCount(s) {
   return q ? Object.keys(q.resp).length + Object.keys(q.ask).length + q.cards.length : 0;
 }
 function mpCardWho(s, c) {
-  if (!mpMulti(s) || !c.pkg) return c.name ? `${c.name}: ` : '';
-  return c.name ? `${c.pkg}/${c.name}: ` : `${c.pkg}: `;
+  const pkg = c.pkg || mpPkg(s);
+  if (!pkg) return c.name ? `${c.name}: ` : '';
+  return c.name ? `${pkg}/${c.name}: ` : `${pkg}: `;
 }
 function mapLines(s) {
   const q = s.map;
   if (!q) return [];
+  // 패키지 없이 넣어 둔 것(예전 초안)도 패키지를 붙여 보낸다
+  const ref = m => { const [p, n] = mpSplit(s, m); return p ? mpRef(s, p, n) : m; };
   return [
-    ...Object.entries(q.resp).map(([m, t]) => `[책임 수정] ${m}: ${t}`),
-    ...Object.entries(q.ask).map(([m, t]) => `[모듈 질문] ${m}: ${t}`),
+    ...Object.entries(q.resp).map(([m, t]) => `[책임 수정] ${ref(m)}: ${t}`),
+    ...Object.entries(q.ask).map(([m, t]) => `[모듈 질문] ${ref(m)}: ${t}`),
     ...q.cards.map(c => `[새 책임 카드] ${mpCardWho(s, c)}${c.resp} → 타당성, 이름과 경계, 놓을 층, 공용 모듈 사용, 하위 구성을 [제안]으로 올린다`),
   ];
 }
@@ -342,8 +359,14 @@ function mpChips(s, ix, m) {
   if (m.external) c.push('<span class="chip c-ext">+ext</span>');
   return c.join('');
 }
-// 책임 변경 이력. 패키지가 여럿이면 서버도 '패키지/모듈' 로 묶어 준다
-const mpHistory = (s, ref) => (s.moduleHistory || {})[ref] || [];
+// 책임 변경 이력. 서버가 '패키지/모듈' 로 묶어 준다. 오래된 것부터
+// 패키지 없이 남은 예전 기록은 그 이름의 모듈을 가진 패키지가 하나일 때 그 모듈의 것으로 앞에 붙인다
+function mpHistory(s, ref) {
+  const h = s.moduleHistory || {};
+  const [, name] = mpSplit(s, ref);
+  const owners = mpPackages(s).filter(p => (p.modules || []).some(m => m.name === name)).length;
+  return [...(owners === 1 ? h[name] || [] : []), ...(h[ref] || [])];
+}
 
 function mpHistoryHTML(s, ref) {
   const h = mpHistory(s, ref);
@@ -520,7 +543,7 @@ function mpShowDetail(s, id) {
   const where = m.bad.map(v => `<span class="bad">${esc(v.code)} ${esc(v.message)}${v.line > 0 ? ` (${esc(v.file)}:${v.line})` : ''}</span>`).join('<br>');
   const edit = MP.editing?.id === id ? MP.editing.kind : null;
   box.innerHTML = `
-    <h3>${mpMulti(s) ? `<small class="d-pkg">${esc(ix.pkg)}/</small>` : ''}${esc(id)}<button class="x" data-mp-close>×</button></h3>
+    <h3>${mpPkgHead(s, ix.pkg, 'd-pkg')}${esc(id)}<button class="x" data-mp-close>×</button></h3>
     <div class="d-resp">${m.responsibility ? esc(m.responsibility) : '<i>책임 한 줄 없음</i>'}</div>
     <dl>
       ${mpMulti(s) ? `<dt>패키지</dt><dd>${esc(ix.pkg)} · ${MP_LANG[ix.map.language] || '?'}</dd>` : ''}

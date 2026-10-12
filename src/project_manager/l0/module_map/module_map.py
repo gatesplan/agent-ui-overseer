@@ -64,16 +64,14 @@ class ModuleMap:
         map = result.get('map') or {}
         return list(map.get('packages') or []) if (map.get('format') or 1) >= 2 else [map]
 
-    # 지도의 모듈별 책임 {모듈: 책임}. 지도가 있는 패키지가 여럿이면 모듈은 '패키지/모듈' 로 가리킨다(이름이 패키지끼리 겹칠 수 있다)
-    # 지도가 없으면 None
+    # 지도의 모듈별 책임 {모듈: 책임}. 모듈은 패키지가 하나여도 '패키지/모듈' 로 가리킨다(이름이 패키지끼리 겹칠 수 있다)
+    # 화면도 같은 이름을 쓰고, 패키지를 보일지는 화면이 정한다. 지도가 없으면 None
     @classmethod
     def responsibilities(cls, result: dict | None) -> dict[str, str] | None:
         if not result or result.get('status') != 'ok':
             return None
-        readable = [p for p in cls.packages(result) if p.get('modules')]
-        multi = len(readable) > 1
-        return {f"{p.get('package')}/{m['name']}" if multi else m['name']: m.get('responsibility') or ''
-                for p in readable for m in p['modules']}
+        return {f"{p['package']}/{m['name']}" if p.get('package') else m['name']: m.get('responsibility') or ''
+                for p in cls.packages(result) for m in p.get('modules') or []}
 
     # 소스 서명: src 아래 소스(.py, .rs)와 layerinfo 문서의 (개수, 가장 늦은 수정 시각, 크기 합). 하나라도 바뀌면 다시 받는다
     def signature(self, cwd: str | Path) -> tuple:

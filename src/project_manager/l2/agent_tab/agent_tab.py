@@ -250,11 +250,11 @@ class AgentTab:
             prev = old.get(name)
             if prev == resp or (prev is None and not resp):
                 continue
-            # 새 책임 카드는 끝 이름으로 쓴다. 패키지가 여럿이면 '패키지/끝 이름'
+            # 새 책임 카드는 '패키지/끝 이름' 으로 온다. 예전 줄은 끝 이름만
             bare = name.rsplit('/', 1)[-1]
             short = bare.rsplit('.', 1)[-1]
             called = {name, short, name[:len(name) - len(bare)] + short}
-            request = asked.get(name)
+            request = asked.get(name, asked.get(bare))
             if request is None and prev is None and any(c in called for c in cards):
                 request = next(m.group(2).strip() for m in CARD_LINE.finditer(text) if (m.group(1) or '').strip() in called)
             event = {'module': name, 'before': prev, 'after': resp, 'request': request, 'turn': last['id'] if last else None}

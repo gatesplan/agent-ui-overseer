@@ -88,8 +88,8 @@ def test_default_command_prefers_lnt_in_same_environment(tmp_path, monkeypatch):
 def test_packages_and_responsibilities_read_format_1_and_2():
     one = {'status': 'ok', 'map': {'format': 1, 'package': 'shop', 'modules': [{'name': 'l0.money', 'responsibility': '금액'}]}}
     assert [p['package'] for p in ModuleMap.packages(one)] == ['shop']
-    assert ModuleMap.responsibilities(one) == {'l0.money': '금액'}
-    # 지도가 있는 패키지가 여럿이면 '패키지/모듈'. 소스 없는 패키지(모듈 0)는 세지 않는다
+    assert ModuleMap.responsibilities(one) == {'shop/l0.money': '금액'}
+    # 패키지가 하나여도 '패키지/모듈'. 소스 없는 패키지(모듈 0)는 모듈이 없다
     two = {'status': 'ok', 'map': {'format': 2, 'packages': [
         {'package': 'engine', 'language': 'rust', 'modules': [{'name': 'l0.money', 'responsibility': '엔진 금액'}]},
         {'package': 'harness', 'language': 'python', 'modules': [{'name': 'l0.money', 'responsibility': ''}]},
@@ -98,5 +98,5 @@ def test_packages_and_responsibilities_read_format_1_and_2():
     assert [p['package'] for p in ModuleMap.packages(two)] == ['engine', 'harness', 'web']
     assert ModuleMap.responsibilities(two) == {'engine/l0.money': '엔진 금액', 'harness/l0.money': ''}
     lone = {'status': 'ok', 'map': {'format': 2, 'packages': [two['map']['packages'][1], two['map']['packages'][2]]}}
-    assert ModuleMap.responsibilities(lone) == {'l0.money': ''}
+    assert ModuleMap.responsibilities(lone) == {'harness/l0.money': ''}
     assert ModuleMap.packages({'status': 'error'}) == [] and ModuleMap.responsibilities(None) is None
