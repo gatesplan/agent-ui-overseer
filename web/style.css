@@ -217,6 +217,8 @@ code { font-family: var(--font-mono); font-size: .9em; padding: 0 4px; backgroun
 .col-prompt.open { display: block; }
 .col-prompt::before { content: "> "; color: var(--term-prompt); }
 .col-items { display: flex; flex-direction: column; gap: 12px; }
+/* 카드는 줄지 않고 칸이 스크롤한다. overflow: hidden 인 보류 카드는 줄어들 수 있어 넘친 높이를 혼자 떠안고 납작해진다 */
+.col-items > * { flex: none; }
 /* 기둥마다 따로 휠로 세로 스크롤한다. 스크롤바는 숨긴다 */
 .col-items, .col-body { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 28px; scrollbar-width: none; }
 .col-items::-webkit-scrollbar, .col-body::-webkit-scrollbar { display: none; }
