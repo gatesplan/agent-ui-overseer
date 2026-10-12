@@ -6,6 +6,7 @@ import pytest
 
 from project_manager.l0.panel_store import PanelStore
 from project_manager.l0.project_journal import ProjectJournal
+from project_manager.l0.project_key import ProjectKey
 from project_manager.l0.record_store import RecordStore
 from project_manager.l2.agent_tab import AgentTab
 
@@ -41,7 +42,7 @@ def setup(tmp_path, *turns):
     captures.mkdir()
     project = tmp_path / 'proj'
     project.mkdir()
-    n = ProjectJournal(RecordStore.project_key(str(project))).open_session('s', 't', 'startup')
+    n = ProjectJournal(ProjectKey.of(str(project))).open_session('s', 't', 'startup')
     rows = [{'event': 'session_start', 'session_id': 's', 'source': 'startup', 'session': n}]
     rows += [{'event': 'turn', 'session_id': 's', 'text': 'x', 'items': items, 'at': f'2001-01-0{k}T00:00:00+00:00'}
              for k, items in enumerate(turns, 1)]
@@ -65,7 +66,7 @@ class FakePty:
 def test_turns_and_decisions_go_to_the_project_journal(tmp_path):
     captures, project, store = setup(tmp_path, [{'kind': '제안', 'title': '가', 'body': ''}])
     tab = AgentTab('t', project, '', store, captures)
-    journal = ProjectJournal(RecordStore.project_key(project))
+    journal = ProjectJournal(ProjectKey.of(project))
     assert [t['id'] for t in journal.turns(1)] == ['1S-1']
     tab.pty = FakePty()
     asyncio.run(tab.send('보낸 말', [('1S-1-1', 'approve', '좋다')]))
@@ -77,12 +78,12 @@ def test_turns_and_decisions_go_to_the_project_journal(tmp_path):
 def test_turns_of_a_session_this_tab_did_not_open_are_not_written(tmp_path):
     captures, project, store = setup(tmp_path, [{'kind': '제안', 'title': '가', 'body': ''}])
     # 번호를 받지 못한 훅 기록: 세션 번호가 없어 /clear 를 세어 2 가 된다. 세션 2 는 다른 탭의 것
-    ProjectJournal(RecordStore.project_key(project)).open_session('other', 'u', 'startup')
+    ProjectJournal(ProjectKey.of(project)).open_session('other', 'u', 'startup')
     with (captures / 't.jsonl').open('a', encoding='utf-8') as f:
         f.write(json.dumps({'event': 'session_start', 'session_id': 's2', 'source': 'clear'}) + '\n')
         f.write(json.dumps({'event': 'turn', 'session_id': 's2', 'text': 'y', 'items': [{'kind': '보고', 'title': '나', 'body': ''}]}) + '\n')
     AgentTab('t', project, '', store, captures)
-    assert ProjectJournal(RecordStore.project_key(project)).turns(2) == []
+    assert ProjectJournal(ProjectKey.of(project)).turns(2) == []
 
 
 def test_sync_records_moves_approved_keep_items_once(tmp_path):
@@ -94,7 +95,7 @@ def test_sync_records_moves_approved_keep_items_once(tmp_path):
         {'kind': '제안', 'tag': 'D', 'title': '가격은 유지', 'body': '근거: #1S-1-2\n대체: D-1'},
     ]
     captures, project, store = setup(tmp_path, items)
-    journal = ProjectJournal(RecordStore.project_key(project))
+    journal = ProjectJournal(ProjectKey.of(project))
     journal.add_decisions([('1S-1-1', 'approve', ''), ('1S-1-2', 'answer', '카드와 섞지 말 것'), ('1S-1-3', 'reject', '아님'), ('1S-1-4', 'approve', '')])
     tab = AgentTab('t', project, '', store, captures, RecordStore())
     assert [(r['ref'], r['text'], r['note']) for r in tab.state()['records']] == [('D-1', '가격은 새 값으로', ''), ('W-1', '사안: 결정 단위', '카드와 섞지 말 것')]

@@ -78,6 +78,9 @@ decide_permission(request_id: str, behavior: str, message: str = '') -> None
     raise ValueError
     화면의 권한 결정을 결정 파일로 쓴다(PermissionGate.decide).
 
+save_draft(draft: dict) -> None
+    화면에서 작성 중인 처리를 남긴다. state() 의 draft 로 돌아간다.
+
 acknowledge() -> bool
     터미널 창 입력이 들어오면 서버가 부른다. 떠 있던 확인 알림을 사용자가 본 것으로 치고 내린다. 내렸으면 True.
 

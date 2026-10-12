@@ -6,6 +6,7 @@ from loguru import logger
 
 from ...l0.permission_gate import PermissionGate
 from ...l0.project_journal import ProjectJournal
+from ...l0.project_key import ProjectKey
 from ...l0.record_store import RecordStore
 from ...l0.transcript_reader import TranscriptReader
 from ...l1.item_splitter import ItemSplitter
@@ -152,7 +153,7 @@ class CaptureHook:
         if not cwd:
             return None
         try:
-            journal = ProjectJournal(RecordStore.project_key(cwd))
+            journal = ProjectJournal(ProjectKey.of(cwd))
             n = journal.session_of(session_id)
             if n is None and source in ('resume', 'compact'):
                 n = self._last_session(tab_id)
@@ -184,7 +185,7 @@ class CaptureHook:
         if not self.records or not cwd:
             return None
         try:
-            return self.records.last_mark(RecordStore.project_key(cwd))
+            return self.records.last_mark(ProjectKey.of(cwd))
         except Exception:
             logger.exception("기록 목록 읽기 실패")
             return None
@@ -200,7 +201,7 @@ class CaptureHook:
         if not isinstance(seen, str):
             return '', last
         try:
-            return self.records.notice(RecordStore.project_key(cwd), seen, exclude_tab=tab_id), last
+            return self.records.notice(ProjectKey.of(cwd), seen, exclude_tab=tab_id), last
         except Exception:
             logger.exception("변경 고지 만들기 실패")
             return '', seen
@@ -229,7 +230,7 @@ class CaptureHook:
         if not self.records or not cwd:
             return ''
         try:
-            return self.records.briefing(RecordStore.project_key(cwd))
+            return self.records.briefing(ProjectKey.of(cwd))
         except Exception:
             logger.exception("기록 목록 읽기 실패")
             return ''

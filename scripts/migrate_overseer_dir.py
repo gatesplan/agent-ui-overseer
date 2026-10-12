@@ -22,6 +22,7 @@ sys.path.insert(0, str(ROOT / 'src'))
 
 from project_manager.l0.install_layout import InstallLayout  # noqa: E402
 from project_manager.l0.project_journal import ProjectJournal  # noqa: E402
+from project_manager.l0.project_key import ProjectKey  # noqa: E402
 from project_manager.l0.record_store import RecordStore  # noqa: E402
 from project_manager.l0.turn_builder import TurnBuilder  # noqa: E402
 
@@ -158,7 +159,7 @@ def main() -> int:
         if temp_folder(tab['cwd']):
             skipped.append(f"탭 {tab['id']}: 임시 폴더 {tab['cwd']}")
             continue
-        key = RecordStore.project_key(tab['cwd'])
+        key = ProjectKey.of(tab['cwd'])
         if not project_exists(key):
             skipped.append(f"탭 {tab['id']}: 없는 폴더 {tab['cwd']}")
             continue
@@ -255,7 +256,7 @@ def main() -> int:
             store = RecordStore()
             for r in rows:
                 m = maps.get(r['tab_id']) if r['tab_id'] else None
-                rec = {'project': RecordStore.project_key(str(stage_root)), 'kind': r['kind'], 'num': r['num'], 'ref': ref_of[r['id']],
+                rec = {'project': ProjectKey.of(str(stage_root)), 'kind': r['kind'], 'num': r['num'], 'ref': ref_of[r['id']],
                        'text': r['text'], 'body': m.text(r['body']) if m else r['body'], 'note': r['note'], 'tab_id': r['tab_id'],
                        'item_id': m.id(r['item_id']) if m else r['item_id'], 'status': r['status'],
                        'replaces': ref_of.get(r['replaces']), 'replaced_by': ref_of.get(r['replaced_by']), 'created_at': r['created_at']}
@@ -279,7 +280,7 @@ def main() -> int:
         check = ProjectJournal(stage_root)
         read_items = len(check.items())
         read_decisions = len(check.decisions())
-        read_records = len(store.records(RecordStore.project_key(str(stage_root)))) if 'records' in tables else 0
+        read_records = len(store.records(ProjectKey.of(str(stage_root)))) if 'records' in tables else 0
         ok = read_items == len(item_ids) and read_decisions == written and read_records == records and len(check.sessions()) == len(all_sessions)
         missed = sorted({x for m in maps.values() for x in m.missed})
         report.append((key, len(per_tab), len(all_sessions), turns, items, decisions, written, records, ok, unknown, missed))

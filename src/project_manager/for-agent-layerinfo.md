@@ -12,6 +12,7 @@
 - permission_gate: 에이전트의 권한 요청을 패널 사용자에게 넘기고 답을 돌려준다
 - project_finder: 새 세션을 열 수 있는 프로젝트 폴더를 찾아 준다
 - project_journal: 프로젝트의 세션 이력(사안, 결정, 책임 변경)을 그 프로젝트 폴더에 지킨다
+- project_key: 폴더가 어느 프로젝트인지 알아보는 이름표를 정한다
 - record_store: 프로젝트의 영속 지식(결정 기록과 용어)을 지킨다
 - transcript_reader: Claude Code 대화 기록에서 턴의 사실을 읽어 낸다
 - turn_builder: 캡처 기록을 턴과 사안의 흐름으로 엮는다

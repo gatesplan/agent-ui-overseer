@@ -18,11 +18,6 @@ HEAD = (('text', 'text'), ('status', 'status'), ('replaces', 'replaces'), ('repl
 # 기록 하나가 `<프로젝트>/.overseer/records/D-3.md` 파일 하나다
 # 기록은 지우지 않는다. 새 기록이 옛 기록을 대체하면 옛 기록은 replaced 로 남긴다
 class RecordStore:
-    # 프로젝트 구분 키. 같은 폴더면 대소문자, 구분자가 달라도 같은 키. 그 폴더의 경로로도 쓴다
-    @staticmethod
-    def project_key(path: str) -> str:
-        return os.path.normcase(os.path.abspath(path))
-
     # 기록 하나를 더한다. 같은 사안(item_id)으로 이미 있으면 그것을 돌려준다
     # replaces: 대체할 기록 ID('D-3'). 같은 종류의 유효한 기록일 때만 대체한다
     def add(self, project: str, kind: str, text: str, body: str = '', note: str = '',

@@ -14,6 +14,7 @@ from ...l0.module_map import ModuleMap
 from ...l0.panel_store import PanelStore
 from ...l0.permission_gate import PermissionGate
 from ...l0.project_journal import ProjectJournal
+from ...l0.project_key import ProjectKey
 from ...l0.record_store import RecordStore
 from ...l0.turn_builder import TurnBuilder
 from ...l1.pty_session import PtySession
@@ -67,7 +68,7 @@ class AgentTab:
         self._start_seq: int | None = None
         self.gate = PermissionGate(captures_dir.parent / 'permissions', None)
         self.records = records
-        self.project = RecordStore.project_key(cwd)
+        self.project = ProjectKey.of(cwd)
         self.journal = ProjectJournal(self.project)
         self.launch = LaunchEnv(cwd)
         self.log.poll()
@@ -305,6 +306,10 @@ class AgentTab:
     def decide_permission(self, request_id: str, behavior: str, message: str = '') -> None:
         logger.info(f"권한 결정 전달: tab={self.id}, request={request_id}, behavior={behavior}")
         self.gate.decide(request_id, behavior, message)
+
+    # 화면에서 작성 중인 처리. state() 의 draft 로 돌아간다
+    def save_draft(self, draft: dict) -> None:
+        self.store.save_draft(self.id, draft)
 
     # 터미널 창에 입력이 들어오면 떠 있던 확인 알림은 사용자가 본 것으로 친다. 알림을 내렸으면 True
     def acknowledge(self) -> bool:

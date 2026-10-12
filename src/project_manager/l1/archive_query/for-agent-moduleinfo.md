@@ -11,7 +11,7 @@ sources:
 
 ### __init__
 __init__(records: RecordStore, project_cwd: str)
-    프로젝트는 project_cwd 의 project_key. 그 프로젝트와 상위 폴더의 세션 이력에서 사안을 본다.
+    프로젝트는 ProjectKey.of(project_cwd). 그 프로젝트와 상위 폴더의 세션 이력에서 사안을 본다.
     기록도 상위 폴더 것까지 보고, 상위 폴더 기록은 `gatesplan/D-1` 처럼 폴더 이름을 붙여 보인다.
 
 ### Methods

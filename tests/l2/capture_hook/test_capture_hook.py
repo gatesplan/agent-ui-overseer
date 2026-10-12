@@ -63,11 +63,12 @@ def test_turn_record_survives_unreadable_transcript(tmp_path):
 
 
 def test_session_start_injects_active_records_of_project(tmp_path):
+    from project_manager.l0.project_key import ProjectKey
     from project_manager.l0.record_store import RecordStore
     protocol = tmp_path / 'protocol.md'
     protocol.write_text('## 규약', encoding='utf-8')
     records = RecordStore()
-    records.add(RecordStore.project_key(str(tmp_path / 'proj')), 'D', '로그는 INFO')
+    records.add(ProjectKey.of(str(tmp_path / 'proj')), 'D', '로그는 INFO')
     hook = CaptureHook(tmp_path / 'cap', protocol, records=records)
     out = hook.run({'hook_event_name': 'SessionStart', 'session_id': 's', 'source': 'startup', 'cwd': str(tmp_path / 'proj')}, 'tab')
     assert out.startswith('## 규약') and '- D-1 로그는 INFO' in out
@@ -77,10 +78,11 @@ def test_session_start_injects_active_records_of_project(tmp_path):
 
 
 def test_prompt_gets_notice_of_records_added_by_other_tabs_once(tmp_path):
+    from project_manager.l0.project_key import ProjectKey
     from project_manager.l0.record_store import RecordStore
     records = RecordStore()
     cwd = str(tmp_path / 'proj')
-    project = RecordStore.project_key(cwd)
+    project = ProjectKey.of(cwd)
     records.add(project, 'D', '처음 결정', tab_id='other', item_id='1S-1-1')
     hook = CaptureHook(tmp_path / 'cap', records=records)
     start = {'hook_event_name': 'SessionStart', 'session_id': 's', 'source': 'startup', 'cwd': cwd}
@@ -95,10 +97,11 @@ def test_prompt_gets_notice_of_records_added_by_other_tabs_once(tmp_path):
 
 
 def test_prompt_in_session_started_before_feature_gets_no_backlog(tmp_path):
+    from project_manager.l0.project_key import ProjectKey
     from project_manager.l0.record_store import RecordStore
     records = RecordStore()
     cwd = str(tmp_path / 'proj')
-    records.add(RecordStore.project_key(cwd), 'D', '예전 결정', tab_id='other', item_id='1S-1-1')
+    records.add(ProjectKey.of(cwd), 'D', '예전 결정', tab_id='other', item_id='1S-1-1')
     hook = CaptureHook(tmp_path / 'cap', records=records)
     # 이 기능 전 버전의 시작 기록(records_seen 없음)
     (tmp_path / 'cap').mkdir(exist_ok=True)
@@ -107,12 +110,13 @@ def test_prompt_in_session_started_before_feature_gets_no_backlog(tmp_path):
 
 
 def test_prompt_recovers_protocol_when_session_start_failed(tmp_path):
+    from project_manager.l0.project_key import ProjectKey
     from project_manager.l0.record_store import RecordStore
     protocol = tmp_path / 'protocol.md'
     protocol.write_text('## 규약', encoding='utf-8')
     records = RecordStore()
     cwd = str(tmp_path / 'proj')
-    records.add(RecordStore.project_key(cwd), 'D', '로그는 INFO')
+    records.add(ProjectKey.of(cwd), 'D', '로그는 INFO')
     hook = CaptureHook(tmp_path / 'cap', protocol, records=records)
     prompt = {'hook_event_name': 'UserPromptSubmit', 'session_id': 's', 'prompt': '이슈 확인', 'cwd': cwd}
     out = hook.run(prompt, 'tab')

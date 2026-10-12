@@ -5,6 +5,7 @@ from pathlib import Path
 from loguru import logger
 
 from ...l0.panel_store import PanelStore
+from ...l0.project_key import ProjectKey
 from ...l0.record_store import RecordStore
 from ...l2.agent_tab import AgentTab
 
@@ -80,7 +81,7 @@ class TabManager:
 
     # 그 프로젝트 폴더를 연 탭. 없으면 None
     def find(self, cwd: str) -> AgentTab | None:
-        key = RecordStore.project_key(cwd)
+        key = ProjectKey.of(cwd)
         return next((t for t in self.tabs.values() if t.project == key), None)
 
     def get(self, tab_id: str) -> AgentTab:

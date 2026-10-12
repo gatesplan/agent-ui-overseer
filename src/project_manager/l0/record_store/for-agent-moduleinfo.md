@@ -11,12 +11,9 @@ sources:
 ## RecordStore
 
 ### __init__
-RecordStore()    # 상태 없음. 프로젝트 키가 곧 폴더 경로
+RecordStore()    # 상태 없음. project 인자는 ProjectKey.of 로 만든 키이고 곧 폴더 경로
 
 ### Methods
-
-project_key(path: str) -> str    # staticmethod
-    프로젝트 구분 키. 절대 경로를 normcase 한 것. 같은 폴더면 대소문자, 구분자가 달라도 같다. 그 폴더 경로로 쓴다.
 
 add(project: str, kind: str, text: str, body: str = '', note: str = '', tab_id: str | None = None, item_id: str | None = None, replaces: str | None = None) -> dict
     raise ValueError    # kind 가 D, W 가 아닐 때

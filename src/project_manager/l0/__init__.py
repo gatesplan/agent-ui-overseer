@@ -12,6 +12,7 @@ _EXPORTS = {
     "PermissionGate": "permission_gate",
     "ProjectFinder": "project_finder",
     "ProjectJournal": "project_journal",
+    "ProjectKey": "project_key",
     "RecordStore": "record_store",
     "TranscriptReader": "transcript_reader",
     "TurnBuilder": "turn_builder",

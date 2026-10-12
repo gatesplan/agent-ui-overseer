@@ -252,7 +252,7 @@ class OverseerServer:
         return web.json_response({'cwd': tab.cwd, 'modules': await asyncio.to_thread(self.maps.get, tab.cwd)})
 
     async def _draft(self, request: web.Request) -> web.Response:
-        self.store.save_draft(request.match_info['id'], await request.json())
+        self._tab(request).save_draft(await request.json())
         return web.json_response({'ok': True})
 
     async def _events(self, request: web.Request) -> web.WebSocketResponse:

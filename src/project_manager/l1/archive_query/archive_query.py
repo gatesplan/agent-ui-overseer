@@ -3,6 +3,7 @@ import re
 from pathlib import Path
 
 from ...l0.project_journal import ProjectJournal
+from ...l0.project_key import ProjectKey
 from ...l0.record_store import RecordStore
 
 LABEL = {'answer': '답변', 'approve': '승인', 'revise': '수정', 'hold': '보류', 'reject': '기각', 'confirm': '확인', 'feedback': '피드백', 'close': '닫음'}
@@ -17,7 +18,7 @@ BODY_LIMIT = 600
 class ArchiveQuery:
     def __init__(self, records: RecordStore, project_cwd: str):
         self.records = records
-        self.project = RecordStore.project_key(project_cwd)
+        self.project = ProjectKey.of(project_cwd)
         # 프로젝트 자신과 상위 폴더의 세션 이력. 가까운 것부터
         self.journals = [(scope, ProjectJournal(scope)) for scope in records.scopes(self.project)]
 
