@@ -7,6 +7,8 @@
 # 순서: 모든 탭이 working/attention 이 아닌 상태가 -Quiet 초(기본 15) 이어질 때까지 기다린다(최대 10분) → 멈춘다 → 다시 띄운다 → 떠 있던 탭을 이어서 띄운다
 # 작업 스케줄러에 Overseer 작업이 있으면 그것으로 멈추고 띄운다. 없으면 프로세스를 끝내고 `uv run overseer` 를 창 없이 띄운다
 # WMI 로 띄운 프로세스에서는 CIM 호출이 실패하므로 그쪽에서는 CIM 을 쓰지 않는다(netstat, Get-Process, schtasks)
+# PowerShell 7 이 필요하다. Windows PowerShell 5.1 의 Get-Process 에는 Parent 가 없어 서버 프로세스 트리를 못 찾는다
+#Requires -Version 7.0
 param([switch]$DryRun, [switch]$Detached, [int]$Port = 47310, [string]$WhileStopped = '', [int]$Quiet = 15)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent

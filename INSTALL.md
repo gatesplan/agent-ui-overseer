@@ -7,6 +7,7 @@
 - Windows 10/11. macOS, Linux 는 지원하지 않는다(PTY 가 pywinpty/ConPTY 기반)
 - Claude Code CLI: `claude` 명령이 PATH 에 있고 로그인되어 있어야 한다
 - [uv](https://docs.astral.sh/uv/), git
+- 저장소에서 쓸 때: PowerShell 7 이상(`pwsh` 명령). 서버 재시작 스크립트 `scripts/restart_server.ps1` 이 쓴다. Windows 기본 PowerShell 5.1 로는 돌지 않는다. 없으면 `winget install Microsoft.PowerShell`
 - 인터넷: 화면이 xterm.js 와 글꼴을 CDN 에서 받는다
 - 모듈 패널은 ln 구조 프로젝트의 모듈 지도를 `lnt map --json` 으로 받는다. `lnt`(ff-lntools)는 의존성이라 `uv sync` 로 같은 환경에 설치되고, 패널은 그것을 먼저 쓴다. 없으면 `OVERSEER_LNT`, 그다음 PATH 의 `lnt`
 
@@ -74,6 +75,7 @@ overseer          # 저장소에서는 uv run overseer
 | 증상 | 조치 |
 |---|---|
 | `claude 명령` 실패 | Claude Code 를 설치하고 새 셸에서 다시 `overseer-setup --check` |
+| `pwsh` 명령 실패, `#Requires` 오류 | PowerShell 7 이 없다. `winget install Microsoft.PowerShell` 후 새 셸에서 다시 |
 | `uv sync` 가 `overseer.exe` 접근 거부 | Overseer 서버가 떠 있다. 서버를 끄고 다시 |
 | `포트 47310` 실패 | 다른 프로그램이 쓰는 중. `uv run overseer --port 47320` |
 | 터미널 창이 비어 있다 | CDN(cdn.jsdelivr.net) 접속 확인 |

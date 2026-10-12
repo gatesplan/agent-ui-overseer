@@ -90,6 +90,11 @@ class HookInstaller:
             except subprocess.TimeoutExpired:
                 self.report(False, 'claude 실행', '응답 없음')
 
+        # 재시작 스크립트(scripts/restart_server.ps1)는 저장소에만 있고 PowerShell 7 을 쓴다
+        if not self.layout.installed:
+            pwsh = shutil.which('pwsh')
+            self.report(bool(pwsh), 'pwsh 명령', pwsh or 'PowerShell 7 설치 필요: winget install Microsoft.PowerShell')
+
         registered = self.load_settings().get('hooks', {})
         missing = [e for e in EVENTS if not any(self.ours(g) for g in registered.get(e, []))]
         self.report(not missing, '전역 훅 등록', f'빠짐: {", ".join(missing)}' if missing else str(self.settings))
