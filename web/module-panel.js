@@ -207,8 +207,8 @@ function itemModules(s, item) {
   if (!ixs.length) return [];
   const active = mpPkg(s);
   const text = `${item.title}\n${item.body}`;
-  const owners = {};
-  const byShort = {};
+  const owners = Object.create(null);
+  const byShort = Object.create(null);
   for (const ix of ixs) for (const n of Object.keys(ix.mods)) {
     (owners[n] ||= []).push(ix.pkg);
     (byShort[mpShort(n)] ||= []).push([ix.pkg, n]);
