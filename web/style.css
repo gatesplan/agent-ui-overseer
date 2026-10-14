@@ -270,6 +270,8 @@ code { font-family: var(--font-mono); font-size: .9em; padding: 0 4px; backgroun
 .md p { margin: 0 0 6px; }
 .md ul { margin: 0 0 6px; padding-left: 0; list-style: none; }
 .md li { position: relative; margin: 3px 0; padding-left: 16px; }
+.md a.link { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; margin: 0 2px; vertical-align: -3px; color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); border-radius: 3px; text-decoration: none; }
+.md a.link:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); }
 .md li::before { content: ""; position: absolute; left: 2px; top: .7em; width: 5px; height: 5px; background: var(--kc); transform: rotate(45deg); opacity: .8; }
 .md-table { margin: 0 0 8px; overflow-x: auto; }
 .md table { border-collapse: collapse; font-size: .95em; font-variant-numeric: tabular-nums; }

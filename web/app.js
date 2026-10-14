@@ -126,8 +126,33 @@ const basisOf = item => item.tag ? [...((item.body.match(BASIS) || [])[1] || '')
 function esc(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
+// 본문의 링크: http(s) 주소와 scheme 없이 쓴 로컬 주소(localhost:8000, 127.0.0.1:47310/x)
+// 주소 글자는 ASCII 만 받아 바로 붙은 한글 조사는 빠지고, 끝의 문장부호와 짝 없는 닫는 괄호는 뗀다
+const LINK = /\bhttps?:\/\/[\w\-.~:/?#[\]@!$&'()*+,;=%]+|\b(?:localhost|127\.0\.0\.1|0\.0\.0\.0):\d+(?:\/[\w\-.~:/?#[\]@!$&'()*+,;=%]*)?/g;
+const LINK_ICON = `<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h4v4M13 3 7.5 8.5M11 9.5V13H3V5h3.5"/></svg>`;
+function trimLink(u) {
+  for (;;) {
+    if (/[.,;:!?'*]$/.test(u)) u = u.slice(0, -1);
+    else if (u.endsWith(')') && (u.match(/\(/g) || []).length < (u.match(/\)/g) || []).length) u = u.slice(0, -1);
+    else return u;
+  }
+}
+function linkHTML(u) {
+  const href = /^https?:/.test(u) ? u : `http://${u}`;
+  return `<a class="link" href="${esc(href)}" target="_blank" rel="noopener noreferrer" title="${esc(u)}" aria-label="${esc(u)}">${LINK_ICON}</a>`;
+}
+// 링크는 먼저 자리표(\0번호\0)로 빼 두고 이스케이프와 서식을 거친 뒤 아이콘으로 바꾼다. 주소 속 `*` 나 `&` 가 서식에 걸리지 않게
+// 백틱 안이 주소 하나뿐이면 코드 칸째로 아이콘이 된다
 function inline(s) {
-  return esc(s).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
+  const links = [];
+  const held = String(s).replace(LINK, m => {
+    const u = trimLink(m);
+    links.push(u);
+    return `\0${links.length - 1}\0${m.slice(u.length)}`;
+  });
+  return esc(held).replace(/`([^`]+)`/g, (_, c) => /^\0\d+\0$/.test(c) ? c : `<code>${c}</code>`)
+    .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+    .replace(/\0(\d+)\0/g, (_, k) => linkHTML(links[k]));
 }
 function md(text) {
   const out = [];
@@ -857,6 +882,8 @@ function applyFonts() {
 document.addEventListener('click', e => {
   if (ui.drawer && !e.target.closest('#drawer, [data-drawer]')) { ui.drawer = null; renderDrawer(); }
   if (e.target.closest('[data-unpick]')) { unpick(); return; }
+  // 본문 링크는 새 창으로 열기만 한다. 카드를 고르면 맨 위로 올라가 누른 자리가 달아난다
+  if (e.target.closest('.md a.link')) return;
   // 카드를 누르면 선택, 흐름의 빈 곳을 누르면 해제
   // 보류 막 위의 꺼내기·닫기는 카드를 고르지 않는다. 고르면 그 카드를 맨 위로 올리느라 남은 보류 카드가 밀려난다
   const picked = !e.target.closest('.veil') && e.target.closest('.card[data-id]');
