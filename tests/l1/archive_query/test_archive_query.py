@@ -38,6 +38,15 @@ def test_list_records_filters(tmp_path):
     assert q.list_records(query='없는말') == '맞는 기록이 없다.'
 
 
+def test_retired_record_is_listed_with_reason(tmp_path):
+    q = setup(tmp_path)
+    q.records.retire(q.project, 'W-1', '안 쓰는 말')
+    assert q.list_records() == '- D-2 가격은 기존 값 유지'
+    assert '- W-1 [폐기됨] 사안: 결정 단위 (메모: 카드와 섞지 말 것) (폐기 사유: 안 쓰는 말)' in q.list_records(include_replaced=True)
+    text = q.record('W-1')
+    assert text.startswith('# W-1 (폐기됨)') and '사용자가 폐기했다: 안 쓰는 말' in text
+
+
 def test_record_shows_chain_source_and_basis(tmp_path):
     q = setup(tmp_path)
     text = q.record('D-1')

@@ -19,7 +19,7 @@ class OverseerMcp:
         self.server = MCPServer(name='overseer', instructions=INSTRUCTIONS)
         self.server.add_tool(self.records, name='records', annotations=READ_ONLY,
                              description='이 프로젝트의 결정 기록(D)과 용어(W) 목록. query 로 내용과 메모를 찾고, kind 로 D 나 W 만, '
-                                         'include_replaced 로 대체된 옛 기록까지 본다.')
+                                         'include_replaced 로 대체되거나 폐기된 옛 기록까지 본다.')
         self.server.add_tool(self.record, name='record', annotations=READ_ONLY,
                              description='기록 하나(예: D-3)를 자세히 본다. 대체 이력 전체, 원래 사안 본문, 근거 사안과 그에 대한 사용자 결정.')
         self.server.add_tool(self.decisions, name='decisions', annotations=READ_ONLY,

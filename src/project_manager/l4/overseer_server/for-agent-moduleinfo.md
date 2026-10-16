@@ -30,6 +30,7 @@ DELETE /api/tabs/{id}           세션 끝내고 탭 닫기
 POST   /api/tabs/{id}/send      {message, decisions: [{id, action, note}]} 결정 저장 후 붙여넣기 전송
 POST   /api/tabs/{id}/clear     {decisions: [{id, action, note}]} 결정을 패널에만 저장하고 /clear. 미처리 사안은 보류로. {held, tab}
 PUT    /api/tabs/{id}/draft     작성 중 초안 저장
+POST   /api/tabs/{id}/records/retire {ref, reason} 기록 창의 폐기. 그 탭 프로젝트의 유효한 기록만, 아니면 400. 그 기록이 적용되는 탭들에 상태를 알린다
 
 ### WebSocket
 /ws/events      서버 → 화면: {type: 'tab', tab} | {type: 'closed', id}

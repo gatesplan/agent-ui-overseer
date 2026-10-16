@@ -388,8 +388,10 @@ kbd.tag {
 .rec-text { line-height: 1.45; }
 .rec-note { margin: 3px 0 0 38px; color: var(--muted); font-size: 12px; }
 .rec-meta { display: flex; gap: 6px; align-items: center; margin: 4px 0 0 38px; color: var(--muted); font: 11px var(--font-mono); }
-.rec.replaced { opacity: .5; }
-.rec.replaced .rec-text { text-decoration: line-through; }
+.rec.replaced, .rec.retired { opacity: .5; }
+.rec.replaced .rec-text, .rec.retired .rec-text { text-decoration: line-through; }
+.rec-retire { flex: none; margin-left: auto; height: 20px; padding: 0 8px; border: 1px solid var(--line-strong); background: none; color: var(--muted); font: 11px var(--font-mono); }
+.rec-retire:hover { border-color: var(--rej); color: var(--rej); }
 .rec-empty { padding: 8px 0; color: var(--muted); font-size: 12px; }
 .pane-gear svg, .icon-btn svg { transition: transform .4s; }
 .pane-gear.on svg, .icon-btn.on svg { transform: rotate(60deg); }

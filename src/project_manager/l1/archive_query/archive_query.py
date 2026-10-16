@@ -7,6 +7,7 @@ from ...l0.project_key import ProjectKey
 from ...l0.record_store import RecordStore
 
 LABEL = {'answer': '답변', 'approve': '승인', 'revise': '수정', 'hold': '보류', 'reject': '기각', 'confirm': '확인', 'feedback': '피드백', 'close': '닫음'}
+STATUS = {'active': '유효', 'replaced': '대체됨', 'retired': '폐기됨'}
 BASIS = re.compile(r'^근거:(.*)$', re.M)
 ITEM_REF = re.compile(r'(?:([\w.-]+)/)?#?(\d+S-\d+-\d+)')
 # 결과 본문을 이 길이로 자른다. 에이전트 컨텍스트를 아끼려는 것
@@ -33,9 +34,10 @@ class ArchiveQuery:
             return '맞는 기록이 없다.'
         lines = []
         for r in rows:
-            status = '' if r['status'] == 'active' else ' [대체됨]'
+            status = '' if r['status'] == 'active' else f" [{STATUS[r['status']]}]"
             note = f" (메모: {r['note']})" if r['note'] else ''
-            lines.append(f"- {r['ref']}{status} {r['text']}{note}")
+            reason = f" (폐기 사유: {r['retired_reason']})" if r['retired_reason'] else ''
+            lines.append(f"- {r['ref']}{status} {r['text']}{note}{reason}")
         return '\n'.join(lines)
 
     # 기록 하나: 대체 이력 전체, 원래 사안 본문, 근거 사안과 그에 대한 사용자 결정
@@ -43,11 +45,13 @@ class ArchiveQuery:
         rec = self.records.find(self.project, ref)
         if not rec:
             return f'{ref} 기록이 없다.'
-        lines = [f"# {self._ref(rec)} ({'유효' if rec['status'] == 'active' else '대체됨'})", rec['text']]
+        lines = [f"# {self._ref(rec)} ({STATUS[rec['status']]})", rec['text']]
         if rec['project'] != self.project:
             lines.append(f"상위 폴더 {rec['project']} 에서 정한 기록. 이 프로젝트에도 적용된다")
         if rec['note']:
             lines.append(f"승인 메모: {rec['note']}")
+        if rec['status'] == 'retired':
+            lines.append(f"{self._date(rec['retired_at'])} 사용자가 폐기했다{': ' + rec['retired_reason'] if rec['retired_reason'] else ''}")
         chain = self._chain(rec)
         if len(chain) > 1:
             lines += ['', '## 대체 이력 (오래된 것부터)']

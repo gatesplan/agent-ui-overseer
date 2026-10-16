@@ -68,6 +68,32 @@ def test_notice_lists_records_after_seen_point_from_other_tabs(tmp_path):
     assert store.notice(p, store.last_mark(p), exclude_tab='a') == ''
 
 
+def test_retire_keeps_file_drops_from_briefing_and_notices(tmp_path):
+    store = RecordStore()
+    group = ProjectKey.of(str(tmp_path / 'gatesplan'))
+    p = ProjectKey.of(str(tmp_path / 'gatesplan' / 'mathgate'))
+    store.add(group, 'D', '상위 결정', tab_id='g', item_id='1S-1-1')
+    store.add(p, 'D', '가격은 새 값으로', tab_id='a', item_id='1S-1-1')
+    store.add(p, 'W', '사안: 결정 단위', tab_id='a', item_id='1S-1-2')
+    seen = store.last_mark(p)
+    rec = store.retire(p, 'D-1', ' 더는 안 맞음 ')
+    assert (rec['status'], rec['retired_reason']) == ('retired', '더는 안 맞음')
+    # 파일은 남고, 다시 읽어도 폐기 상태다
+    again = store.find(p, 'D-1')
+    assert (again['status'], again['retired_reason'], again['retired_at']) == ('retired', '더는 안 맞음', rec['retired_at'])
+    assert '가격은 새 값으로' not in store.briefing(p) and '- W-1 사안: 결정 단위' in store.briefing(p)
+    # 폐기는 자기 탭이어도 알린다. 패널에서 한 일이라 대화에 없다
+    assert '- 폐기: D-1 가격은 새 값으로 (사유: 더는 안 맞음)' in store.notice(p, seen, exclude_tab='a')
+    assert store.last_mark(p) == rec['retired_at']
+    assert store.notice(p, store.last_mark(p)) == ''
+    # 이미 폐기된 기록, 없는 기록, 상위 폴더 기록은 폐기하지 않는다
+    assert store.retire(p, 'D-1') is None
+    assert store.retire(p, 'D-9') is None
+    assert store.retire(p, 'gatesplan/D-1') is None
+    # 폐기된 기록은 대체 대상도 아니다
+    assert store.add(p, 'D', '새 결정', tab_id='a', item_id='2S-1-1', replaces='D-1')['replaces'] is None
+
+
 def test_parent_folder_records_apply_to_child_projects(tmp_path):
     store = RecordStore()
     group = ProjectKey.of(str(tmp_path / 'gatesplan'))

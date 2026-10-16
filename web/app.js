@@ -349,6 +349,7 @@ function replaceBlock(s, item) {
   const target = (s.records || []).find(r => r.ref === ref);
   let row;
   if (!target) row = `<div class="bs warn">${ref} 없는 기록</div>`;
+  else if (target.status === 'retired') row = `<div class="bs warn">${ref} 폐기된 기록: ${esc(target.text)}</div>`;
   else if (target.status !== 'active' && !(own && target.replaced_by === own.ref)) row = `<div class="bs warn">${ref} 이미 대체된 기록: ${esc(target.text)}</div>`;
   else row = `<div class="bs"><span class="iid">${ref}</span> ${esc(target.text)}${target.note ? `<span class="bd">메모: ${esc(target.note)}</span>` : ''}</div>`;
   return `<div class="basis"><div class="basis-label">대체 대상</div>${row}</div>`;
@@ -567,6 +568,16 @@ async function decidePermission(rid, behavior) {
   }
 }
 
+// 기록 창의 폐기. 지우지 않고 세션 목록에서만 뺀다. 사유는 이력에 남고, 열린 세션에는 다음 입력 때 알린다
+async function retireRecord(ref) {
+  const s = cur();
+  const rec = (s.records || []).find(r => r.ref === ref);
+  if (!rec) return;
+  const reason = prompt(`${ref} ${rec.text}\n\n폐기하면 다음 세션부터 목록에서 빠진다. 기록과 이력은 남는다.\n사유(비워도 된다)`, '');
+  if (reason === null) return;
+  await api(`/api/tabs/${s.id}/records/retire`, 'POST', { ref, reason });
+}
+
 function renderMain(s) {
   if (!s) return `<div class="empty">열린 세션 없음<br><small>위의 + 로 작업 폴더를 골라 claude 를 띄운다</small></div>`;
   const bar = extra => `<header class="pane-bar"><span class="pane-name">커맨드 패널</span><span class="pane-info">턴 ${s.turns.length} · 사안 ${allItems(s).length}</span>
@@ -607,12 +618,16 @@ function recordsHTML(s) {
   const refOf = (r, ref) => (r.inherited ? `${r.scope}/${ref}` : ref);
   const row = r => {
     const status = r.status === 'active' ? (r.replaces ? `${refOf(r, r.replaces)} 대체` : '')
-      : `대체됨 → ${refOf(r, r.replaced_by)}`;
+      : r.status === 'retired' ? `폐기됨 ${(r.retired_at || '').slice(0, 10)}` : `대체됨 → ${refOf(r, r.replaced_by)}`;
     const source = r.tab_id === s.id ? `<button class="parent" data-jump="${esc(r.item_id)}" title="출처 사안으로">#${esc(r.item_id)}</button>`
       : `<span title="다른 탭에서 승인">${r.inherited ? `${esc(r.scope)}/` : ''}#${esc(r.item_id || '')}</span>`;
+    // 폐기는 이 프로젝트의 유효한 기록만. 상위 폴더 기록은 그 폴더에서 연 탭에서 폐기한다
+    const retire = r.status === 'active' && !r.inherited
+      ? `<button class="rec-retire" data-retire="${r.ref}" title="세션 목록에서 뺀다. 기록과 이력은 남는다">폐기</button>` : '';
     return `<div class="rec ${r.status}">
-      <div class="rec-head"><span class="rec-ref">${r.ref}</span><span class="rec-text">${esc(r.text)}</span></div>
+      <div class="rec-head"><span class="rec-ref">${r.ref}</span><span class="rec-text">${esc(r.text)}</span>${retire}</div>
       ${r.note ? `<div class="rec-note">메모: ${esc(r.note)}</div>` : ''}
+      ${r.retired_reason ? `<div class="rec-note">폐기 사유: ${esc(r.retired_reason)}</div>` : ''}
       <div class="rec-meta">${[status, source, (r.created_at || '').slice(0, 10)].filter(Boolean).join(' · ')}</div>
     </div>`;
   };
@@ -1014,11 +1029,12 @@ function step(dir) {
 }
 
 function act(e) {
-  const t = e.target.closest('[data-unhold],[data-closeheld],[data-perm],[data-open-term],[data-close],[data-newtab],[data-resume],[data-tab],[data-jump],[data-act],[data-toggle],[data-prompt],[data-drawer],[data-fs],[data-peek],[data-oldturns],[data-past],[data-extra-toggle],#toggle-term,#btn-send,#btn-wrapup,#btn-clear');
+  const t = e.target.closest('[data-unhold],[data-closeheld],[data-retire],[data-perm],[data-open-term],[data-close],[data-newtab],[data-resume],[data-tab],[data-jump],[data-act],[data-toggle],[data-prompt],[data-drawer],[data-fs],[data-peek],[data-oldturns],[data-past],[data-extra-toggle],#toggle-term,#btn-send,#btn-wrapup,#btn-clear');
   if (!t) return;
   const s = cur();
   if (t.dataset.unhold) { unhold(t.dataset.unhold); }
   else if (t.dataset.closeheld) { closeHeld(t.dataset.closeheld); }
+  else if (t.dataset.retire) { retireRecord(t.dataset.retire); }
   else if (t.dataset.perm) { decidePermission(t.dataset.rid, t.dataset.perm); }
   else if ('openTerm' in t.dataset) { ui.term = true; ui.autoTerm = null; render(); }
   else if (t.dataset.close) { closeTab(t.dataset.close); }

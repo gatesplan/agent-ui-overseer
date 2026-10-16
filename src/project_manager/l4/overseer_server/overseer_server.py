@@ -55,6 +55,7 @@ class OverseerServer:
             web.post('/api/tabs/{id}/send', self._send),
             web.post('/api/tabs/{id}/clear', self._clear),
             web.put('/api/tabs/{id}/draft', self._draft),
+            web.post('/api/tabs/{id}/records/retire', self._retire_record),
             web.get('/api/tabs/{id}/modules', self._modules),
             web.get('/ws/events', self._events),
             web.get('/ws/term/{id}', self._term),
@@ -245,6 +246,18 @@ class OverseerServer:
             return web.json_response({'error': str(e)}, status=409)
         await self._broadcast({'type': 'tab', 'tab': tab.state()})
         return web.json_response({'held': held, 'tab': tab.state()})
+
+    # 기록 창의 폐기: {ref, reason}. 그 탭 프로젝트의 유효한 기록만. 그 기록이 적용되는 탭(하위 폴더 탭 포함)에 알린다
+    async def _retire_record(self, request: web.Request) -> web.Response:
+        tab = self._tab(request)
+        body = await request.json()
+        rec = self.records.retire(tab.project, str(body.get('ref', '')), str(body.get('reason', '')))
+        if not rec:
+            return web.json_response({'error': '이 프로젝트의 유효한 기록이 아니다'}, status=400)
+        for other in list(self.tabs.tabs.values()):
+            if rec['project'] in self.records.scopes(other.project):
+                await self._broadcast({'type': 'tab', 'tab': other.state()})
+        return web.json_response(rec)
 
     # 모듈 패널의 지도. 처음 열 때 받고, 그 뒤 바뀐 것은 modules 알림으로 간다
     async def _modules(self, request: web.Request) -> web.Response:

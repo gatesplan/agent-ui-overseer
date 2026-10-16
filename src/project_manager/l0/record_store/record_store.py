@@ -11,12 +11,13 @@ REF = re.compile(r'^\s*([DW])-(\d+)\s*$')
 FILE = re.compile(r'^([DW])-(\d+)\.md$')
 # 파일 머리에 쓰는 항목과 순서. 값은 한 줄. 줄바꿈이 있거나 따옴표로 시작하면 JSON 문자열로 쓴다
 HEAD = (('text', 'text'), ('status', 'status'), ('replaces', 'replaces'), ('replaced_by', 'replaced_by'),
-        ('item', 'item_id'), ('tab', 'tab_id'), ('note', 'note'), ('created', 'created_at'))
+        ('item', 'item_id'), ('tab', 'tab_id'), ('note', 'note'), ('created', 'created_at'),
+        ('retired', 'retired_at'), ('reason', 'retired_reason'))
 
 
 # 프로젝트 결정 아카이브. 사용자가 승인한 보존 사안([D] 결정 기록, [W] 용어)을 프로젝트별로 D-n, W-n 번호를 붙여 둔다
 # 기록 하나가 `<프로젝트>/.overseer/records/D-3.md` 파일 하나다
-# 기록은 지우지 않는다. 새 기록이 옛 기록을 대체하면 옛 기록은 replaced 로 남긴다
+# 기록은 지우지 않는다. 새 기록이 옛 기록을 대체하면 옛 기록은 replaced, 사용자가 폐기하면 retired 로 남긴다
 class RecordStore:
     # 기록 하나를 더한다. 같은 사안(item_id)으로 이미 있으면 그것을 돌려준다
     # replaces: 대체할 기록 ID('D-3'). 같은 종류의 유효한 기록일 때만 대체한다
@@ -39,6 +40,16 @@ class RecordStore:
         self._write(rec)
         if old:
             self._write({**old, 'status': 'replaced', 'replaced_by': rec['ref']})
+        return rec
+
+    # 유효한 기록을 폐기한다. 대체할 결정 없이 더는 맞지 않는 기록을 세션 목록에서 빼려는 것
+    # ref 는 이 프로젝트의 기록('D-3')만. 상위 폴더 기록은 그 폴더에서 폐기한다. 폐기했으면 그 기록, 아니면 None
+    def retire(self, project: str, ref: str, reason: str = '') -> dict | None:
+        rec = self.find(project, ref) if '/' not in (ref or '') else None
+        if not rec or rec['status'] != 'active':
+            return None
+        rec = {**rec, 'status': 'retired', 'retired_at': self._now(), 'retired_reason': reason.strip() or None}
+        self._write(rec)
         return rec
 
     # 이 프로젝트 자체의 기록. 종류, 번호 순
@@ -103,23 +114,29 @@ class RecordStore:
             lines += [self._line(r) for r in inherited]
         return '\n'.join(lines) + '\n'
 
-    # 지금까지 생긴 가장 늦은 기록 시각. 상위 폴더 기록까지. 세션이 목록을 어디까지 받았는지 표시하는 데 쓴다. 없으면 빈 문자열
+    # 기록이 생기거나 폐기된 가장 늦은 시각. 상위 폴더 기록까지. 세션이 목록을 어디까지 받았는지 표시하는 데 쓴다. 없으면 빈 문자열
     def last_mark(self, project: str) -> str:
-        return max((r['created_at'] or '' for r in self.records_in_scope(project)), default='')
+        return max((t or '' for r in self.records_in_scope(project) for t in (r['created_at'], r['retired_at'])), default='')
 
-    # 세션이 마지막으로 받은 뒤 다른 탭에서 생긴 기록(상위 폴더 기록 포함)을 알리는 글. 없으면 빈 문자열
+    # 세션이 마지막으로 받은 뒤 생긴 기록 변경(상위 폴더 기록 포함)을 알리는 글. 없으면 빈 문자열
+    # 추가와 대체는 다른 탭에서 승인한 것만 알린다. 폐기는 패널에서 한 것이라 대화에 없으니 모두 알린다
     # exclude_tab: 그 세션의 탭. 자기 탭에서 승인한 것은 이미 대화에 있다
     def notice(self, project: str, after: str, exclude_tab: str | None = None) -> str:
-        rows = [r for r in self.records_in_scope(project) if (r['created_at'] or '') > after and r['tab_id'] != exclude_tab]
-        if not rows:
+        events = []
+        for r in self.records_in_scope(project):
+            if (r['created_at'] or '') > after and r['tab_id'] != exclude_tab:
+                old = self.find(r['project'], r['replaces']) if r['replaces'] else None
+                line = (f"- 변경: {self._scoped(old, project)['ref']} {old['text']} → {r['ref']} {r['text']}" if old
+                        else f"- 추가: {r['ref']} {r['text']}")
+                events.append((r['created_at'], line))
+            if (r['retired_at'] or '') > after:
+                reason = f" (사유: {r['retired_reason']})" if r['retired_reason'] else ''
+                events.append((r['retired_at'], f"- 폐기: {r['ref']} {r['text']}{reason}"))
+        if not events:
             return ''
-        lines = ['## 결정 기록 변경 (Overseer)', '', '다른 세션에서 사용자가 승인한 기록이다. 이후 작업은 이에 맞춘다.', '']
-        for r in sorted(rows, key=lambda r: r['created_at']):
-            old = self.find(r['project'], r['replaces']) if r['replaces'] else None
-            if old:
-                lines.append(f"- 변경: {self._scoped(old, project)['ref']} {old['text']} → {r['ref']} {r['text']}")
-            else:
-                lines.append(f"- 추가: {r['ref']} {r['text']}")
+        lines = ['## 결정 기록 변경 (Overseer)', '',
+                 '다른 세션이나 패널에서 사용자가 바꾼 기록이다. 이후 작업은 이에 맞추고, 폐기된 기록은 더 따르지 않는다.', '']
+        lines += [line for _, line in sorted(events)]
         return '\n'.join(lines) + '\n'
 
     def _line(self, r: dict) -> str:
