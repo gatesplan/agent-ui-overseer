@@ -689,6 +689,7 @@ function render({ keepScroll = true } = {}) {
   if (ui.cur) savePref('overseer.tab', ui.cur);
   renderTabs();
   $('#main').innerHTML = renderMain(s);
+  fitNotes();
   $('#term').hidden = !ui.term;
   $('#toggle-term').classList.toggle('on', ui.term);
   if (s || LIVE) renderTerm(s);
@@ -876,7 +877,19 @@ function refreshLive(s, id) {
 
 function applyFonts() {
   for (const [k, v] of Object.entries(ui.fs)) document.documentElement.style.setProperty(`--fs-${k}`, `${v}px`);
+  fitNotes();
   requestAnimationFrame(() => { showFocus(); mpRepaint(); });
+}
+
+// 입력 칸 높이는 CSS field-sizing 이 내용에 맞춘다. 지원하지 않는 브라우저에서만 여기서 잰다
+const AUTO_FIELD = CSS.supports('field-sizing', 'content');
+function fitNote(el) {
+  if (AUTO_FIELD || !el.offsetParent) return;
+  el.style.height = 'auto';
+  el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
+}
+function fitNotes() {
+  if (!AUTO_FIELD) document.querySelectorAll('#main textarea.note').forEach(fitNote);
 }
 
 document.addEventListener('click', e => {
@@ -1052,6 +1065,7 @@ function act(e) {
     const id = t.dataset.toggle;
     ui.open.has(id) ? ui.open.delete(id) : ui.open.add(id);
     document.getElementById(`c-${id}`).classList.toggle('open');
+    fitNotes();
     showFocus();
   }
   else if (t.id === 'toggle-term') { ui.term = !ui.term; ui.autoTerm = null; render(); }
@@ -1063,6 +1077,7 @@ function act(e) {
 document.addEventListener('input', e => {
   if ('permNote' in e.target.dataset) { ui.permNote = e.target.value; return; }
   const s = cur();
+  if (e.target.matches('textarea.note')) fitNote(e.target);
   if (e.target.dataset.note) {
     s.decisions[e.target.dataset.note].note = e.target.value;
     refreshLive(s, e.target.dataset.note);
@@ -1479,6 +1494,7 @@ function showTerm(s) {
 }
 
 window.addEventListener('resize', () => {
+  fitNotes();
   const t = ui.cur && terms[ui.cur];
   if (t && ui.term) t.fit.fit();
 });
