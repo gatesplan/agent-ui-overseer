@@ -6,7 +6,11 @@
 
 - 모듈이 공개하는 이름은 클래스와 타입 별칭(`Answer = Union[A, B]`, `Maybe = A | None`, `type X = ...`)뿐이다
 - 함수는 메서드로(`@staticmethod`, `@classmethod`), 상수는 클래스 속성으로 둔다
+- 공개 이름을 타입으로 한정하는 까닭: 표면이 한 가지 꼴이 되어 생성과 검사가 단순해지고, 함수가 어느 타입의 일인지 이름에 드러난다.
+  모듈 안에서만 쓰는 함수는 자유 함수로 두어도 된다
 - 이름이나 파일 이름이 `_`로 시작하면 비공개다
+- 꺼내 주기(맨 위 층 모듈이 아래 층 클래스를 다시 내보내기)는 새로 쓰지 않는다. 숨은 타입은 공통 문서 '표면' 절의 방법으로 푼다.
+  이미 쓴 `Env: TypeAlias = _Env` 꼴은 lnt 가 계속 공개 이름으로 센다. 이 줄을 `type` 문으로 바꾸면 생성, 정적 메서드, isinstance 가 깨지므로 바꾸지 않는다
 
 ## 디렉토리 구조
 
@@ -67,10 +71,16 @@ from ...l1.order import Order  # 모듈 표면 import
 ### 중첩 모듈 __init__.py
 
 안쪽 맨 위 층 모듈들의 표면을 지연 로드로 공개한다. 안쪽 모듈을 import해도 맨 위 층까지 끌려오지 않는다.
+`if TYPE_CHECKING:` 안의 재노출은 타입 검사기용이다. `__getattr__` 로만 내보낸 이름은 mypy 와 pyright 가 Any 로 본다.
+실행 중에는 이 블록을 읽지 않으므로 지연 로드는 그대로다.
 
 ```python
 # src/fishfactory/l3/portfolio/__init__.py  (lnt doc 이 씀. 안쪽 맨 위 층이 l1 이고 거기에 store 가 있다)
 import importlib
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .l1.store import Store as Store
 
 # 모듈 표면: 안쪽 맨 위 층. 이름 -> 모듈 경로. 지연 로드. lnt doc 이 생성한다
 _EXPORTS = {
@@ -275,6 +285,7 @@ project/
 - 위치: `src/fishfactory/ln/modulename/`
 - 메인 파일: `modulename.py` (또는 중첩 Ln)
 - 표면: `__init__.py`
+- 모듈 폴더 밖에 둘 수 있는 소스: 표면 파일(`__init__.py`)과, 패키지 루트나 중첩 모듈 폴더 바로 아래의 `__main__.py`. 그 밖은 C7
 
 ### 테스트
 테스트 위치는 ln 규칙이 아니다. 이 문서의 예시는 `tests/` 아래 소스 미러(`tests/ln/modulename/test_*.py`)다.

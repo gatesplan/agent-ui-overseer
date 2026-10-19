@@ -1,4 +1,12 @@
 import importlib
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .archive_query import ArchiveQuery as ArchiveQuery
+    from .hook_installer import HookInstaller as HookInstaller
+    from .item_splitter import ItemSplitter as ItemSplitter
+    from .map_watcher import MapWatcher as MapWatcher
+    from .pty_session import PtySession as PtySession
 
 # 층 표면. 이름 -> 모듈 경로. 지연 로드. lnt doc 이 생성한다
 _EXPORTS = {

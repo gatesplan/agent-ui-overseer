@@ -1,4 +1,10 @@
 import importlib
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .agent_tab import AgentTab as AgentTab
+    from .capture_hook import CaptureHook as CaptureHook
+    from .overseer_mcp import OverseerMcp as OverseerMcp
 
 # 층 표면. 이름 -> 모듈 경로. 지연 로드. lnt doc 이 생성한다
 _EXPORTS = {

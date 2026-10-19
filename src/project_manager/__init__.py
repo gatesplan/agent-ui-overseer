@@ -1,4 +1,8 @@
 import importlib
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .l4.overseer_server import OverseerServer as OverseerServer
 
 # 패키지 표면: 맨 위 층. 이름 -> 모듈 경로. 지연 로드. lnt doc 이 생성한다
 _EXPORTS = {

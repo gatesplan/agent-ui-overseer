@@ -369,15 +369,15 @@ wheels = [
 
 [[package]]
 name = "ff-lntools"
-version = "0.8.0"
+version = "0.11.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "tree-sitter" },
     { name = "tree-sitter-rust" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ab/4d/15b866bb02af2d73c32b58bea1394747ea5bfbf305cd5294fd86b7daa526/ff_lntools-0.8.0.tar.gz", hash = "sha256:11cf36b87fa1aa7bc0e589b61e74f6601ec589a0be5ad414dd7b62b5f1fb830e", size = 84011, upload-time = "2026-10-13T03:25:39.88Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f8/d6/8506ac51ef3333b08a5d879e6516d8ba55813599d41f1af37084fcf0eeb2/ff_lntools-0.11.0.tar.gz", hash = "sha256:a61b1f35441be3683475afdac64b5647aa9c130227e534fb1a64fc6d4b9b98c0", size = 93313, upload-time = "2026-10-19T05:40:46.736Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/06/6e/5985d2137ec2731457335869844762761c492d81de2af1a3182f6e76bb3e/ff_lntools-0.8.0-py3-none-any.whl", hash = "sha256:7ba0952e6ffd15c8f1a41d2baba46aa7278092b20df9920ac6e4b6e1a1d89385", size = 115457, upload-time = "2026-10-13T03:25:38.728Z" },
+    { url = "https://files.pythonhosted.org/packages/7a/8d/51cdbc2093b884d1bdcec727acabcb4b20bf957d80c65a4273ff81235c90/ff_lntools-0.11.0-py3-none-any.whl", hash = "sha256:146c23aea0876e5be312d039ff9bed28b13d797a26b79a7bcc764a7be4a71fc1", size = 125652, upload-time = "2026-10-19T05:40:47.85Z" },
 ]
 
 [[package]]
@@ -801,7 +801,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "aiohttp" },
-    { name = "ff-lntools", specifier = ">=0.8.0" },
+    { name = "ff-lntools", specifier = ">=0.11.0" },
     { name = "loguru" },
     { name = "mcp", specifier = ">=2.3.0" },
     { name = "pywinpty", marker = "sys_platform == 'win32'" },

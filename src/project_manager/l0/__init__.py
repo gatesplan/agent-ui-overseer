@@ -1,4 +1,21 @@
 import importlib
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .capture_log import CaptureLog as CaptureLog
+    from .conda_envs import CondaEnvs as CondaEnvs
+    from .install_layout import InstallLayout as InstallLayout
+    from .item import Item as Item
+    from .launch_env import LaunchEnv as LaunchEnv
+    from .module_map import ModuleMap as ModuleMap
+    from .panel_store import PanelStore as PanelStore
+    from .permission_gate import PermissionGate as PermissionGate
+    from .project_finder import ProjectFinder as ProjectFinder
+    from .project_journal import ProjectJournal as ProjectJournal
+    from .project_key import ProjectKey as ProjectKey
+    from .record_store import RecordStore as RecordStore
+    from .transcript_reader import TranscriptReader as TranscriptReader
+    from .turn_builder import TurnBuilder as TurnBuilder
 
 # 층 표면. 이름 -> 모듈 경로. 지연 로드. lnt doc 이 생성한다
 _EXPORTS = {
