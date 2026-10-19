@@ -72,6 +72,24 @@ def test_signature_changes_when_source_or_layerinfo_changes(tmp_path):
     assert maps.signature(tmp_path / 'nothing') == (0, 0, 0)
 
 
+def test_repo_root_finds_packages_one_level_below(tmp_path):
+    # 저장소 루트에 src 가 없으면 backend/src 같은 하위 폴더의 패키지를 lnt 처럼 찾는다
+    repo = tmp_path / 'repo'
+    (repo / '.git').mkdir(parents=True)
+    (repo / 'backend' / 'src' / 'api' / 'l0' / 'money').mkdir(parents=True)
+    (repo / 'backend' / 'src' / 'api' / 'l0' / 'money' / 'money.py').write_text('class Money: pass\n', encoding='utf-8')
+    maps = fake_lnt(tmp_path, "print('{}')")
+    assert maps.scan(repo)['status'] == 'ok'
+    assert maps.signature(repo)[0] == 1
+    # 자기 .git 을 가진 하위 폴더는 다른 저장소다
+    (repo / 'backend' / '.git').mkdir()
+    assert maps.scan(repo) == {'status': 'none'}
+    # 저장소 루트가 아니면 아래를 보지 않는다
+    (repo / 'backend' / '.git').rmdir()
+    (repo / '.git').rmdir()
+    assert maps.scan(repo) == {'status': 'none'}
+
+
 def test_default_command_prefers_lnt_in_same_environment(tmp_path, monkeypatch):
     scripts = tmp_path / 'venv' / 'Scripts'
     scripts.mkdir(parents=True)

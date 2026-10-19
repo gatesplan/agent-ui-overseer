@@ -73,30 +73,44 @@ class ModuleMap:
         return {f"{p['package']}/{m['name']}" if p.get('package') else m['name']: m.get('responsibility') or ''
                 for p in cls.packages(result) for m in p.get('modules') or []}
 
-    # 소스 서명: src 아래 소스(.py, .rs)와 layerinfo 문서의 (개수, 가장 늦은 수정 시각, 크기 합). 하나라도 바뀌면 다시 받는다
+    # 소스 서명: ln 패키지가 든 src 아래 소스(.py, .rs)와 layerinfo 문서의 (개수, 가장 늦은 수정 시각, 크기 합)
+    # 하나라도 바뀌면 다시 받는다
     def signature(self, cwd: str | Path) -> tuple:
-        src = Path(cwd) / 'src'
-        if not src.is_dir():
-            return (0, 0, 0)
         count, latest, size = 0, 0, 0
-        for root, dirs, files in os.walk(src):
-            dirs[:] = [d for d in dirs if not d.startswith(('.', '__pycache__'))]
-            for name in files:
-                if not (name.endswith(SOURCE_EXT) or name == 'for-agent-layerinfo.md'):
-                    continue
-                try:
-                    st = os.stat(os.path.join(root, name))
-                except OSError:
-                    continue
-                count += 1
-                latest = max(latest, st.st_mtime_ns)
-                size += st.st_size
+        for src in self._sources(Path(cwd)):
+            for root, dirs, files in os.walk(src):
+                dirs[:] = [d for d in dirs if not d.startswith(('.', '__pycache__'))]
+                for name in files:
+                    if not (name.endswith(SOURCE_EXT) or name == 'for-agent-layerinfo.md'):
+                        continue
+                    try:
+                        st = os.stat(os.path.join(root, name))
+                    except OSError:
+                        continue
+                    count += 1
+                    latest = max(latest, st.st_mtime_ns)
+                    size += st.st_size
         return (count, latest, size)
 
-    # 층 폴더가 있는지. Python 은 src/<패키지>/l0, Rust 크레이트는 src/l0. 없으면 lnt 를 띄우지 않는다
+    # 층 폴더가 있는지. 없으면 lnt 를 띄우지 않는다
+    @classmethod
+    def _has_layers(cls, cwd: Path) -> bool:
+        return bool(cls._sources(cwd))
+
+    # lnt 가 ln 패키지를 찾는 src 폴더들. lnt 0.9 와 같은 규칙이다: cwd/src 에 층이 없고 cwd 가 저장소 루트(.git)면
+    # 한 단계 아래 폴더의 src(backend/src 등)도 본다. 자기 .git 을 가진 하위 폴더는 다른 저장소라 보지 않는다
+    @classmethod
+    def _sources(cls, cwd: Path) -> list[Path]:
+        if cls._layered(cwd / 'src'):
+            return [cwd / 'src']
+        if not (cwd / '.git').exists():
+            return []
+        below = [d for d in sorted(cwd.iterdir()) if d.is_dir() and not d.name.startswith('.') and not (d / '.git').exists()]
+        return [d / 'src' for d in below if cls._layered(d / 'src')]
+
+    # src 에 층 폴더가 있는지. Python 은 src/<패키지>/l0, Rust 크레이트는 src/l0
     @staticmethod
-    def _has_layers(cwd: Path) -> bool:
-        src = cwd / 'src'
+    def _layered(src: Path) -> bool:
         if not src.is_dir():
             return False
         roots = [src, *(pkg for pkg in src.iterdir() if pkg.is_dir())]
