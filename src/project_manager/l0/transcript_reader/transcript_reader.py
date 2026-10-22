@@ -6,9 +6,11 @@ EDIT_TOOLS = ('Edit', 'Write', 'MultiEdit', 'NotebookEdit')
 
 
 # Claude Code 대화 기록(JSONL)에서 마지막 턴의 응답 텍스트를 꺼낸다
+# 기록은 수백 MB 까지 자라므로 파일은 처음 물을 때 한 번만 읽는다. 그 뒤로 붙은 줄을 보려면 새로 만든다
 class TranscriptReader:
     def __init__(self, path: str | Path):
         self.path = Path(path)
+        self._cache: list[dict] | None = None
 
     def last_turn_text(self) -> str:
         rows = self._rows()
@@ -111,6 +113,11 @@ class TranscriptReader:
                    and any(b.get('type') == 'text' for b in self._blocks(r)) for r in rows[:max(last, 0)])
 
     def _rows(self) -> list[dict]:
+        if self._cache is None:
+            self._cache = self._read()
+        return self._cache
+
+    def _read(self) -> list[dict]:
         rows = []
         with self.path.open(encoding='utf-8') as f:
             for line in f:
