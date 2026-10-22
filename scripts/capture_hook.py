@@ -30,8 +30,11 @@ PROJECT = os.environ.get('OVERSEER_PROJECT') or None
 def main() -> int:
     logger.remove()
     logger.add(DATA / 'logs' / 'capture_hook.log', rotation='1 MB', encoding='utf-8')
+    # 시간 초과로 끊길 때 어디서 멈췄는지 가르는 두 줄. 진입이 없으면 프로세스가 늦게 떴고, 입력 받음이 없으면 Claude Code 가 입력을 늦게 보냈다
+    logger.debug(f"훅 진입: tab={TAB}")
     try:
         hook_input = json.loads(sys.stdin.buffer.read().decode('utf-8') or '{}')
+        logger.debug(f"입력 받음: event={hook_input.get('hook_event_name')}, session={hook_input.get('session_id')}")
         gate = PermissionGate(DATA / 'permissions', int(PORT) if PORT and PORT.isdigit() else None)
         # 기록 목록은 세션 시작(목록 주입)과 입력(변경 고지) 때만 읽는다
         records = RecordStore() if hook_input.get('hook_event_name') in ('SessionStart', 'UserPromptSubmit') else None
