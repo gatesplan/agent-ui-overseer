@@ -21,8 +21,9 @@ class CaptureLog:
             return False
         self._offset += end + 1
         added = False
-        for line in chunk[:end].decode('utf-8').splitlines():
-            line = line.strip()
+        # 시스템이 비정상 종료되면 쓰다 만 자리가 NUL 로 채워지고, 다음 기록이 그 뒤에 붙는다
+        for line in chunk[:end].decode('utf-8', errors='replace').splitlines():
+            line = line.strip().strip('\x00').strip()
             if not line:
                 continue
             try:
