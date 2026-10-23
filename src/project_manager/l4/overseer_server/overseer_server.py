@@ -102,7 +102,7 @@ class OverseerServer:
             await asyncio.sleep(POLL_INTERVAL)
             try:
                 for tab in self.tabs.poll():
-                    await self._broadcast({'type': 'tab', 'tab': tab.state()})
+                    await self._announce(tab)
             except Exception:
                 logger.exception("poll 실패")
 
@@ -117,9 +117,13 @@ class OverseerServer:
                     await self._broadcast({'type': 'modules', 'cwd': cwd, 'modules': result})
                     tab = self.tabs.find(cwd)
                     if tab and tab.note_map(before, result):
-                        await self._broadcast({'type': 'tab', 'tab': tab.state()})
+                        await self._announce(tab)
             except Exception:
                 logger.exception("모듈 지도 갱신 실패")
+
+    # 탭 상태 알림. 바뀐 턴만 싣는다(AgentTab.delta). 예전 화면은 tab-delta 를 몰라 무시하고 새로고침 때 전체를 받는다
+    async def _announce(self, tab: AgentTab) -> None:
+        await self._broadcast({'type': 'tab-delta', 'tab': tab.delta()})
 
     async def _broadcast(self, message: dict) -> None:
         data = json.dumps(message, ensure_ascii=False)
@@ -148,8 +152,9 @@ class OverseerServer:
     async def _index(self, request: web.Request) -> web.FileResponse:
         return web.FileResponse(LAYOUT.web / 'index.html')
 
+    # 한글을 \u 로 풀지 않는다. 크기가 절반 아래로 준다
     async def _list(self, request: web.Request) -> web.Response:
-        return web.json_response([tab.state() for tab in self.tabs.tabs.values()])
+        return web.json_response([tab.state() for tab in self.tabs.tabs.values()], dumps=lambda o: json.dumps(o, ensure_ascii=False))
 
     # 훅이 권한 결정을 맡겨도 되는지 묻는다. permissions 가 없는 예전 서버면 훅은 기다리지 않는다
     async def _health(self, request: web.Request) -> web.Response:
@@ -170,7 +175,7 @@ class OverseerServer:
         tab = self._tab(request)
         body = await request.json()
         closed = tab.close_held([str(i) for i in body.get('ids', [])])
-        await self._broadcast({'type': 'tab', 'tab': tab.state()})
+        await self._announce(tab)
         return web.json_response({'closed': closed})
 
     # 새 세션 창의 폴더 목록: 드라이브마다 루트 Projects 폴더 안의 프로젝트. 실행 환경 칸의 conda 단추 목록도 함께 준다
@@ -193,7 +198,7 @@ class OverseerServer:
                 await asyncio.to_thread(self.tabs.restart, tab.id, body.get('rows', 40), body.get('cols', 120))
         except (ValueError, RuntimeError) as e:
             return web.json_response({'error': str(e)}, status=400)
-        await self._broadcast({'type': 'tab', 'tab': tab.state()})
+        await self._announce(tab)
         return web.json_response(tab.state())
 
     # 새 탭: {cwd} 로 기존 폴더를 열거나, {create: {root, name}} 으로 Projects 안에 폴더를 만들어 연다. launch 는 실행 환경 한 줄
@@ -208,13 +213,13 @@ class OverseerServer:
                                  None if launch is None else str(launch))
         except ValueError as e:
             return web.json_response({'error': str(e)}, status=400)
-        await self._broadcast({'type': 'tab', 'tab': tab.state()})
+        await self._announce(tab)
         return web.json_response(tab.state())
 
     async def _resume(self, request: web.Request) -> web.Response:
         body = await request.json() if request.can_read_body else {}
         tab = self.tabs.resume(request.match_info['id'], body.get('rows', 40), body.get('cols', 120))
-        await self._broadcast({'type': 'tab', 'tab': tab.state()})
+        await self._announce(tab)
         return web.json_response(tab.state())
 
     async def _close(self, request: web.Request) -> web.Response:
@@ -232,8 +237,9 @@ class OverseerServer:
             await tab.send(body['message'], decisions)
         except RuntimeError as e:
             return web.json_response({'error': str(e)}, status=409)
-        await self._broadcast({'type': 'tab', 'tab': tab.state()})
-        return web.json_response(tab.state())
+        await self._announce(tab)
+        # 화면은 성공 여부만 본다. 바뀐 상태는 알림으로 간다
+        return web.json_response({'ok': True})
 
     # 결정 저장 후 /clear. 결정은 에이전트에게 보내지 않는다. 미처리 사안은 보류로 넘긴다
     async def _clear(self, request: web.Request) -> web.Response:
@@ -244,8 +250,8 @@ class OverseerServer:
             held = await tab.clear(decisions)
         except RuntimeError as e:
             return web.json_response({'error': str(e)}, status=409)
-        await self._broadcast({'type': 'tab', 'tab': tab.state()})
-        return web.json_response({'held': held, 'tab': tab.state()})
+        await self._announce(tab)
+        return web.json_response({'held': held})
 
     # 기록 창의 폐기: {ref, reason}. 그 탭 프로젝트의 유효한 기록만. 그 기록이 적용되는 탭(하위 폴더 탭 포함)에 알린다
     async def _retire_record(self, request: web.Request) -> web.Response:
@@ -256,7 +262,7 @@ class OverseerServer:
             return web.json_response({'error': '이 프로젝트의 유효한 기록이 아니다'}, status=400)
         for other in list(self.tabs.tabs.values()):
             if rec['project'] in self.records.scopes(other.project):
-                await self._broadcast({'type': 'tab', 'tab': other.state()})
+                await self._announce(other)
         return web.json_response(rec)
 
     # 모듈 패널의 지도. 처음 열 때 받고, 그 뒤 바뀐 것은 modules 알림으로 간다
@@ -307,7 +313,7 @@ class OverseerServer:
                     tab.pty.write(data['data'])
                     # 터미널에서 응답했으면 떠 있던 확인 알림을 내린다
                     if tab.acknowledge():
-                        await self._broadcast({'type': 'tab', 'tab': tab.state()})
+                        await self._announce(tab)
                 elif data.get('type') == 'resize':
                     tab.pty.resize(int(data['rows']), int(data['cols']))
         finally:

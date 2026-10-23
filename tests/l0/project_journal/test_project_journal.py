@@ -66,3 +66,25 @@ def test_module_history(tmp_path):
     history = j.module_history()
     assert [e['after'] for e in history['l1.x']] == ['새', '더 새']
     assert history['l1.x'][0]['session'] == 1 and history['l1.x'][0]['at']
+
+
+def test_rows_read_only_the_appended_tail(tmp_path):
+    j = ProjectJournal(tmp_path)
+    j.open_session('s', 't', 'startup')
+    j.add_decisions([('1S-1-1', 'approve', '')])
+    first = j.decisions()
+    # 다른 쪽(훅, 다른 인스턴스)이 덧붙인 줄도 읽는다. 앞서 돌려준 목록은 그대로다
+    ProjectJournal(tmp_path).add_decisions([('1S-1-2', 'reject', '아님')])
+    assert [d['item'] for d in j.decisions()] == ['1S-1-1', '1S-1-2']
+    assert [d['item'] for d in first] == ['1S-1-1']
+    # 줄바꿈이 없는 쓰다 만 줄은 다음에 읽는다
+    path = tmp_path / '.overseer' / 'sessions' / '1.jsonl'
+    with path.open('a', encoding='utf-8') as f:
+        f.write('{"type": "decision", "item": "1S-1-3", "action": "hold"')
+    assert len(j.decisions()) == 2
+    with path.open('a', encoding='utf-8') as f:
+        f.write(', "note": ""}\n')
+    assert [d['item'] for d in j.decisions()] == ['1S-1-1', '1S-1-2', '1S-1-3']
+    # 파일이 줄면 처음부터 다시 읽는다
+    path.write_text('{"type": "session", "session": 1, "tab": "t2"}\n', encoding='utf-8')
+    assert j.decisions() == [] and j.owner(1) == 't2'

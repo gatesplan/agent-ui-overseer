@@ -237,3 +237,20 @@ def test_starting_until_session_start_after_launch_blocks_send(tmp_path):
     assert tab.starting is False
     asyncio.run(tab.send('hi', []))
     assert tab.pty.typed == ['hi', '\r']
+
+
+def test_delta_carries_turns_from_the_last_announced_one(tmp_path):
+    captures, project, store = setup(tmp_path, [{'kind': '보고', 'title': '가', 'body': ''}], [{'kind': '보고', 'title': '나', 'body': ''}])
+    tab = AgentTab('t', project, '', store, captures)
+    first = tab.delta()
+    assert (first['turnsFrom'], first['turnsBefore'], [t['id'] for t in first['turns']]) == (0, None, ['1S-1', '1S-2'])
+    assert first['draft'] is None and tab.state()['draft'] == {}
+    # 새 턴이 오면 지난 알림의 마지막 턴(이어진 응답이 붙을 수 있다)부터 싣는다
+    with (captures / 't.jsonl').open('a', encoding='utf-8') as f:
+        f.write(json.dumps({'event': 'turn', 'session_id': 's', 'text': 'x', 'items': [{'kind': '보고', 'title': '다', 'body': ''}]}, ensure_ascii=False) + '\n')
+    assert tab.poll() is True
+    nxt = tab.delta()
+    assert (nxt['turnsFrom'], nxt['turnsBefore'], [t['id'] for t in nxt['turns']]) == (1, '1S-1', ['1S-2', '1S-3'])
+    # 새 턴은 세션 파일에도 쓴다
+    assert [t['id'] for t in ProjectJournal(ProjectKey.of(project)).turns(1)] == ['1S-1', '1S-2', '1S-3']
+    assert [t['id'] for t in tab.state()['turns']] == ['1S-1', '1S-2', '1S-3']

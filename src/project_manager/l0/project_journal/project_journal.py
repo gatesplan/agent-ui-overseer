@@ -23,6 +23,8 @@ class ProjectJournal:
         self.dir = self.root / 'sessions'
         # 세션별로 이미 쓴 턴의 내용 해시. 같은 내용을 다시 쓰지 않는다
         self._written: dict[int, dict[str, str]] = {}
+        # 세션 파일별로 읽은 위치와 읽은 줄. 파일은 덧붙기만 하니 다음에는 뒤에 붙은 줄만 읽는다
+        self._read: dict[int, tuple[int, list[dict]]] = {}
 
     # 폴더를 만들고 git 에서 빠지게 한다
     def ensure(self) -> None:
@@ -159,20 +161,41 @@ class ProjectJournal:
                     self._written[n][r['id']] = hashlib.sha1(json.dumps(row, ensure_ascii=False, sort_keys=True).encode('utf-8')).hexdigest()
         return self._written[n]
 
+    # 세션 파일의 줄. 지난번 읽은 위치 뒤에 붙은 줄만 더 읽는다. 쓰는 중이라 줄바꿈이 없는 마지막 줄은 다음에 읽는다
+    # 파일이 줄었으면(다시 만들어짐) 처음부터 읽는다. 돌려준 목록은 받은 쪽이 고치지 않는다
     def _rows(self, n: int) -> list[dict]:
         path = self.dir / f'{n}.jsonl'
-        if not path.exists():
+        try:
+            size = path.stat().st_size
+        except FileNotFoundError:
+            self._read.pop(n, None)
             return []
+        offset, rows = self._read.get(n, (0, []))
+        if size < offset:
+            offset, rows = 0, []
+        if size > offset:
+            with path.open('rb') as f:
+                f.seek(offset)
+                chunk = f.read(size - offset)
+            end = chunk.rfind(b'\n')
+            if end >= 0:
+                offset += end + 1
+                # 앞서 돌려준 목록은 그대로 두고 새 목록을 만든다
+                rows = rows + self._parse(chunk[:end])
+        self._read[n] = (offset, rows)
+        return rows
+
+    @staticmethod
+    def _parse(chunk: bytes) -> list[dict]:
         rows = []
-        with path.open(encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    rows.append(json.loads(line))
-                except json.JSONDecodeError:
-                    continue
+        for line in chunk.decode('utf-8', errors='replace').splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rows.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
         return rows
 
     def _append(self, n: int, row: dict) -> None:

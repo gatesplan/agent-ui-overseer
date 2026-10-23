@@ -66,6 +66,12 @@ class AgentTab:
         self._ack_seq = -1
         # 이번 실행을 띄운 시점의 기록 위치. 그 뒤 시작 기록이 오기 전에는 시작 중(확인 창이 떠 있을 수 있다)
         self._start_seq: int | None = None
+        # 조립한 턴과 그때의 기록 수. 기록이 늘지 않았으면 다시 조립하지 않는다
+        self._built: tuple[int, dict] | None = None
+        # 세션 파일에 맞춰 본 턴 수. 그 앞 턴은 바뀌지 않으니 마지막으로 본 턴부터 다시 본다
+        self._journaled = 0
+        # 마지막 탭 알림에 실은 턴 수. 다음 알림은 그 마지막 턴부터 싣는다
+        self._announced = 0
         self.gate = PermissionGate(captures_dir.parent / 'permissions', None)
         self.records = records
         self.project = ProjectKey.of(cwd)
@@ -90,7 +96,7 @@ class AgentTab:
         if self.mcp:
             # 읽기 전용 도구라 권한 확인 없이 쓰게 한다
             claude += ['--mcp-config', str(self._mcp_config()), '--allowedTools', f'mcp__{MCP_NAME}']
-        session_id = self.builder.build(self.log.events)['session_id']
+        session_id = self._build()['session_id']
         if resume and session_id:
             claude += ['--resume', session_id]
         launch = self.launch.command()
@@ -158,6 +164,13 @@ class AgentTab:
             return False
         return not any(e.get('event') == 'session_start' for e in self.log.events[self._start_seq:])
 
+    # 훅 기록을 턴으로 조립한 것. 기록은 덧붙기만 하니 기록 수가 같으면 지난 결과를 쓴다. 받은 쪽은 고치지 않는다
+    def _build(self) -> dict:
+        n = len(self.log.events)
+        if not self._built or self._built[0] != n:
+            self._built = (n, self.builder.build(self.log.events))
+        return self._built[1]
+
     # 새 훅 기록이 붙었거나 프로세스가 끝났으면 True
     def poll(self) -> bool:
         changed = self.log.poll()
@@ -190,7 +203,7 @@ class AgentTab:
             raise RuntimeError('세션이 떠 있지 않다')
         if self.starting:
             raise RuntimeError('세션이 시작 중이다. 시작 확인 창은 터미널에서 처리한다')
-        built = self.builder.build(self.log.events)
+        built = self._build()
         if built['pending'] is not None or self._sending:
             raise RuntimeError('에이전트가 작업 중이다')
         sent = self.sent(built)
@@ -208,7 +221,7 @@ class AgentTab:
     def takeovers(self, decisions: list[tuple[str, str, str]]) -> list[tuple[str, str, str]]:
         held = self.held()
         decided = {item_id for item_id, _, _ in decisions}
-        items = {i['id']: i for t in self.builder.build(self.log.events)['turns'] for i in t['items']}
+        items = {i['id']: i for t in self._build()['turns'] for i in t['items']}
         closes = {}
         for item_id, _, _ in decisions:
             parent = (items.get(item_id) or {}).get('parent')
@@ -218,14 +231,17 @@ class AgentTab:
 
     # 이 탭의 세션들에서 사안마다 마지막 결정 {action, note, at}
     def sent(self, built: dict | None = None) -> dict[str, dict]:
-        built = built or self.builder.build(self.log.events)
+        built = built or self._build()
         return self.journal.sent({t['session'] for t in built['turns']} | {built['session']})
 
     # 이 탭이 연 세션의 턴을 프로젝트 세션 파일에 쓴다. 번호를 받지 못한 세션(파일 주인이 이 탭이 아님)은 쓰지 않는다
+    # 지난번에 본 마지막 턴부터만 본다. 그 앞 턴은 바뀌지 않고, 마지막 턴은 이어진 응답이 붙을 수 있다
     def write_journal(self) -> None:
-        turns = self.builder.build(self.log.events)['turns']
+        turns = self._build()['turns']
+        start = max(0, min(self._journaled, len(turns)) - 1)
+        self._journaled = len(turns)
         owned: dict[int, bool] = {}
-        for t in turns:
+        for t in turns[start:]:
             if t['session'] not in owned:
                 owned[t['session']] = self.journal.owner(t['session']) == self.id
             if owned[t['session']]:
@@ -237,7 +253,7 @@ class AgentTab:
         old, new = ModuleMap.responsibilities(before), ModuleMap.responsibilities(after)
         if old is None or new is None:
             return []
-        built = self.builder.build(self.log.events)
+        built = self._build()
         n = built['session']
         if self.journal.owner(n) != self.id:
             return []
@@ -279,7 +295,7 @@ class AgentTab:
 
     def close(self) -> None:
         # 결정을 기다리던 권한 훅을 풀어 준다. 안 풀면 훅이 시간이 다 될 때까지 남는다
-        permission = self.builder.build(self.log.events)['permission']
+        permission = self._build()['permission']
         if permission:
             self.gate.decide(permission['request_id'], 'terminal')
         if self.pty:
@@ -289,7 +305,7 @@ class AgentTab:
     def sync_records(self) -> list[dict]:
         if not self.records:
             return []
-        built = self.builder.build(self.log.events)
+        built = self._build()
         sent = self.sent(built)
         added = []
         for turn in built['turns']:
@@ -313,14 +329,27 @@ class AgentTab:
 
     # 터미널 창에 입력이 들어오면 떠 있던 확인 알림은 사용자가 본 것으로 친다. 알림을 내렸으면 True
     def acknowledge(self) -> bool:
-        attention = self.builder.build(self.log.events)['attention']
+        attention = self._build()['attention']
         if not attention or attention['seq'] <= self._ack_seq:
             return False
         self._ack_seq = len(self.log.events) - 1
         return True
 
-    def state(self) -> dict:
-        built = self.builder.build(self.log.events)
+    # 탭 알림에 실을 상태. 지난 알림의 마지막 턴부터만 싣는다(turnsFrom 번째부터, 그 앞 턴 ID 는 turnsBefore)
+    # 앞 턴은 바뀌지 않는다. 화면은 가진 턴 뒤에 이어 붙이고, 자리가 맞지 않으면 전체 상태를 다시 받는다
+    # 초안은 화면이 처음 한 번만 읽으니 싣지 않는다
+    def delta(self) -> dict:
+        state = self.state(draft=False)
+        turns = state['turns']
+        k = max(0, min(self._announced, len(turns)) - 1)
+        self._announced = len(turns)
+        state['turns'] = turns[k:]
+        state['turnsFrom'] = k
+        state['turnsBefore'] = turns[k - 1]['id'] if k else None
+        return state
+
+    def state(self, draft: bool = True) -> dict:
+        built = self._build()
         sent = self.sent(built)
         running = built['pending']
         if running is None and self._sending:
@@ -342,7 +371,7 @@ class AgentTab:
             # 종합 의견 피드백은 `sum-<턴 ID>` 로 저장한다
             'sent': {k: v for k, v in sent.items() if not k.startswith('sum-')},
             'summarySent': {k[4:]: v['note'] for k, v in sent.items() if k.startswith('sum-')},
-            'draft': self.store.draft(self.id),
+            'draft': self.store.draft(self.id) if draft else None,
             # 모듈별 책임 변경 이력. 모듈 패널이 상세 창과 사용자 스펙 칩에 쓴다
             'moduleHistory': self.journal.module_history(),
         }
