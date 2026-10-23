@@ -454,10 +454,14 @@ function card(s, item, isCur, prefix = 'c', veil = false) {
 
 // 턴 머리의 입력문은 두 줄까지만. ⋮ 를 누르면 펼친다
 // 짧아서 ⋮ 가 없어도 그 자리를 비워 둔다. 기둥마다 머리 높이가 같아야 카드 줄이 맞는다
+// 접힌 머리에는 앞 세 줄만 넣는다. 보이는 것은 두 줄뿐인데 전문을 넣으면 브라우저가 자르기 전에 전체 줄바꿈을 계산한다
+// 입력문은 보낸 메시지 전체라 길다(처리 줄, 붙여 넣은 글)
 function promptBlock(turn, text) {
   const open = ui.promptOpen.has(turn);
-  const long = text.split('\n').length > 2 || text.length > 70;
-  return `<div class="col-prompt ${open ? 'open' : ''}">${esc(text)}</div>
+  const lines = text.split('\n');
+  const long = lines.length > 2 || text.length > 70;
+  const shown = open ? text : lines.slice(0, 3).map(l => l.slice(0, 300)).join('\n');
+  return `<div class="col-prompt ${open ? 'open' : ''}">${esc(shown)}</div>
     ${long ? `<button class="more ${open ? 'open' : ''}" data-prompt="${turn}" title="${open ? '접기' : '펼치기'}">⋮</button>` : '<span class="more none">⋮</span>'}`;
 }
 
