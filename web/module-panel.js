@@ -32,6 +32,7 @@ function mpLoad(s) {
 function mpSet(s, result) {
   s.modules = result;
   s._mpIndex = null;
+  s._mpItems = null;
   s._mpStamp = Date.now();
 }
 
@@ -139,6 +140,14 @@ function mpIndex(s, pkg = mpPkg(s)) {
   return cache[pkg] = { pkg, map, mods, edges, rank };
 }
 
+// 사안 본문에서 모듈 이름을 찾는 정규식. [이름, '패키지/이름' 꼴, 맨 이름 꼴]. 점이 있는 이름(l0.x)만
+function mpNamePatterns(ix) {
+  return ix.pats ||= Object.keys(ix.mods).filter(n => n.includes('.')).map(n => {
+    const pat = n.replace(/\./g, '\\.');
+    return [n, new RegExp(`(^|[^\\w./])${ix.pkg}/${pat}(?![\\w])`), new RegExp(`(^|[^\\w./])${pat}(?![\\w])`)];
+  });
+}
+
 function mpMembers(ix, id) {
   const out = new Set([id]);
   const walk = n => (ix.mods[n]?.kids || []).forEach(k => { out.add(k); walk(k); });
@@ -202,10 +211,17 @@ function mpTurnMods(s, ix) {
 }
 // 사안이 언급한 모듈. 돌려주는 것은 mpRef 모양('패키지/모듈')
 // 패키지를 붙인 이름과 경로는 그 패키지로. 맨 이름은 그 이름을 가진 패키지가 하나면 그쪽, 여럿이면 지금 보는 탭 쪽
+// 결과는 (보는 패키지, 사안) 마다 기억한다. 지도가 바뀌면 mpSet 이 비운다. 이름 정규식은 지도 색인마다 한 번만 만든다
 function itemModules(s, item) {
+  const active = mpPkg(s);
+  const key = `${active}|${item.id}`;
+  const memo = s._mpItems ||= new Map();
+  if (!memo.has(key)) memo.set(key, mpItemModules(s, item, active));
+  return memo.get(key);
+}
+function mpItemModules(s, item, active) {
   const ixs = mpPackages(s).filter(mpReadable).map(p => mpIndex(s, p.package));
   if (!ixs.length) return [];
-  const active = mpPkg(s);
   const text = `${item.title}\n${item.body}`;
   const owners = Object.create(null);
   const byShort = Object.create(null);
@@ -215,11 +231,9 @@ function itemModules(s, item) {
   }
   const ref = (p, n) => mpRef(s, p, n);
   const out = new Set();
-  for (const ix of ixs) for (const n of Object.keys(ix.mods)) {
-    if (!n.includes('.')) continue;
-    const pat = n.replace(/\./g, '\\.');
-    if (new RegExp(`(^|[^\\w./])${ix.pkg}/${pat}(?![\\w])`).test(text)) { out.add(ref(ix.pkg, n)); continue; }
-    if (!new RegExp(`(^|[^\\w./])${pat}(?![\\w])`).test(text)) continue;
+  for (const ix of ixs) for (const [n, full, bare] of mpNamePatterns(ix)) {
+    if (full.test(text)) { out.add(ref(ix.pkg, n)); continue; }
+    if (!bare.test(text)) continue;
     const o = owners[n];
     const pick = o.length === 1 ? o[0] : o.includes(active) ? active : null;
     if (pick === ix.pkg) out.add(ref(ix.pkg, n));

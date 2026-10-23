@@ -192,11 +192,9 @@ code { font-family: var(--font-mono); font-size: .9em; padding: 0 4px; backgroun
   position: relative; flex: none; display: flex; align-items: stretch; gap: var(--col-gap);
   width: max-content; height: 100%; padding: 28px 40px 0;
 }
-/* 선택: 이어진 카드만 또렷하게, 나머지는 흐리고 살짝 번지게 */
-#main.dim .card:not(.lit) { opacity: .45; filter: blur(1.2px); }
-#main.dim .card:not(.lit):hover { opacity: .8; filter: none; }
-/* 현재 턴은 지금 처리할 카드들이라 흐리기만 하고 번지게 하지 않는다 */
-#main.dim .col-cur .card:not(.lit) { filter: none; }
+/* 선택: 이어진 카드만 또렷하게, 나머지는 흐리게. 번지기(blur)는 카드 수백 장이면 스크롤이 끊겨 쓰지 않는다 */
+#main.dim .card:not(.lit) { opacity: .45; }
+#main.dim .card:not(.lit):hover { opacity: .8; }
 .unpick { display: none; flex: none; place-items: center; width: 22px; height: 22px; padding: 0; border: 1px solid var(--line-strong); background: none; color: var(--muted); }
 .unpick:hover { color: var(--accent); border-color: var(--accent); }
 .card.active .unpick { display: grid; }
@@ -228,7 +226,7 @@ code { font-family: var(--font-mono); font-size: .9em; padding: 0 4px; backgroun
   --kc: var(--r);
   position: relative;
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
-  transition: opacity .2s, filter .2s, border-color .15s;
+  transition: opacity .2s, border-color .15s;
 }
 .card.k-질문 { --kc: var(--q); }
 .card.k-제안 { --kc: var(--p); }

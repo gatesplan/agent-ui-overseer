@@ -55,11 +55,12 @@ function mockSessions() {
 }
 
 // 서버 탭 상태를 화면 세션으로. 작성 중인 처리, 의견, 추가 지시는 화면이 주인이라 처음 한 번만 서버 초안에서 읽는다
-function fromServer(t, prev) {
+// turns: mergeTurns 로 이어 붙인 턴
+function fromServer(t, prev, turns) {
   const d = t.draft || {};
   return {
     ...blank, ...t,
-    turns: t.turns.map(x => ({ ...x, wrapup: WRAPUP_LINE.test(x.prompt) })),
+    turns,
     decisions: prev ? prev.decisions : (d.decisions || {}),
     summary: prev ? prev.summary : (d.summary || {}),
     extra: prev ? prev.extra : (d.extra || ''),
@@ -69,9 +70,20 @@ function fromServer(t, prev) {
     modules: prev ? prev.modules : null,
     _mpIndex: prev ? prev._mpIndex : null,
     _mpGood: prev ? prev._mpGood : null,
+    _mpItems: prev ? prev._mpItems : null,
     _mpLoading: prev ? prev._mpLoading : false,
     log: [],
   };
+}
+
+// 탭 알림은 바뀐 턴부터만 싣는다(turnsFrom 번째부터). 그 앞 턴은 가진 것을 그대로 쓴다
+// 놓친 알림이 있어 이어 붙일 자리가 맞지 않으면 null. 그때는 전체를 다시 받는다
+function mergeTurns(prev, t) {
+  const mark = x => ({ ...x, wrapup: WRAPUP_LINE.test(x.prompt) });
+  const k = t.turnsFrom || 0;
+  if (!k) return t.turns.map(mark);
+  if (!prev || prev.turns.length < k || prev.turns[k - 1].id !== t.turnsBefore) return null;
+  return [...prev.turns.slice(0, k), ...t.turns.map(mark)];
 }
 
 function pref(key, fallback) { try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; } }
@@ -100,8 +112,14 @@ const ui = {
 const $ = sel => document.querySelector(sel);
 const cur = () => sessions.find(s => s.id === ui.cur);
 const sorted = items => [...items].sort((a, b) => (KIND_ORDER[a.kind] ?? 9) - (KIND_ORDER[b.kind] ?? 9));
-const allItems = s => s.turns.flatMap(t => sorted(t.items));
-const findItem = (s, id) => allItems(s).find(i => i.id === id);
+// 턴에서 나오는 값은 세션 객체에 한 번만 만들어 둔다. 탭 알림이 오면 fromServer 가 새 객체를 만들어 저절로 새로 만든다
+function derived(s) {
+  if (s._d) return s._d;
+  const items = s.turns.flatMap(t => sorted(t.items));
+  return s._d = { items, byId: new Map(items.map(i => [i.id, i])), links: null, related: new Map() };
+}
+const allItems = s => derived(s).items;
+const findItem = (s, id) => derived(s).byId.get(id);
 // 카드 요소. 커맨드 패널(c-)이 먼저, 없으면 지난 턴(p-)
 const cardEl = id => id && (document.getElementById(`c-${id}`) || document.getElementById(`p-${id}`));
 const actionsFor = item => ACTIONS[item.kind] || ACTIONS['질문'];
@@ -154,7 +172,17 @@ function inline(s) {
     .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
     .replace(/\0(\d+)\0/g, (_, k) => linkHTML(links[k]));
 }
+// 사안 본문은 바뀌지 않으니 변환한 글을 본문째로 기억한다. 너무 쌓이면 비운다
+const mdCache = new Map();
 function md(text) {
+  let html = mdCache.get(text);
+  if (html === undefined) {
+    if (mdCache.size > 5000) mdCache.clear();
+    mdCache.set(text, html = mdHTML(text));
+  }
+  return html;
+}
+function mdHTML(text) {
   const out = [];
   let list = null;
   let rows = null;
@@ -254,20 +282,32 @@ function edgesOf(s) {
 }
 
 // 선택한 사안과 이어진 사안: 출처 쪽으로 거슬러 오른 것 전부와 파생 쪽으로 내려간 것 전부
+// 간선은 사안마다 위(출처 쪽), 아래(파생 쪽) 이웃 목록으로 한 번만 만들고, 결과는 (언급 포함 여부, 사안) 마다 기억한다
 function relatedOf(s, id) {
-  const edges = edgesOf(s).filter(e => ui.refs || e.type !== 'ref');
-  const walk = (from, to) => {
+  const d = derived(s);
+  const key = `${ui.refs ? 1 : 0}|${id}`;
+  if (d.related.has(key)) return d.related.get(key);
+  if (!d.links) {
+    d.links = { up: new Map(), down: new Map() };
+    for (const e of edgesOf(s)) {
+      const add = (m, k, v) => { let a = m.get(k); if (!a) m.set(k, a = []); a.push([v, e.type]); };
+      add(d.links.up, e.to, e.from);
+      add(d.links.down, e.from, e.to);
+    }
+  }
+  const walk = adj => {
     const seen = new Set();
-    const queue = [id];
-    while (queue.length) {
-      const x = queue.shift();
-      for (const e of edges) {
-        if (e[from] === x && !seen.has(e[to])) { seen.add(e[to]); queue.push(e[to]); }
+    const stack = [id];
+    while (stack.length) {
+      for (const [n, type] of adj.get(stack.pop()) || []) {
+        if ((ui.refs || type !== 'ref') && !seen.has(n)) { seen.add(n); stack.push(n); }
       }
     }
     return seen;
   };
-  return new Set([id, ...walk('to', 'from'), ...walk('from', 'to')]);
+  const out = new Set([id, ...walk(d.links.up), ...walk(d.links.down)]);
+  d.related.set(key, out);
+  return out;
 }
 
 // 전송 메시지
@@ -389,7 +429,7 @@ function decideBlock(s, item) {
 // 선택된 카드 머리 오른쪽 끝에만 보이는 선택 해제 버튼
 const UNPICK = `<button class="unpick" data-unpick title="선택 해제 (Esc)" aria-label="선택 해제"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="6"/><path d="M3.8 12.2 12.2 3.8"/></svg></button>`;
 
-// 현재 턴 카드는 늘 펼쳐 두고 접지 않는다. 이전 턴 카드만 머리를 눌러 접고 편다
+// 현재 턴 카드는 늘 펼쳐 두고 접지 않는다. 이전 턴 카드만 머리를 눌러 접고 편다. 접힌 카드는 본문을 그리지 않는다
 // veil: 커맨드 패널 맨 아래의 보류 카드. 카드 모양 그대로 흐린 막을 씌운다
 function card(s, item, isCur, prefix = 'c', veil = false) {
   const open = isCur || ui.open.has(item.id);
@@ -408,7 +448,7 @@ function card(s, item, isCur, prefix = 'c', veil = false) {
       <div class="title">${esc(item.title)}</div>
       ${mods.length ? `<div class="mods">${mods.map(m => `<button data-mod="${esc(m)}" title="모듈 패널에서 보기">${(([p, n]) => `${mpPkgHead(s, p, 'mod-pkg')}${esc(n)}`)(mpSplit(s, m))}</button>`).join('')}</div>` : ''}
     </div>
-    <div class="card-body"><div class="md">${md(item.tag ? item.body.replace(BASIS, '').replace(REPLACES, '') : item.body)}</div>${basisBlock(s, item)}${veil ? '' : decideBlock(s, item)}</div>${held}
+    ${open ? `<div class="card-body"><div class="md">${md(item.tag ? item.body.replace(BASIS, '').replace(REPLACES, '') : item.body)}</div>${basisBlock(s, item)}${veil ? '' : decideBlock(s, item)}</div>` : ''}${held}
   </article>`;
 }
 
@@ -578,8 +618,9 @@ async function retireRecord(ref) {
   await api(`/api/tabs/${s.id}/records/retire`, 'POST', { ref, reason });
 }
 
+// 화면 본문. html 은 지난 턴 띠와 커맨드 패널, cols 는 지난 턴 기둥들 [{ id, html }] (접혀 있으면 null)
 function renderMain(s) {
-  if (!s) return `<div class="empty">열린 세션 없음<br><small>위의 + 로 작업 폴더를 골라 claude 를 띄운다</small></div>`;
+  if (!s) return { html: `<div class="empty">열린 세션 없음<br><small>위의 + 로 작업 폴더를 골라 claude 를 띄운다</small></div>`, cols: null };
   const bar = extra => `<header class="pane-bar"><span class="pane-name">커맨드 패널</span><span class="pane-info">턴 ${s.turns.length} · 사안 ${allItems(s).length}</span>
       ${extra}
       ${LIVE ? `<button class="pane-rec ${ui.drawer === 'records' ? 'on' : ''}" data-drawer="records" title="이 프로젝트의 결정 기록과 용어">기록 ${(s.records || []).filter(r => r.status === 'active').length}</button>` : ''}
@@ -587,7 +628,7 @@ function renderMain(s) {
   if (!s.turns.length && !(LIVE && s.alive)) {
     const msg = !s.alive ? '세션 꺼짐' : '아직 사안 없음';
     const sub = !LIVE ? 'MOCK / 연결된 세션 아님' : `${s.launch ? `환경: ${esc(s.launch)}<br>` : ''}<button class="primary" data-resume="${s.id}">이어서 띄우기</button>`;
-    return `<section class="cmd-pane">${bar('')}${attentionBar(s)}<div class="empty">${msg}<br><small>${sub}</small></div></section>`;
+    return { html: `<section class="cmd-pane">${bar('')}${attentionBar(s)}<div class="empty">${msg}<br><small>${sub}</small></div></section>`, cols: null };
   }
   // 지금 맥락의 턴. /clear 뒤 아직 응답이 없으면 앞 맥락의 마지막 턴은 가운데 칸에 두지 않는다
   const tail = s.turns[s.turns.length - 1];
@@ -598,14 +639,50 @@ function renderMain(s) {
   const folded = s.turns.length - shown.length;
   const old = s.turns.some(t => t.session < s.session) && (folded || ui.showOld.has(s.id))
     ? `<button class="pane-rec pane-old ${ui.showOld.has(s.id) ? 'on' : ''}" data-oldturns title="마지막 /clear 앞의 턴">${folded ? `이전 맥락 ${folded}턴 보기` : '이전 맥락 접기'}</button>` : '';
-  return `<button class="past-strip ${ui.past ? 'on' : ''}" data-past title="${ui.past ? '지난 턴 접기' : '지난 턴 펼치기'}" ${past.length ? '' : 'disabled'}><span>지난 턴 · ${past.length}</span></button>
+  const html = `<button class="past-strip ${ui.past ? 'on' : ''}" data-past title="${ui.past ? '지난 턴 접기' : '지난 턴 펼치기'}" ${past.length ? '' : 'disabled'}><span>지난 턴 · ${past.length}</span></button>
     <section class="cmd-pane">
       ${bar(old)}
       ${attentionBar(s)}
       ${commandColumn(s, last)}
       ${sendBar(s, fresh)}
-    </section>
-    ${ui.past && past.length ? `<div class="past-flow"><div class="flow" id="flow"><div class="flow-inner" id="flow-inner">${past.map(t => column(s, t, false, 'p')).join('')}</div></div></div>` : ''}`;
+    </section>`;
+  return { html, cols: ui.past && past.length ? past.map(t => ({ id: t.id, html: column(s, t, false, 'p') })) : null };
+}
+
+// 본문을 바꿔 끼운다. 지난 턴 흐름은 같은 탭이면 그대로 두고 글이 바뀐 기둥만 바꾼다
+// 바뀌지 않은 기둥은 요소째 남아 브라우저가 다시 배치하지 않고, 기둥마다 세로 스크롤도 그대로다
+function patchMain(view, tabId) {
+  const main = $('#main');
+  let flow = main.querySelector(':scope > .past-flow');
+  // 어느 탭의 흐름인지는 요소 속성이 아니라 값으로 둔다. data-tab 은 탭 단추 선택자에 걸린다
+  if (flow && (!view.cols || flow._tab !== tabId)) flow = null;
+  [...main.childNodes].forEach(n => { if (n !== flow) n.remove(); });
+  main.insertAdjacentHTML('afterbegin', view.html);
+  if (!view.cols) return;
+  if (!flow) {
+    main.insertAdjacentHTML('beforeend', '<div class="past-flow"><div class="flow" id="flow"><div class="flow-inner" id="flow-inner"></div></div></div>');
+    flow = main.lastElementChild;
+    flow._tab = tabId;
+  }
+  const inner = flow.querySelector('#flow-inner');
+  const old = new Map([...inner.children].map(el => [el.dataset.col, el]));
+  let prev = null;
+  for (const { id, html } of view.cols) {
+    let el = old.get(id);
+    old.delete(id);
+    if (!el || el._html !== html) {
+      const tpl = document.createElement('template');
+      tpl.innerHTML = html;
+      const fresh = tpl.content.firstElementChild;
+      fresh._html = html;
+      if (el) el.replaceWith(fresh);
+      el = fresh;
+    }
+    const at = prev ? prev.nextElementSibling : inner.firstElementChild;
+    if (at !== el) inner.insertBefore(el, at);
+    prev = el;
+  }
+  old.forEach(el => el.remove());
 }
 
 const GEAR = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`;
@@ -695,7 +772,10 @@ function colScrolls() {
   }));
 }
 
+// 다시 그린 횟수. 클릭 처리가 그 사이에 다시 그렸는지 알아본다
+let renders = 0;
 function render({ keepScroll = true } = {}) {
+  renders++;
   const s = cur();
   const prev = $('#flow');
   const scroll = keepScroll && prev ? prev.scrollLeft : null;
@@ -703,7 +783,7 @@ function render({ keepScroll = true } = {}) {
   document.documentElement.dataset.theme = ui.theme;
   if (ui.cur) savePref('overseer.tab', ui.cur);
   renderTabs();
-  $('#main').innerHTML = renderMain(s);
+  patchMain(renderMain(s), s?.id);
   fitNotes();
   $('#term').hidden = !ui.term;
   $('#toggle-term').classList.toggle('on', ui.term);
@@ -755,7 +835,9 @@ function align(id) {
   });
   if (!active) return;
   const related = relatedOf(cur(), id);
-  const top = active.getBoundingClientRect().top;
+  // 순서를 먼저 다 바꾸고, 위치를 한꺼번에 잰 뒤, 여백과 스크롤을 한꺼번에 쓴다
+  // 기둥마다 재고 쓰기를 번갈아 하면 기둥 수만큼 배치를 다시 한다
+  const moves = [];
   for (const box of boxes) {
     if (box === home) continue;
     const cards = [...box.children];
@@ -765,23 +847,36 @@ function align(id) {
     const first = cards.indexOf(rel[0]);
     const rest = cards.filter(c => !rel.includes(c));
     [...rest.slice(0, first), ...rel, ...rest.slice(first)].forEach((c, i) => { c.style.order = i; });
-
+    moves.push({ box, rel, cards });
+  }
+  const top = active.getBoundingClientRect().top;
+  const plans = moves.map(({ box, rel, cards }) => {
     const view = box.getBoundingClientRect();
     const y = Math.max(top, view.top) - view.top;
-    let want = rel[0].getBoundingClientRect().top - view.top + box.scrollTop - y;
-    // 위로 모자라면 위 여백을, 아래로 모자라면 아래 여백을 늘려 맞춘다
-    if (want < 0) { box.style.paddingTop = `${-want}px`; want = 0; }
-    padFor(box, want);
-    box.scrollTop = want;
+    return {
+      box, want: rel[0].getBoundingClientRect().top - view.top + box.scrollTop - y,
+      end: cardsEnd(box, cards, view), height: box.clientHeight, pad: parseFloat(getComputedStyle(box).paddingBottom),
+    };
+  });
+  for (const { box, want, end, height, pad } of plans) {
+    // 위로 모자라면 위 여백을, 아래로 모자라면 아래 여백을 늘려 맞춘다. 위 여백만큼 카드 끝도 내려간다
+    const lift = want < 0 ? -want : 0;
+    if (lift) box.style.paddingTop = `${lift}px`;
+    const need = want + lift + height - (end + lift);
+    if (need > pad) box.style.paddingBottom = `${need}px`;
+    box.scrollTop = want + lift;
   }
+}
+
+// 기둥 안 카드 끝의 높이. 기둥 스크롤 맨 위 기준
+function cardsEnd(box, cards, view = box.getBoundingClientRect()) {
+  return Math.max(...cards.map(c => c.getBoundingClientRect().bottom)) - view.top + box.scrollTop;
 }
 
 // 기둥을 want 까지 스크롤할 수 있게 아래 여백을 늘린다
 // 카드가 적어 기둥이 넘치지 않을 때도 맞도록 여백을 카드 끝에서부터 잰다
 function padFor(box, want) {
-  const view = box.getBoundingClientRect();
-  const end = Math.max(...[...box.children].map(c => c.getBoundingClientRect().bottom)) - view.top + box.scrollTop;
-  const need = want + box.clientHeight - end;
+  const need = want + box.clientHeight - cardsEnd(box, [...box.children]);
   if (need > parseFloat(getComputedStyle(box).paddingBottom)) box.style.paddingBottom = `${need}px`;
 }
 
@@ -917,9 +1012,13 @@ document.addEventListener('click', e => {
   const picked = !e.target.closest('.veil') && e.target.closest('.card[data-id]');
   // 이미 선택된 카드 안을 누를 때는 옮기지 않는다. 누른 자리가 손 밑에서 달아나지 않게
   const fresh = picked && picked.dataset.id !== ui.active;
-  if (picked) { ui.active = picked.dataset.id; showFocus(); }
-  else if (e.target.closest('#flow, .cmd-pane .col-items') && !e.target.closest('.card')) { ui.active = null; showFocus(); }
+  let focus = false;
+  if (picked) { ui.active = picked.dataset.id; focus = true; }
+  else if (e.target.closest('#flow, .cmd-pane .col-items') && !e.target.closest('.card')) { ui.active = null; focus = true; }
+  // 버튼 처리가 다시 그렸으면 그 안에서 선택 표시도 했다. 두 번 하지 않는다
+  const before = renders;
   act(e);
+  if (focus && renders === before) showFocus();
   // 버튼 처리로 다시 그려진 뒤에 옮긴다. 먼저 하면 다시 그리면서 스크롤이 끊긴다
   if (fresh) raise(ui.active);
 });
@@ -1080,9 +1179,8 @@ function act(e) {
   else if (t.dataset.toggle) {
     const id = t.dataset.toggle;
     ui.open.has(id) ? ui.open.delete(id) : ui.open.add(id);
-    document.getElementById(`c-${id}`).classList.toggle('open');
-    fitNotes();
-    showFocus();
+    // 접힌 카드는 본문이 없어 다시 그린다. 바뀐 기둥 하나만 바뀐다
+    render();
   }
   else if (t.id === 'toggle-term') { ui.term = !ui.term; ui.autoTerm = null; render(); }
   else if (t.id === 'btn-send') { send(); }
@@ -1127,10 +1225,11 @@ document.addEventListener('change', e => {
   }
 });
 
-// 선택한 카드의 기둥을 스크롤하면 다른 기둥의 관련 카드도 높이를 따라온다. scroll 은 버블링이 없어 캡처로 받는다
+// 선택한 카드의 기둥을 스크롤하면 다른 기둥의 관련 카드도 높이를 따라온다. 커맨드 패널 카드와 지난 턴 카드 모두
+// scroll 은 버블링이 없어 캡처로 받는다
 let alignFrame = 0;
 document.addEventListener('scroll', e => {
-  const active = ui.active && document.getElementById(`c-${ui.active}`);
+  const active = cardEl(ui.active);
   if (!active || e.target !== active.closest('.col-items') || alignFrame) return;
   alignFrame = requestAnimationFrame(() => { alignFrame = 0; align(ui.active); });
 }, true);
@@ -1420,9 +1519,13 @@ async function closeTab(id) {
   if (await api(`/api/tabs/${id}`, 'DELETE')) removeTab(id);
 }
 
+// 이어 붙이지 못한 알림이면 그 탭의 전체 상태를 다시 받아 넣고 null
 function upsert(t) {
   const i = sessions.findIndex(s => s.id === t.id);
-  const s = fromServer(t, i >= 0 ? sessions[i] : null);
+  const prev = i >= 0 ? sessions[i] : null;
+  const turns = mergeTurns(prev, t);
+  if (!turns) { refetchTab(t.id); return null; }
+  const s = fromServer(t, prev, turns);
   if (i >= 0) sessions[i] = s; else sessions.push(s);
   openNew(s);
   return s;
@@ -1449,6 +1552,22 @@ function renderKeepFocus() {
   if (el) { el.focus(); el.setSelectionRange(...range); }
 }
 
+// 놓친 알림이 있던 탭은 전체 상태를 다시 받는다. 같은 탭을 겹쳐 받지 않는다
+const refetching = new Set();
+async function refetchTab(id) {
+  if (refetching.has(id)) return;
+  refetching.add(id);
+  try {
+    const res = await fetch('/api/tabs');
+    const t = res.ok ? (await res.json()).find(x => x.id === id) : null;
+    if (!t || !upsert(t)) return;
+    if (!ui.cur) ui.cur = id;
+    if (id === ui.cur) renderKeepFocus(); else renderTabs();
+  } catch { /* 다음 알림에서 다시 맞춘다 */ } finally {
+    refetching.delete(id);
+  }
+}
+
 // 탭 상태 알림. 끊기면 다시 붙는다
 function listen() {
   const ws = new WebSocket(`${WS}//${location.host}/ws/events`);
@@ -1456,9 +1575,10 @@ function listen() {
     const msg = JSON.parse(e.data);
     if (msg.type === 'closed') { if (sessions.some(s => s.id === msg.id)) removeTab(msg.id); return; }
     if (msg.type === 'modules') { onModulesEvent(msg); return; }
-    if (msg.type !== 'tab') return;
+    // tab: 전체 상태(예전 서버), tab-delta: 바뀐 턴만 실은 상태
+    if (msg.type !== 'tab' && msg.type !== 'tab-delta') return;
     const was = sessions.find(s => s.id === msg.tab.id)?.starting;
-    upsert(msg.tab);
+    if (!upsert(msg.tab)) return;
     autoFold(msg.tab, was);
     if (!ui.cur) ui.cur = msg.tab.id;
     if (msg.tab.id === ui.cur) renderKeepFocus(); else renderTabs();
