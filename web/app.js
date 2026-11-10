@@ -110,6 +110,8 @@ const ui = {
   fs: Object.fromEntries(Object.keys(FONT_KEYS).map(k => [k, Number(pref(`overseer.fs.${k}`, FONT_DEFAULT[k]))])),
 };
 const $ = sel => document.querySelector(sel);
+// 모바일 화면: 커맨드 패널만 보인다. 조건은 style.css 의 모바일 화면과 같다. 하나를 고치면 다른 쪽도 고친다
+const MOBILE = matchMedia('(max-width: 767px), (pointer: coarse) and (max-height: 500px)');
 const cur = () => sessions.find(s => s.id === ui.cur);
 const sorted = items => [...items].sort((a, b) => (KIND_ORDER[a.kind] ?? 9) - (KIND_ORDER[b.kind] ?? 9));
 // 턴에서 나오는 값은 세션 객체에 한 번만 만들어 둔다. 탭 알림이 오면 fromServer 가 새 객체를 만들어 저절로 새로 만든다
@@ -965,8 +967,8 @@ function raise(id) {
 function jumpTo(id) {
   reveal(cur(), id);
   ui.open.add(id);
-  // 커맨드 패널에 없는 사안이면 지난 턴을 펼친다
-  if (!document.getElementById(`c-${id}`)) ui.past = true;
+  // 커맨드 패널에 없는 사안이면 지난 턴을 펼친다. 모바일은 지난 턴을 보이지 않는다
+  if (!document.getElementById(`c-${id}`) && !MOBILE.matches) ui.past = true;
   render();
   flash(cardEl(id));
 }
@@ -1024,7 +1026,8 @@ document.addEventListener('click', e => {
   act(e);
   if (focus && renders === before) showFocus();
   // 버튼 처리로 다시 그려진 뒤에 옮긴다. 먼저 하면 다시 그리면서 스크롤이 끊긴다
-  if (fresh) raise(ui.active);
+  // 모바일은 높이를 맞출 지난 턴 기둥이 없다. 옮기면 누른 카드가 손 밑에서 달아나기만 한다
+  if (fresh && !MOBILE.matches) raise(ui.active);
 });
 
 function unpick() {
@@ -1178,7 +1181,10 @@ function act(e) {
     d.action = d.action === t.dataset.act ? '' : t.dataset.act;
     saveDraft(s);
     render();
-    document.querySelector(`[data-note="${t.dataset.id}"]`)?.focus();
+    // 모바일은 입력칸에 초점이 가면 화면 키보드가 올라온다. 내용이 꼭 필요한 처리일 때만 옮긴다
+    if (!MOBILE.matches || (d.action && needsNote(findItem(s, t.dataset.id), d.action))) {
+      document.querySelector(`[data-note="${t.dataset.id}"]`)?.focus();
+    }
   }
   else if (t.dataset.toggle) {
     const id = t.dataset.toggle;
@@ -1625,7 +1631,8 @@ function showTerm(s) {
   $('.term-note').textContent = '키 입력은 그대로 claude 로 간다';
   $('#term-body').classList.add('live');
   Object.entries(terms).forEach(([id, t]) => { t.host.hidden = !s || id !== s.id; });
-  if (!s || !ui.term) { ui.termShown = null; return; }
+  // 모바일은 터미널을 만들지 않는다. 붙으면 휴대폰 크기로 PTY 를 줄여 PC 의 터미널 화면이 깨진다
+  if (!s || !ui.term || MOBILE.matches) { ui.termShown = null; return; }
   const t = terms[s.id] ||= makeTerm(s);
   // 처음 보일 때만 터미널로 입력을 옮긴다. 다시 그릴 때마다 옮기면 카드 입력칸에서 포커스를 빼앗는다
   const fresh = ui.termShown !== s.id;
@@ -1636,8 +1643,10 @@ function showTerm(s) {
 window.addEventListener('resize', () => {
   fitNotes();
   const t = ui.cur && terms[ui.cur];
-  if (t && ui.term) t.fit.fit();
+  if (t && ui.term && !MOBILE.matches) t.fit.fit();
 });
+// 화면을 돌리거나 창 폭이 바뀌어 모바일 화면을 드나들면 다시 그린다. 지난 턴과 터미널이 따라 바뀐다
+MOBILE.addEventListener('change', () => { if (MOBILE.matches) ui.past = false; render(); });
 
 async function boot() {
   try {
