@@ -6,6 +6,10 @@ QUIET_NOTICES = ('idle_prompt', 'auth_success')
 USAGE_KEYS = ('calls', 'tools', 'input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens', 'output_tokens')
 # 시스템이 넣은 입력(백그라운드 작업 알림)의 시작. 입력 훅도 불리지만 사용자 입력이 아니다
 SYSTEM_PROMPT_PREFIXES = ('<task-notification>',)
+# 자동 압축 뒤 기록에 사용자 입력 대신 남는 요약문의 시작
+COMPACT_SUMMARY_PREFIX = 'This session is being continued from a previous conversation'
+# 터미널에서 친 명령(/login 등). 입력 훅은 불려도 응답 턴이 없을 수 있다
+TERMINAL_COMMAND_PREFIX = '/'
 
 
 # 예전 사안 ID(`#턴-순번`, 턴 번호가 탭 안에서 이어짐). 지난 기록의 본문과 출처를 새 ID 로 바꿀 때 쓴다
@@ -50,8 +54,9 @@ class TurnBuilder:
                 # 세션이 새로 뜨면 앞 세션에서 기다리던 권한 요청은 끝났다
                 permissions.clear()
             elif kind == 'prompt':
-                # 시스템 입력은 대기로 두지 않는다. 진행 중인 턴에 흡수되어 남으면 작업 중이 풀리지 않는다
-                if not self._system(e.get('prompt') or ''):
+                # 시스템 입력과 터미널 명령은 대기로 두지 않는다. 진행 중인 턴에 흡수되거나 응답이 없어 남으면 작업 중이 풀리지 않는다
+                prompt = (e.get('prompt') or '').lstrip()
+                if not self._system(prompt) and not prompt.startswith(TERMINAL_COMMAND_PREFIX):
                     waiting.append(e.get('prompt') or '')
             elif kind == 'permission':
                 permissions[e.get('request_id')] = {
@@ -73,6 +78,9 @@ class TurnBuilder:
                 if not (e.get('text') or '').strip():
                     continue
                 prompts = e.get('prompts')
+                # 압축된 턴의 기록에는 요약문만 있어 받은 입력을 읽지 못한다
+                if prompts and any(p.lstrip().startswith(COMPACT_SUMMARY_PREFIX) for p in prompts):
+                    prompts = None
                 known = prompts is not None
                 if not known:
                     # 기록 파일에서 읽지 못한 턴은 그때까지 온 입력 전부로 본다

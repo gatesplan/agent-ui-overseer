@@ -69,6 +69,29 @@ def test_idle_notice_moves_leftover_prompt_into_last_turn():
     assert [x['turn'] for x in built['turns']] == [1, 2]
 
 
+def test_compacted_turn_takes_waiting_prompts():
+    # 턴 중간에 자동 압축되면 기록에는 사용자 입력 대신 요약문이 남는다. 기다리던 입력은 그 턴이 받은 것이다
+    events = [
+        {'event': 'prompt', 'prompt': '#9S-25-3 → 승인'},
+        {'event': 'session_start', 'source': 'compact'},
+        {**turn('응답'), 'prompts': ['This session is being continued from a previous conversation that ran out of context.']},
+    ]
+    built = TurnBuilder().build(events)
+    assert built['pending'] is None
+    assert built['turns'][0]['prompt'] == '#9S-25-3 → 승인'
+    assert built['turns'][0]['after'] == 'compact'
+
+
+def test_terminal_command_prompt_is_not_pending():
+    # 터미널에서 친 명령(/login 등)은 입력 훅이 불려도 응답 턴이 없다
+    events = [
+        {'event': 'prompt', 'prompt': '검토해 줘'},
+        {**turn('응답'), 'prompts': ['검토해 줘']},
+        {'event': 'prompt', 'prompt': '/login'},
+    ]
+    assert TurnBuilder().build(events)['pending'] is None
+
+
 def test_system_prompt_response_joins_previous_turn():
     # 백그라운드 작업 알림도 입력 훅이 불린다. 작업 중 알림은 대기로 남기지 않고, 알림에 대한 응답은 앞 턴에 붙인다
     note = '<task-notification>\n<task-id>b1</task-id>\n</task-notification>'
