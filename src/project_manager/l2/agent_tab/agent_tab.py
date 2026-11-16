@@ -29,6 +29,8 @@ SESSION_MARKERS = (
 SUBMIT_DELAY = 0.3
 # uv run 이 붙이는 변수. PATH 맨 앞의 가상환경 경로는 child_env 가 따로 뺀다
 UV_RUN_VARS = ('VIRTUAL_ENV', 'UV', 'UV_RUN_RECURSION_DEPTH', '_')
+# 패널이 탭 세션에 넣는 표식. 서버가 패널 탭 안에서 다시 띄워졌으면 그 탭의 값을 물려받는다
+TAB_VARS = ('OVERSEER_TAB', 'OVERSEER_PROJECT')
 # 보존 사안 본문의 대체 대상: `대체: D-3`
 REPLACES = re.compile(r'^대체:\s*([DW]-\d+)', re.M)
 # claude 에 붙이는 결정 아카이브 조회 MCP 서버 이름. 도구는 mcp__overseer__records 처럼 보인다
@@ -139,15 +141,17 @@ class AgentTab:
     # - 부모 Claude Code 세션 표식
     # - 서버를 uv run 으로 띄우며 생긴 패널 가상환경. 남으면 자식 세션의 python 이 패널 .venv 로 잡힌다
     # 훅이 탭(OVERSEER_TAB)과 그 프로젝트 폴더(OVERSEER_PROJECT)를 알게 한다
+    # 탭이 없으면(탭 밖에서 띄우는 claude) 서버가 물려받았을 수 있는 탭 표식도 걷어 낸다. 남으면 훅이 남의 탭 기록에 쓴다
     @staticmethod
-    def child_env(environ: dict[str, str], tab_id: str, project: str | None = None) -> dict[str, str]:
-        env = {k: v for k, v in environ.items() if k.upper() not in SESSION_MARKERS + UV_RUN_VARS}
+    def child_env(environ: dict[str, str], tab_id: str | None = None, project: str | None = None) -> dict[str, str]:
+        env = {k: v for k, v in environ.items() if k.upper() not in SESSION_MARKERS + UV_RUN_VARS + TAB_VARS}
         venv = environ.get('VIRTUAL_ENV')
         if venv:
             scripts = {os.path.normcase(os.path.join(venv, d)) for d in ('Scripts', 'bin')}
             for key in [k for k in env if k.upper() == 'PATH']:
                 env[key] = os.pathsep.join(p for p in env[key].split(os.pathsep) if os.path.normcase(p.rstrip('\\/')) not in scripts)
-        env['OVERSEER_TAB'] = tab_id
+        if tab_id:
+            env['OVERSEER_TAB'] = tab_id
         if project:
             env['OVERSEER_PROJECT'] = project
         return env
@@ -163,6 +167,11 @@ class AgentTab:
         if not self.alive or self._start_seq is None:
             return False
         return not any(e.get('event') == 'session_start' for e in self.log.events[self._start_seq:])
+
+    # 에이전트가 응답을 마친 횟수(턴 끝 기록 수). 늘었으면 방금 응답이 끝난 것이다
+    @property
+    def answers(self) -> int:
+        return sum(1 for e in self.log.events if e.get('event') == 'turn')
 
     # 훅 기록을 턴으로 조립한 것. 기록은 덧붙기만 하니 기록 수가 같으면 지난 결과를 쓴다. 받은 쪽은 고치지 않는다
     def _build(self) -> dict:

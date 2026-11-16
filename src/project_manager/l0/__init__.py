@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from .module_map import ModuleMap as ModuleMap
     from .panel_store import PanelStore as PanelStore
     from .permission_gate import PermissionGate as PermissionGate
+    from .plan_usage import PlanUsage as PlanUsage
     from .project_finder import ProjectFinder as ProjectFinder
     from .project_journal import ProjectJournal as ProjectJournal
     from .project_key import ProjectKey as ProjectKey
@@ -27,6 +28,7 @@ _EXPORTS = {
     "ModuleMap": "module_map",
     "PanelStore": "panel_store",
     "PermissionGate": "permission_gate",
+    "PlanUsage": "plan_usage",
     "ProjectFinder": "project_finder",
     "ProjectJournal": "project_journal",
     "ProjectKey": "project_key",

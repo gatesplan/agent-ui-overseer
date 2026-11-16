@@ -13,6 +13,7 @@ from ...l0.install_layout import InstallLayout
 from ...l0.launch_env import LaunchEnv
 from ...l0.module_map import ModuleMap
 from ...l0.panel_store import PanelStore
+from ...l0.plan_usage import PlanUsage
 from ...l0.project_finder import ProjectFinder
 from ...l0.record_store import RecordStore
 from ...l1.map_watcher import MapWatcher
@@ -38,12 +39,20 @@ class OverseerServer:
         self.finder = ProjectFinder(roots=project_roots)
         # 모듈 패널의 지도. 화면이 연 프로젝트만 지켜본다
         self.maps = MapWatcher(ModuleMap())
+        # 탭 아래 사용량 막대. 계정 단위라 에이전트 종류마다 하나: {'claude': PlanUsage.fetch 결과}
+        self.plan = PlanUsage(env=AgentTab.child_env(dict(os.environ)))
+        self.usage: dict[str, dict] = {}
+        self._usage_task: asyncio.Task | None = None
+        self._usage_again = False
+        # 탭마다 마지막으로 본 응답 수. 늘면 응답이 끝난 것이라 사용량을 다시 받는다
+        self._answers: dict[str, int] = {}
         self.clients: set[web.WebSocketResponse] = set()
         self.app = web.Application(middlewares=[self._no_cache])
         self.app.add_routes([
             web.get('/', self._index),
             web.get('/api/health', self._health),
             web.get('/api/projects', self._projects),
+            web.get('/api/usage', self._usage),
             web.get('/api/launch', self._launch),
             web.post('/api/tabs/{id}/permission', self._permission),
             web.post('/api/tabs/{id}/close-held', self._close_held),
@@ -88,23 +97,60 @@ class OverseerServer:
 
     async def _startup(self, app: web.Application) -> None:
         self.tabs.restore()
+        self._answers = {tab.id: tab.answers for tab in self.tabs.tabs.values()}
         app['poller'] = asyncio.create_task(self._poll_loop())
         app['mapper'] = asyncio.create_task(self._map_loop())
+        self._check_usage()
 
     async def _cleanup(self, app: web.Application) -> None:
         app['poller'].cancel()
         app['mapper'].cancel()
+        if self._usage_task:
+            self._usage_task.cancel()
         self.tabs.shutdown()
 
-    # 훅 기록과 프로세스 종료를 살펴 바뀐 탭 상태를 알린다
+    # 훅 기록과 프로세스 종료를 살펴 바뀐 탭 상태를 알린다. 응답이 끝난 탭이 있으면 사용량을 다시 받는다
     async def _poll_loop(self) -> None:
         while True:
             await asyncio.sleep(POLL_INTERVAL)
             try:
-                for tab in self.tabs.poll():
-                    await self._announce(tab)
+                await self._poll_once()
             except Exception:
                 logger.exception("poll 실패")
+
+    async def _poll_once(self) -> None:
+        for tab in self.tabs.poll():
+            await self._announce(tab)
+            answers = tab.answers
+            if answers > self._answers.get(tab.id, 0):
+                self._check_usage()
+            self._answers[tab.id] = answers
+
+    # 사용량을 다시 받는다. 받는 중이면 끝난 뒤 한 번 더 받는다. 여러 탭의 응답이 겹쳐도 CLI 를 하나만 띄운다
+    def _check_usage(self) -> None:
+        if self._usage_task and not self._usage_task.done():
+            self._usage_again = True
+            return
+        self._usage_task = asyncio.create_task(self._fetch_usage())
+
+    # 받지 못하면 지난 값을 남기고 실패만 표시한다. 막대가 사라지지 않게
+    async def _fetch_usage(self) -> None:
+        while True:
+            self._usage_again = False
+            try:
+                result = await asyncio.to_thread(self.plan.fetch)
+            except Exception as e:
+                logger.exception("사용량 받기 실패")
+                result = {'status': 'error', 'limits': [], 'message': str(e)}
+            last = self.usage.get('claude')
+            if result['status'] != 'ok':
+                logger.info(f"사용량 받기 실패: {result['status']} {result.get('message')}")
+                if last and last.get('limits'):
+                    result = {**last, 'status': result['status'], 'message': result.get('message', '')}
+            self.usage['claude'] = result
+            await self._broadcast({'type': 'usage', 'usage': self.usage})
+            if not self._usage_again:
+                return
 
     # 화면이 연 프로젝트의 소스가 바뀌면 모듈 지도를 다시 받아 알린다. 닫힌 탭의 폴더는 그만 본다
     # 책임이 바뀐 모듈은 그 폴더 탭의 세션 이력에 남긴다
@@ -177,6 +223,10 @@ class OverseerServer:
         closed = tab.close_held([str(i) for i in body.get('ids', [])])
         await self._announce(tab)
         return web.json_response({'closed': closed})
+
+    # 탭 아래 사용량 막대. 처음 열 때 받고, 그 뒤 바뀐 것은 usage 알림으로 간다
+    async def _usage(self, request: web.Request) -> web.Response:
+        return web.json_response(self.usage, dumps=lambda o: json.dumps(o, ensure_ascii=False))
 
     # 새 세션 창의 폴더 목록: 드라이브마다 루트 Projects 폴더 안의 프로젝트. 실행 환경 칸의 conda 단추 목록도 함께 준다
     async def _projects(self, request: web.Request) -> web.Response:

@@ -34,6 +34,18 @@ const blank = { decisions: {}, sent: {}, log: [], extra: '', wrapup: false, runn
 // 실제 모드: 패널 서버(scripts 의 overseer)가 있으면 그 탭을 쓴다. 없으면(serve_mock) 목업 데이터를 쓴다
 let LIVE = false;
 let sessions = [];
+// 헤더 아래 사용량 막대. 계정 단위라 에이전트 종류마다 하나: { claude: {status, limits, at, message} }. 막대는 지금 탭 에이전트의 것
+// limits 는 /usage 의 막대와 같은 행 [{kind, label, percent, resets_at, severity}]. 서버가 응답이 끝날 때마다 다시 받아 알린다
+let usage = {};
+
+// 목업의 사용량. 주간 전체와 모델별 주간 두 행. codex 탭으로 가면 받은 것이 없어 막대가 사라진다
+function mockUsage() {
+  const reset = new Date(Date.now() + 14 * 3600e3).toISOString();
+  return { claude: { status: 'ok', at: new Date().toISOString(), message: '', limits: [
+    { kind: 'weekly_all', label: '주간 전체', percent: 76, resets_at: reset, severity: 'warning' },
+    { kind: 'weekly_scoped', label: '주간 Fable', percent: 100, resets_at: reset, severity: 'critical' },
+  ] } };
+}
 
 // 목업 데이터는 예전 ID(`턴-순번`)로 적혀 있다. 한 세션으로 보고 `1S-턴-순번` 으로 바꾼다
 function mockSessions() {
@@ -345,10 +357,58 @@ function renderTabs() {
   document.title = waiting ? `(${waiting}) 확인 필요 · Overseer` : 'Overseer';
   $('#tabs').innerHTML = sessions.map(s => {
     const n = allItems(s).filter(i => statusOf(s, i) === 'todo').length;
-    return `<button class="tab ${s.id === ui.cur ? 'on' : ''}" data-tab="${s.id}" title="${esc(s.cwd || s.project)}${s.args ? `\nclaude ${esc(s.args)}` : ''}">
+    const used = usageLines(s);
+    return `<button class="tab ${s.id === ui.cur ? 'on' : ''}" data-tab="${s.id}" title="${esc(s.cwd || s.project)}${s.args ? `\nclaude ${esc(s.args)}` : ''}${used ? `\n\n사용량\n${esc(used)}` : ''}">
       <span class="dot ${s.status}"></span>${esc(s.project)} <span class="agent">${s.agent}</span>
       ${n ? `<span class="badge">${n}</span>` : ''}${LIVE ? `<span class="tab-x" data-close="${s.id}" title="탭 닫기 (세션 종료)">×</span>` : ''}</button>`;
   }).join('') + `<button class="tab add" data-newtab title="${LIVE ? '새 세션' : '새 세션 (목업)'}">+</button>`;
+  renderUsage();
+}
+
+// 에이전트의 사용 한도 행. 초기화 시각이 지난 창은 비운 것으로 본다. 새 값은 다음 응답 뒤에 온다
+function usageRows(s) {
+  return (usage[s?.agent]?.limits || []).map(r => {
+    const reset = r.resets_at ? Date.parse(r.resets_at) : NaN;
+    const passed = reset <= Date.now();
+    return { ...r, reset, passed, percent: passed ? 0 : r.percent, severity: passed ? 'normal' : r.severity };
+  });
+}
+
+const monthTime = ms => { const d = new Date(ms); return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+const USAGE_STATE = { warning: '주의', critical: '위험' };
+// 한도 행의 색. 순서가 아니라 행 종류를 따른다(5시간 행이 끼어도 주간 전체는 늘 파랑). [CSS 클래스, 툴팁 색 이름]
+const USAGE_COLOR = {
+  weekly_all: ['all', '파랑'], weekly_scoped: ['model', '빨강'], weekly_opus: ['model', '빨강'], weekly_sonnet: ['model', '빨강'],
+  session: ['session', '초록'],
+};
+const usageColor = r => USAGE_COLOR[r.kind] || ['other', '회색'];
+
+// 사용량 글. 막대는 색만 보이니 행 이름, 비율, 초기화 시각은 툴팁 글로 읽는다
+function usageLines(s) {
+  const rows = usageRows(s);
+  if (!rows.length) return '';
+  const u = usage[s.agent];
+  const lines = rows.map(r => {
+    const state = r.percent >= 100 ? '한도 도달' : USAGE_STATE[r.severity];
+    const reset = r.passed ? '초기화됨' : Number.isNaN(r.reset) ? '' : `${monthTime(r.reset)} 초기화`;
+    return `${usageColor(r)[1]} ${r.label} ${Math.round(r.percent)}%${state ? ` (${state})` : ''}${reset ? ` · ${reset}` : ''}`;
+  });
+  lines.push(`${monthTime(Date.parse(u.at))} 기준${u.status === 'ok' ? '' : ` · 갱신 실패: ${u.message}`}`);
+  return lines.join('\n');
+}
+
+// 헤더 맨 아래 화면 너비 전체의 사용량 막대. 지금 탭 에이전트의 한도 행을 한 줄에 반투명하게 겹친다
+function renderUsage() {
+  const s = cur();
+  const rows = usageRows(s);
+  const el = $('#usage');
+  el.hidden = !rows.length;
+  if (!rows.length) return;
+  el.classList.toggle('stale', usage[s.agent].status !== 'ok');
+  el.title = `${s.agent} 사용량\n${usageLines(s)}`;
+  // 긴 막대부터 그려 짧은 막대가 위에 온다. 겹친 구간은 짧은 쪽 색이 앞서고, 넘친 구간은 긴 쪽 색만 남아 두 끝이 다 보인다
+  el.innerHTML = [...rows].sort((a, b) => b.percent - a.percent)
+    .map(r => `<b class="u-${usageColor(r)[0]}" style="width:${r.percent}%"></b>`).join('');
 }
 
 function stateChip(s, item) {
@@ -1585,6 +1645,7 @@ function listen() {
     const msg = JSON.parse(e.data);
     if (msg.type === 'closed') { if (sessions.some(s => s.id === msg.id)) removeTab(msg.id); return; }
     if (msg.type === 'modules') { onModulesEvent(msg); return; }
+    if (msg.type === 'usage') { usage = msg.usage || {}; renderTabs(); return; }
     // tab: 전체 상태(예전 서버), tab-delta: 바뀐 턴만 실은 상태
     if (msg.type !== 'tab' && msg.type !== 'tab-delta') return;
     const was = sessions.find(s => s.id === msg.tab.id)?.starting;
@@ -1658,11 +1719,19 @@ async function boot() {
   } catch { /* 목업 서버. API 가 없다 */ }
   if (!LIVE) {
     sessions = mockSessions();
+    usage = mockUsage();
     // 처음엔 미처리 사안만 펼쳐 둔다
     sessions.forEach(s => allItems(s).forEach(i => { if (statusOf(s, i) === 'todo') ui.open.add(i.id); }));
   } else {
     document.querySelector('.mock-tag').hidden = true;
     listen();
+    // 서버를 막 띄웠으면 아직 비어 있다. 받는 대로 usage 알림이 온다
+    // 알림이 먼저 왔으면 그쪽이 새 값이라 덮지 않는다
+    fetch('/api/usage').then(r => r.ok ? r.json() : {}).then(u => {
+      if (Object.keys(usage).length) return;
+      usage = u;
+      renderTabs();
+    }).catch(() => {});
   }
   // 새로고침해도 보던 탭으로 돌아온다
   const last = pref('overseer.tab', '');

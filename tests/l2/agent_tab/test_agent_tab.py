@@ -36,6 +36,15 @@ def test_child_env_without_venv_keeps_path():
     assert 'OVERSEER_PROJECT' not in env
 
 
+# 패널 탭 안에서 다시 띄운 서버는 그 탭의 표식을 물려받는다. 탭 밖에서 띄우는 claude 에는 넘기지 않는다
+def test_child_env_without_tab_drops_inherited_tab_marks():
+    environ = {'PATH': 'a', 'OVERSEER_TAB': 'old', 'OVERSEER_PROJECT': 'C:\\old', 'OVERSEER_PORT': '47310'}
+    env = AgentTab.child_env(environ)
+    assert 'OVERSEER_TAB' not in env and 'OVERSEER_PROJECT' not in env
+    assert env['OVERSEER_PORT'] == '47310'
+    assert AgentTab.child_env(environ, 'new')['OVERSEER_TAB'] == 'new'
+
+
 # 탭 't' 가 프로젝트에서 세션 1 을 받고, 응답(turns)이 온 캡처 기록
 def setup(tmp_path, *turns):
     captures = tmp_path / 'captures'
@@ -254,3 +263,18 @@ def test_delta_carries_turns_from_the_last_announced_one(tmp_path):
     # 새 턴은 세션 파일에도 쓴다
     assert [t['id'] for t in ProjectJournal(ProjectKey.of(project)).turns(1)] == ['1S-1', '1S-2', '1S-3']
     assert [t['id'] for t in tab.state()['turns']] == ['1S-1', '1S-2', '1S-3']
+
+
+# 응답 수는 턴 끝 기록 수다. 입력만 붙으면 그대로, 응답이 붙으면 는다(서버가 사용량을 다시 받는 신호)
+def test_answers_count_turn_ends(tmp_path):
+    captures, project, store = setup(tmp_path, [{'kind': '보고', 'title': '가', 'body': ''}])
+    tab = AgentTab('t', project, '', store, captures)
+    assert tab.answers == 1
+    with (captures / 't.jsonl').open('a', encoding='utf-8') as f:
+        f.write(json.dumps({'event': 'prompt', 'session_id': 's', 'prompt': '다음'}) + '\n')
+    tab.poll()
+    assert tab.answers == 1
+    with (captures / 't.jsonl').open('a', encoding='utf-8') as f:
+        f.write(json.dumps({'event': 'turn', 'session_id': 's', 'text': 'y', 'items': []}) + '\n')
+    tab.poll()
+    assert tab.answers == 2

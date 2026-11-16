@@ -18,6 +18,10 @@
   --ok: #7ed3a5;
   --hold: #e6b04a;
   --rej: #ef6e62;
+  /* 사용량 막대의 행 색. 주간 전체 파랑, 모델별 주간 빨강, 5시간 초록. 반투명하게 겹쳐 둘 다 보이게 한다 */
+  --usage-all: #3d8bff;
+  --usage-model: #ff4141;
+  --usage-session: #3ecf8e;
   --term-bg: #07090c;
   --term-text: #cfd6df;
   --term-prompt: #7ed3a5;
@@ -85,6 +89,15 @@ code { font-family: var(--font-mono); font-size: .9em; padding: 0 4px; backgroun
 .dot.idle { background: var(--line-strong); }
 .dot.attention { background: var(--rej); animation: pulse .8s ease-in-out infinite; box-shadow: 0 0 8px var(--rej); }
 .dot.exited { background: none; outline: 1px solid var(--muted); outline-offset: -1px; }
+/* 헤더 바로 아래 화면 너비 전체의 사용량 막대. 지금 탭 에이전트의 한도 행을 한 줄에 반투명하게 겹친다
+   헤더 경계선과 선택 밑줄은 그대로 두고 그 아래에 붙인다. 행 이름과 비율은 툴팁 글로 읽는다 */
+.usage { position: absolute; left: 0; right: 0; top: 100%; height: 3px; background: color-mix(in srgb, var(--line) 50%, transparent); }
+.usage b { position: absolute; left: 0; top: 0; bottom: 0; opacity: .7; transition: width .4s ease; }
+.usage .u-all { background: var(--usage-all); }
+.usage .u-model { background: var(--usage-model); }
+.usage .u-session { background: var(--usage-session); }
+.usage .u-other { background: var(--muted); }
+.usage.stale { opacity: .4; }
 .tab-x { margin-left: 2px; padding: 0 4px; color: var(--muted); visibility: hidden; }
 .tab:hover .tab-x { visibility: visible; }
 .tab-x:hover { color: var(--rej); }
