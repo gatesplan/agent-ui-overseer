@@ -134,3 +134,48 @@ def test_turn_files_lists_edited_paths_once_after_last_turn_end(tmp_path):
         {'type': 'assistant', 'message': {'content': [edit('Bash', command='echo > C:/p/c.py')]}},
     ])
     assert TranscriptReader(path).turn_files() == ['C:/p/a.py', 'C:/p/b.py', 'C:/p/n.ipynb']
+
+
+def _turn_rows(prompt, text, mid):
+    return [
+        {'type': 'user', 'message': {'content': prompt}},
+        {'type': 'assistant', 'message': {'id': f'{mid}a', 'content': [{'type': 'tool_use', 'name': 'Edit', 'input': {'file_path': f'C:/p/{mid}.py'}}]}},
+        {'type': 'user', 'message': {'content': [{'type': 'tool_result', 'content': 'x'}]}},
+        {'type': 'assistant', 'message': {'id': f'{mid}b', 'content': [{'type': 'text', 'text': text}]}},
+    ]
+
+
+def test_ended_turns_finds_turns_the_hook_missed(tmp_path):
+    # 훅이 A 를 남긴 뒤(since), B 는 Stop 훅이 시간 초과로 빠지고, 지금 C 가 끝나 Stop 훅이 불렸다
+    path = tmp_path / 't.jsonl'
+    end = {'type': 'system', 'subtype': 'turn_duration'}
+    summary = {'type': 'system', 'subtype': 'stop_hook_summary'}
+    rows = _turn_rows('A', '### [보고] A', 'a')
+    since = len(rows)
+    rows += [summary, end]
+    rows += _turn_rows('B', '중간 글', 'b') + [{'type': 'assistant', 'message': {'id': 'bc', 'content': [{'type': 'text', 'text': '### [보고] B'}]}},
+                                               {'type': 'attachment', 'attachment': {'type': 'hook_cancelled', 'hookEvent': 'Stop'}}, summary, end]
+    b_end = len(rows) - 1
+    rows += _turn_rows('C', '### [보고] C', 'c')
+    _write(path, rows)
+    reader = TranscriptReader(path)
+    ended = reader.ended_turns(since)
+    assert [(t['prompts'], t['text'], t['files'], t['transcript_rows']) for t in ended] == [(['B'], '### [보고] B', ['C:/p/b.py'], b_end)]
+    assert ended[0]['usage']['tools'] == 1
+    # 지금 턴(C)은 끝 표시가 아직 없다
+    assert reader.open_turn(since)
+    assert reader.turn_prompts(since) == ['C']
+    # 되살린 턴의 끝에서 다시 보면 빠진 턴이 없다
+    assert reader.ended_turns(b_end) == []
+
+
+def test_ended_turns_keeps_api_error_turn_but_not_error_tail(tmp_path):
+    # API 오류로 끝난 턴은 입력과 오류 문구만 있다. 입력이 없는 오류 문구만의 구간(오류 턴 기록 뒤)은 턴이 아니다
+    path = tmp_path / 't.jsonl'
+    end = {'type': 'system', 'subtype': 'turn_duration'}
+    error = {'type': 'assistant', 'isApiErrorMessage': True, 'message': {'content': [{'type': 'text', 'text': "You've hit your limit"}]}}
+    _write(path, [{'type': 'user', 'message': {'content': '해 줘'}}, error, end, error, end])
+    reader = TranscriptReader(path)
+    assert [(t['prompts'], t['text'], t['transcript_rows']) for t in reader.ended_turns(0)] == [(['해 줘'], "You've hit your limit", 2)]
+    assert reader.ended_turns(3) == []
+    assert not reader.open_turn(0)

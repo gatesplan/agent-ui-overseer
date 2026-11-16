@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -11,7 +12,11 @@ from pathlib import Path
 from ...l0.install_layout import InstallLayout
 
 SETTINGS = Path.home() / '.claude' / 'settings.json'
-EVENTS = ('SessionStart', 'UserPromptSubmit', 'Stop', 'Notification', 'PermissionRequest')
+EVENTS = ('SessionStart', 'UserPromptSubmit', 'Stop', 'StopFailure', 'Notification', 'PermissionRequest')
+# API 오류로 끝난 턴의 훅(StopFailure)이 생긴 Claude Code 판. 그 전 판은 모르는 훅 이름이 있으면 설정 파일 전체를 무시한다
+STOP_FAILURE_SINCE = (2, 1, 78)
+# 훅 시간 제한(초). 부하가 크면 python 이 뜨고 import 를 마치는 데만 10초를 넘긴 적이 있다. 넘기면 그 턴이 패널에서 빠진다
+TIMEOUT = 30
 # 권한 요청 훅은 화면의 결정을 기다린다. PermissionGate 의 기다림(1500초)보다 길게 둔다
 TIMEOUTS = {'PermissionRequest': 1800}
 PORT = 47310
@@ -29,6 +34,26 @@ class HookInstaller:
         exe = Path(sys.executable)
         self.python = exe.with_name('python.exe') if exe.name.lower() == 'pythonw.exe' else exe
         self.results: list[tuple[bool, str, str]] = []
+        self._version: tuple[int, ...] | None = None
+
+    # 이 컴퓨터의 Claude Code 판. 모르면 빈 튜플
+    def claude_version(self) -> tuple[int, ...]:
+        if self._version is None:
+            self._version = ()
+            try:
+                out = subprocess.run('claude --version', shell=True, capture_output=True, text=True, timeout=60)
+                m = re.search(r'(\d+)\.(\d+)\.(\d+)', out.stdout or '')
+                if m:
+                    self._version = tuple(int(x) for x in m.groups())
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+        return self._version
+
+    # 걸 훅. StopFailure 는 그 훅을 아는 판에만 건다. 판을 모르면 걸지 않는다
+    def events(self) -> tuple[str, ...]:
+        if self.claude_version() >= STOP_FAILURE_SINCE:
+            return EVENTS
+        return tuple(e for e in EVENTS if e != 'StopFailure')
 
     @classmethod
     def main(cls) -> int:
@@ -41,7 +66,7 @@ class HookInstaller:
             return 0
         if '--check' not in argv:
             self.write_hooks(remove=False)
-            print(f'훅 등록: {self.settings} ({", ".join(EVENTS)}). 이전 설정: settings.json.bak-overseer')
+            print(f'훅 등록: {self.settings} ({", ".join(self.events())}). 이전 설정: settings.json.bak-overseer')
         self.check()
         failed = [name for ok, name, _ in self.results if not ok]
         if failed:
@@ -59,16 +84,18 @@ class HookInstaller:
         return json.loads(self.settings.read_text(encoding='utf-8')) if self.settings.exists() else {}
 
     # 전역 설정에 훅을 한 벌만 남긴다. remove 면 우리 것만 지운다. 고치기 전 설정은 settings.json.bak-overseer 로 남긴다
+    # 이 판에 걸지 않는 훅(StopFailure)도 예전에 건 우리 것이 있으면 지운다
     def write_hooks(self, remove: bool) -> None:
         settings = self.load_settings()
         if self.settings.exists():
             shutil.copy2(self.settings, self.settings.with_name('settings.json.bak-overseer'))
         hooks = settings.setdefault('hooks', {})
         command = f'"{self.python}" "{self.hook}"'
+        events = () if remove else self.events()
         for event in EVENTS:
             groups = [g for g in hooks.get(event, []) if not self.ours(g)]
-            if not remove:
-                groups.append({'hooks': [{'type': 'command', 'command': command, 'timeout': TIMEOUTS.get(event, 10)}]})
+            if event in events:
+                groups.append({'hooks': [{'type': 'command', 'command': command, 'timeout': TIMEOUTS.get(event, TIMEOUT)}]})
             if groups:
                 hooks[event] = groups
             else:
@@ -96,8 +123,11 @@ class HookInstaller:
             self.report(bool(pwsh), 'pwsh 명령', pwsh or 'PowerShell 7 설치 필요: winget install Microsoft.PowerShell')
 
         registered = self.load_settings().get('hooks', {})
-        missing = [e for e in EVENTS if not any(self.ours(g) for g in registered.get(e, []))]
-        self.report(not missing, '전역 훅 등록', f'빠짐: {", ".join(missing)}' if missing else str(self.settings))
+        # 빠졌거나 예전 시간 제한(10초)으로 걸린 훅. overseer-setup 을 다시 실행해야 바뀐다
+        missing = [e for e in self.events() if not any(
+            self.ours(g) and all(h.get('timeout') == TIMEOUTS.get(e, TIMEOUT) for h in g.get('hooks', []))
+            for g in registered.get(e, []))]
+        self.report(not missing, '전역 훅 등록', f'빠졌거나 예전 설정: {", ".join(missing)}' if missing else str(self.settings))
 
         if self.python.exists() and self.hook.exists():
             # 패널 세션이 아니면 아무것도 하지 않고 끝나야 한다

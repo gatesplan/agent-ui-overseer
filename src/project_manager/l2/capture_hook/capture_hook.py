@@ -58,12 +58,33 @@ class CaptureHook:
             self._append(tab_id, {**base, 'event': 'prompt', 'prompt': hook_input.get('prompt') or '', 'records_seen': seen})
             return notice
         if event == 'Stop':
-            self._append(tab_id, {**base, 'event': 'turn', **self._turn(hook_input, tab_id, session_id)})
+            # 대화 기록은 훅 한 번에 한 번만 읽는다. 수백 MB 까지 자란다
+            reader, since = self._reader(hook_input), self._since(tab_id, session_id)
+            ended, _ = self._scan(reader, since)
+            self._recover(tab_id, base, ended)
+            text, source = self._text(hook_input, reader)
+            self._append(tab_id, {**base, 'event': 'turn', **self._turn(text, source, reader, since)})
+            return ''
+        if event == 'StopFailure':
+            # API 오류(한도 초과, 로그인 만료 등)로 끝난 턴. Stop 훅은 불리지 않는다. 오류 문구를 응답으로 남긴다
+            reader, since = self._reader(hook_input), self._since(tab_id, session_id)
+            ended, open_turn = self._scan(reader, since)
+            text = (hook_input.get('last_assistant_message') or hook_input.get('error_details')
+                    or f"API 오류: {hook_input.get('error') or 'unknown'}")
+            # 오류 턴의 끝 표시가 이미 붙었으면 그 턴은 끝난 턴 목록의 마지막이다
+            record = self._record(text, 'stop_failure', ended.pop()) if ended and not open_turn \
+                else self._turn(text, 'stop_failure', reader, since)
+            self._recover(tab_id, base, ended)
+            self._append(tab_id, {**base, 'event': 'turn', 'error': hook_input.get('error'), **record})
             return ''
         if event == 'Notification':
+            kind = hook_input.get('notification_type')
+            if kind == 'idle_prompt':
+                # 입력을 기다린다. 앞에서 훅이 남기지 못한 턴이 있으면 지금 되살린다. 화면은 이 알림에서 남은 입력을 지운다
+                ended, _ = self._scan(self._reader(hook_input), self._since(tab_id, session_id))
+                self._recover(tab_id, base, ended)
             # 권한 확인 등 터미널에서 사용자 응답을 기다린다는 알림. 화면이 탭에 띄운다
-            self._append(tab_id, {**base, 'event': 'notification', 'message': hook_input.get('message') or '',
-                                  'kind': hook_input.get('notification_type')})
+            self._append(tab_id, {**base, 'event': 'notification', 'message': hook_input.get('message') or '', 'kind': kind})
             return ''
         if event == 'PermissionRequest':
             return self._permission(hook_input, tab_id, base)
@@ -94,25 +115,47 @@ class CaptureHook:
             return [self._preview(v) for v in value[:50]]
         return value
 
-    def _turn(self, hook_input: dict, tab_id: str, session_id: str) -> dict:
-        transcript_path = hook_input.get('transcript_path')
-        text, source = self._text(hook_input, transcript_path)
-        preamble, items = self.splitter.split(text)
-        record = {'source': source, 'text': text, 'preamble': preamble, 'items': [item.to_dict() for item in items],
-                  'prompts': None, 'usage': None, 'files': None, 'transcript_rows': None}
-        # 입력, 토큰 사용량, 고친 파일은 기록 파일에서 읽는다. 실패해도 응답 기록은 남긴다
-        if transcript_path and Path(transcript_path).exists():
+    # 지금 끝난 턴의 기록. 입력, 토큰 사용량, 고친 파일은 기록 파일에서 읽는다. 실패해도 응답 기록은 남긴다
+    def _turn(self, text: str, source: str, reader: TranscriptReader | None, since: int | None) -> dict:
+        record = self._record(text, source)
+        if reader:
             try:
-                reader = TranscriptReader(transcript_path)
-                since = self._since(tab_id, session_id)
                 record['prompts'] = reader.turn_prompts(since)
                 record['usage'] = reader.turn_usage(since)
                 record['files'] = reader.turn_files(since)
                 record['transcript_rows'] = reader.row_count()
             except Exception:
                 logger.exception("기록 파일 읽기 실패")
-        logger.info(f"turn 캡처: source={source}, items={len(items)}, text_len={len(text)}, usage={record['usage']}")
+        logger.info(f"turn 캡처: source={source}, items={len(record['items'])}, text_len={len(text)}, usage={record['usage']}")
         return record
+
+    # 턴 기록. facts: 기록 파일에서 읽은 prompts, usage, files, transcript_rows (없으면 모름)
+    def _record(self, text: str, source: str, facts: dict | None = None) -> dict:
+        facts = facts or {}
+        preamble, items = self.splitter.split(text)
+        return {'source': source, 'text': text, 'preamble': preamble, 'items': [item.to_dict() for item in items],
+                **{k: facts.get(k) for k in ('prompts', 'usage', 'files', 'transcript_rows')}}
+
+    # 훅이 남기지 못하고 지나간 턴을 기록 파일에서 읽은 대로 남긴다
+    def _recover(self, tab_id: str, base: dict, turns: list[dict]) -> None:
+        for t in turns:
+            self._append(tab_id, {**base, 'event': 'turn', **self._record(t['text'], 'recovered', t)})
+        if turns:
+            logger.info(f"빠진 턴 {len(turns)}개를 기록 파일에서 되살림: tab={tab_id}, rows={[t['transcript_rows'] for t in turns]}")
+
+    # 지난 기록 뒤에 끝난 턴들과, 진행 중인 턴이 있는지. 지난 기록 길이를 모르면 찾지 않는다
+    def _scan(self, reader: TranscriptReader | None, since: int | None) -> tuple[list[dict], bool]:
+        if not reader or since is None:
+            return [], True
+        try:
+            return reader.ended_turns(since), reader.open_turn(since)
+        except Exception:
+            logger.exception("기록 파일 읽기 실패")
+            return [], True
+
+    def _reader(self, hook_input: dict) -> TranscriptReader | None:
+        path = hook_input.get('transcript_path')
+        return TranscriptReader(path) if path and Path(path).exists() else None
 
     # 이 세션에서 훅이 지난번에 남긴 기록 파일 길이. 이번 턴은 그 뒤에서 시작한다
     def _since(self, tab_id: str, session_id: str) -> int | None:
@@ -217,12 +260,12 @@ class CaptureHook:
             logger.exception("기록 파일 읽기 실패")
             return None
 
-    def _text(self, hook_input: dict, transcript_path: str | None) -> tuple[str, str]:
+    def _text(self, hook_input: dict, reader: TranscriptReader | None) -> tuple[str, str]:
         # 2.1.x 의 Stop 훅은 마지막 응답을 직접 준다. 없는 버전만 기록 파일에서 읽는다
         if hook_input.get('last_assistant_message'):
             return hook_input['last_assistant_message'], 'hook'
-        if transcript_path and Path(transcript_path).exists():
-            return TranscriptReader(transcript_path).last_turn_text(), 'transcript'
+        if reader:
+            return reader.last_turn_text(), 'transcript'
         return '', 'none'
 
     # 이 프로젝트의 유효한 결정 기록과 용어. 읽지 못해도 규약 주입은 막지 않는다

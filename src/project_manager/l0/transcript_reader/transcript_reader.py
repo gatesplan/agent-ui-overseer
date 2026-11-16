@@ -5,7 +5,7 @@ from pathlib import Path
 EDIT_TOOLS = ('Edit', 'Write', 'MultiEdit', 'NotebookEdit')
 
 
-# Claude Code 대화 기록(JSONL)에서 마지막 턴의 응답 텍스트를 꺼낸다
+# Claude Code 대화 기록(JSONL)에서 턴의 입력, 응답, 사용량, 고친 파일을 꺼낸다. 패널 훅이 남기지 못한 끝난 턴도 찾는다
 # 기록은 수백 MB 까지 자라므로 파일은 처음 물을 때 한 번만 읽는다. 그 뒤로 붙은 줄을 보려면 새로 만든다
 class TranscriptReader:
     def __init__(self, path: str | Path):
@@ -35,8 +35,11 @@ class TranscriptReader:
         start = self._turn_start(rows, since)
         if start is None:
             return None
+        return self._prompts(rows[start:])
+
+    def _prompts(self, rows: list[dict]) -> list[str]:
         prompts = []
-        for row in rows[start:]:
+        for row in rows:
             absorbed = self._absorbed_prompt(row)
             if absorbed:
                 prompts.append(absorbed)
@@ -55,10 +58,13 @@ class TranscriptReader:
         start = self._turn_start(rows, since)
         if start is None:
             return None
+        return self._usage(rows[start:])
+
+    def _usage(self, rows: list[dict]) -> dict:
         calls: dict[str, dict] = {}
         model = None
         tools = 0
-        for row in rows[start:]:
+        for row in rows:
             if row.get('type') != 'assistant' or row.get('isSidechain'):
                 continue
             message = row.get('message') or {}
@@ -77,8 +83,11 @@ class TranscriptReader:
         start = self._turn_start(rows, since)
         if start is None:
             return None
+        return self._files(rows[start:])
+
+    def _files(self, rows: list[dict]) -> list[str]:
         files: dict[str, None] = {}
-        for row in rows[start:]:
+        for row in rows:
             if row.get('type') != 'assistant':
                 continue
             for b in self._blocks(row):
@@ -94,12 +103,56 @@ class TranscriptReader:
     def row_count(self) -> int:
         return len(self._rows())
 
+    # since 뒤에 끝 표시(turn_duration)까지 붙은 턴들. 훅이 그 턴을 남기지 못한 것이다(시간 초과, API 오류로 Stop 훅 없음)
+    # since 는 훅이 지난번에 남긴 기록 길이라, 바로 뒤에는 그 턴의 끝 표시가 온다. 입력도 응답도 없는 구간은 턴이 아니라 뺀다
+    # 각 턴: prompts, text(마지막 응답 메시지의 글. Stop 훅이 주는 것과 같다), usage, files, transcript_rows(끝 표시 앞까지의 길이)
+    def ended_turns(self, since: int) -> list[dict]:
+        rows = self._rows()
+        turns = []
+        start = since
+        for i in range(since, len(rows)):
+            if not self._turn_end(rows[i]):
+                continue
+            part, start = rows[start:i], i + 1
+            prompts = self._prompts(part)
+            if not prompts and not self._has_reply(part):
+                continue
+            turns.append({'prompts': prompts, 'text': self._last_text(part), 'usage': self._usage(part),
+                          'files': self._files(part), 'transcript_rows': i})
+        return turns
+
+    # 마지막 끝 표시 뒤에 진행 중인 턴이 있는지. 입력(시스템 입력 포함)이나 응답이 하나라도 있으면 있다
+    def open_turn(self, since: int | None = None) -> bool:
+        rows = self._rows()
+        start = self._turn_start(rows, since) or 0
+        return any(self._is_prompt(r) or self._absorbed_prompt(r) or (r.get('type') == 'assistant' and not r.get('isSidechain'))
+                   for r in rows[start:])
+
+    def _turn_end(self, row: dict) -> bool:
+        return row.get('type') == 'system' and row.get('subtype') == 'turn_duration' and not row.get('isSidechain')
+
+    # 응답 글이 있는지. API 오류 문구는 응답으로 치지 않는다(오류 턴은 입력이 있어야 턴이다)
+    def _has_reply(self, rows: list[dict]) -> bool:
+        return any(r.get('type') == 'assistant' and not r.get('isSidechain') and not r.get('isApiErrorMessage')
+                   and any(b.get('type') == 'text' and b.get('text') for b in self._blocks(r)) for r in rows)
+
+    # 마지막 응답 메시지의 글. 한 메시지가 여러 줄로 기록되니 같은 메시지 ID 의 글을 모은다. API 오류면 그 문구다
+    def _last_text(self, rows: list[dict]) -> str:
+        main = [r for r in rows if r.get('type') == 'assistant' and not r.get('isSidechain')]
+        for row in reversed(main):
+            if not any(b.get('type') == 'text' and b.get('text') for b in self._blocks(row)):
+                continue
+            mid = (row.get('message') or {}).get('id')
+            same = [r for r in main if mid and (r.get('message') or {}).get('id') == mid] or [row]
+            return '\n\n'.join(b['text'] for r in same for b in self._blocks(r) if b.get('type') == 'text' and b.get('text'))
+        return ''
+
     # 이번 턴이 시작되는 줄. 마지막 turn_duration 다음과 since 중 늦은 쪽
     # 둘 다 없으면 앞선 응답이 없을 때만 처음부터. 있으면 경계를 모르므로 None
     def _turn_start(self, rows: list[dict], since: int | None = None) -> int | None:
         bounds = [since] if since is not None else []
         for i in range(len(rows) - 1, -1, -1):
-            if rows[i].get('type') == 'system' and rows[i].get('subtype') == 'turn_duration':
+            if self._turn_end(rows[i]):
                 bounds.append(i + 1)
                 break
         if bounds:

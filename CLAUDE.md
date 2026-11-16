@@ -16,7 +16,8 @@
 - 사안 출력 규약: `docs/item-protocol.md` (패널 세션에는 SessionStart 훅이 넣는다)
 - 실행: `uv sync` 후 `uv run overseer` (http://127.0.0.1:47310/). 훅 등록과 점검은 `uv run overseer-setup` (전역 설정, 한 번). 설치 절차는 `INSTALL.md`
 - 배포 이름은 `project-overseer`(import 이름은 `project_manager`). wheel 에는 `web/`, 규약, 훅·MCP 스크립트가 `project_manager/_assets/` 로 들어가고 `l0/install_layout` 이 찾는다
-- 캡처: 훅 `scripts/capture_hook.py`(SessionStart, UserPromptSubmit, Stop) → `~/.overseer/captures/<탭 ID>.jsonl`. 패널이 띄운 세션(OVERSEER_TAB)에서만 동작
+- 캡처: 훅 `scripts/capture_hook.py`(SessionStart, UserPromptSubmit, Stop, StopFailure, Notification) → `~/.overseer/captures/<탭 ID>.jsonl`. 패널이 띄운 세션(OVERSEER_TAB)에서만 동작.
+  훅이 시간 초과로 남기지 못한 턴은 다음 Stop 이나 입력 대기 알림 때 대화 기록에서 되살린다(`source: recovered`)
 - 사용량 막대: 서버가 시작할 때와 탭의 응답이 끝날 때마다 `claude -p` 를 헤드리스로 띄워 SDK 제어 요청 `get_usage` 로 /usage 의 한도 행을 받는다(`l0/plan_usage`). CLI 가 실험 기능으로 밝힌 요청이라 모양이 바뀌면 막대가 흐려지고 툴팁에 실패가 뜬다
 - 저장: 프로젝트 기록은 각 프로젝트의 `.overseer/`(git 에서 스스로 빠짐). `sessions/<번호>.jsonl` 에 사안, 결정, 책임 변경, `records/D-3.md` 에 보존 기록, `launch.json` 에 탭 실행 환경 한 줄.
   이 컴퓨터의 패널 상태는 `~/.overseer/`(`overseer.db`: 탭, 보낸 메시지, 초안. 캡처, 로그). 환경변수 `OVERSEER_DATA` 로 바꾼다. 세션 번호는 프로젝트 단위이고, 한 프로젝트에는 탭 하나만 연다

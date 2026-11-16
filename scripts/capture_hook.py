@@ -1,4 +1,4 @@
-# Claude Code 훅 실행 스크립트(SessionStart, UserPromptSubmit, Stop). 저장소에서는 src 를 경로에 올려 쓰고, 설치한 패키지에서는 패키지 안 _assets 에서 불린다
+# Claude Code 훅 실행 스크립트(SessionStart, UserPromptSubmit, Stop, StopFailure, Notification, PermissionRequest). 저장소에서는 src 를 경로에 올려 쓰고, 설치한 패키지에서는 패키지 안 _assets 에서 불린다
 # 전역 설정에 등록되므로 모든 세션에서 불린다. 패널이 띄운 세션(OVERSEER_TAB)이 아니면 무거운 import 전에 바로 끝낸다
 import os
 import sys

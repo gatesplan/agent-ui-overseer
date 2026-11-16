@@ -151,3 +151,87 @@ def test_session_numbers_come_from_the_project(tmp_path):
     assert start('d', 'startup', tab='third', cwd=str(tmp_path / 'proj' / 'sub'), project=proj) == 4
     assert not (tmp_path / 'proj' / 'sub').exists()
     assert ProjectJournal(proj).owner(4) == 'third'
+
+
+END = {'type': 'system', 'subtype': 'turn_duration'}
+
+
+def _say(text):
+    return {'type': 'assistant', 'message': {'content': [{'type': 'text', 'text': text}]}}
+
+
+def _ask(text):
+    return {'type': 'user', 'message': {'content': text}}
+
+
+class _Session:
+    # 탭 하나의 대화 기록 파일과 훅. 기록 파일에 줄을 붙이고 훅을 부른다
+    def __init__(self, tmp_path):
+        self.cap = tmp_path / 'cap'
+        self.transcript = tmp_path / 's.jsonl'
+        self.rows = []
+        self.hook = CaptureHook(self.cap)
+        self.add()
+        self.run('SessionStart', source='startup')
+
+    def add(self, *rows):
+        self.rows += rows
+        self.transcript.write_text(''.join(json.dumps(r, ensure_ascii=False) + '\n' for r in self.rows), encoding='utf-8')
+
+    def run(self, event, **kw):
+        self.hook.run({'hook_event_name': event, 'session_id': 's', 'transcript_path': str(self.transcript), **kw}, 'tab')
+
+    def records(self):
+        return [json.loads(line) for line in (self.cap / 'tab.jsonl').read_text(encoding='utf-8').splitlines()]
+
+
+def test_stop_recovers_turn_whose_stop_hook_timed_out(tmp_path):
+    s = _Session(tmp_path)
+    s.add(_ask('A'), _say('### [보고] A'))
+    s.run('Stop', last_assistant_message='### [보고] A')
+    # B 의 Stop 훅은 시간 초과로 끊겨 기록이 없다. 기록 파일에는 B 의 끝 표시가 붙는다
+    s.add(END, _ask('B'), _say('### [보고] B'), {'type': 'attachment', 'attachment': {'type': 'hook_cancelled'}}, END)
+    s.add(_ask('C'), _say('### [보고] C'))
+    s.run('Stop', last_assistant_message='### [보고] C')
+    turns = [r for r in s.records() if r['event'] == 'turn']
+    assert [(t['source'], t['prompts'], t['items'][0]['title']) for t in turns] == [
+        ('hook', ['A'], 'A'), ('recovered', ['B'], 'B'), ('hook', ['C'], 'C')]
+    # 다음 Stop 은 되살린 턴을 다시 남기지 않는다
+    s.add(END, _ask('D'), _say('D'))
+    s.run('Stop', last_assistant_message='D')
+    assert [r['source'] for r in s.records() if r['event'] == 'turn'] == ['hook', 'recovered', 'hook', 'hook']
+
+
+def test_idle_notice_recovers_missed_turn_before_the_notice(tmp_path):
+    s = _Session(tmp_path)
+    s.add(_ask('A'), _say('### [보고] A'), END)
+    s.run('Notification', notification_type='idle_prompt', message='Claude is waiting for your input')
+    assert [(r['event'], r.get('source'), r.get('prompts')) for r in s.records()][1:] == [
+        ('turn', 'recovered', ['A']), ('notification', None, None)]
+    # 권한 확인 같은 다른 알림에서는 찾지 않는다
+    s.add(_ask('B'), _say('B'), END)
+    s.run('Notification', notification_type='permission_prompt', message='needs permission')
+    assert [r['event'] for r in s.records()][-1] == 'notification' and len(s.records()) == 4
+
+
+def test_stop_failure_records_error_as_the_turn(tmp_path):
+    s = _Session(tmp_path)
+    error = {'type': 'assistant', 'isApiErrorMessage': True, 'message': {'content': [{'type': 'text', 'text': "You've hit your limit"}]}}
+    s.add(_ask('해 줘'), error)
+    s.run('StopFailure', error='rate_limit', last_assistant_message="You've hit your limit")
+    turn = s.records()[-1]
+    assert (turn['source'], turn['error'], turn['text'], turn['prompts']) == ('stop_failure', 'rate_limit', "You've hit your limit", ['해 줘'])
+    assert turn['items'] == [] and turn['preamble'] == "You've hit your limit"
+    # 끝 표시가 붙은 뒤에 다음 Stop 이 와도 오류 턴을 다시 되살리지 않는다
+    s.add(END, _ask('다시'), _say('됐다'))
+    s.run('Stop', last_assistant_message='됐다')
+    assert [r['source'] for r in s.records() if r['event'] == 'turn'] == ['stop_failure', 'hook']
+
+
+def test_stop_failure_after_turn_end_marker_is_not_doubled(tmp_path):
+    # 오류 턴의 끝 표시가 StopFailure 훅보다 먼저 붙었어도 그 턴은 한 번만 남는다
+    s = _Session(tmp_path)
+    s.add(_ask('해 줘'), {'type': 'assistant', 'isApiErrorMessage': True, 'message': {'content': [{'type': 'text', 'text': 'Login expired'}]}}, END)
+    s.run('StopFailure', error='authentication_failed', last_assistant_message='Login expired')
+    turns = [r for r in s.records() if r['event'] == 'turn']
+    assert [(t['source'], t['prompts'], t['text']) for t in turns] == [('stop_failure', ['해 줘'], 'Login expired')]

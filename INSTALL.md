@@ -29,7 +29,8 @@ uv sync
 uv run overseer-setup
 ```
 
-`overseer-setup` 은 Claude Code 전역 설정(`~/.claude/settings.json`)에 훅 5개(SessionStart, UserPromptSubmit, Stop, Notification, PermissionRequest)를 등록하고 점검한다.
+`overseer-setup` 은 Claude Code 전역 설정(`~/.claude/settings.json`)에 훅 6개(SessionStart, UserPromptSubmit, Stop, StopFailure, Notification, PermissionRequest)를 등록하고 점검한다.
+StopFailure(API 오류로 끝난 턴)는 Claude Code 2.1.78 이상에만 건다. 그 전 판은 모르는 훅 이름이 있으면 설정 파일 전체를 무시한다.
 설치를 갱신(`uv tool upgrade project-overseer` 나 git pull)한 뒤에도 다시 실행한다. 훅이 늘었을 수 있다.
 마지막 줄이 `준비 완료` 면 끝이다. `실패` 가 있으면 아래 문제 해결을 본다. 점검만: `overseer-setup --check`
 
