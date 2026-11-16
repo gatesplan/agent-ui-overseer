@@ -39,9 +39,11 @@ class ModuleMap:
         if not exe:
             return {'status': 'missing', 'message': f'{self.command[0]} 명령이 없다'}
         env = {**os.environ, 'PYTHONIOENCODING': 'utf-8'}
+        # 패널은 콘솔 없는 pythonw 로 돈다. 이대로 콘솔 프로그램을 띄우면 Windows 가 지도를 받을 때마다 창을 새로 열었다 닫는다
         try:
             run = subprocess.run([exe, *self.command[1:], 'map', '--json'], cwd=cwd, env=env, capture_output=True,
-                                 encoding='utf-8', errors='replace', timeout=self.timeout)
+                                 encoding='utf-8', errors='replace', timeout=self.timeout,
+                                 creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
         except subprocess.TimeoutExpired:
             return {'status': 'error', 'message': f'lnt 가 {self.timeout:.0f}초 안에 끝나지 않았다'}
         except OSError as e:
