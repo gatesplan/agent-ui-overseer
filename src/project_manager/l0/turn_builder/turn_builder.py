@@ -10,6 +10,12 @@ SYSTEM_PROMPT_PREFIXES = ('<task-notification>',)
 COMPACT_SUMMARY_PREFIX = 'This session is being continued from a previous conversation'
 # 터미널에서 친 명령(/login 등). 입력 훅은 불려도 응답 턴이 없을 수 있다
 TERMINAL_COMMAND_PREFIX = '/'
+# Claude Code 가 긴 붙여넣기를 감싸는 표시. 패널이 보낸 메시지가 이렇게 온다: <pasted_content id="71e1">…</pasted_content id="71e1">
+PASTED = re.compile(r'<pasted_content(?: id="[^"]*")?>\n?(.*?)\n?</pasted_content(?: id="[^"]*")?>', re.S)
+# 대화 기록에 사용자 입력처럼 남는 터미널 명령 줄(/clear, /model 등)과 그 출력
+COMMAND = re.compile(r'<command-name>(.*?)</command-name>', re.S)
+COMMAND_ARGS = re.compile(r'<command-args>(.*?)</command-args>', re.S)
+COMMAND_OUTPUT_PREFIXES = ('<local-command-stdout>', '<local-command-stderr>')
 
 
 # 예전 사안 ID(`#턴-순번`, 턴 번호가 탭 안에서 이어짐). 지난 기록의 본문과 출처를 새 ID 로 바꿀 때 쓴다
@@ -44,6 +50,9 @@ class TurnBuilder:
                 # /clear, compact 뒤 첫 턴에 표시한다. 에이전트 맥락이 바뀐 지점
                 if e.get('source') in ('clear', 'compact'):
                     after = e['source']
+                # 새로 뜬 세션은 앞 세션의 남은 입력을 처리하지 않는다. compact 는 진행 중인 턴이 이어진다
+                if e.get('source') != 'compact':
+                    waiting = []
                 # 세션 번호는 훅이 프로젝트에서 받아 적는다. 적히지 않은 기록(번호를 받지 못한 훅)은 /clear 마다 하나씩 올린다
                 number = e.get('session')
                 if isinstance(number, int):
@@ -57,7 +66,7 @@ class TurnBuilder:
                 # 시스템 입력과 터미널 명령은 대기로 두지 않는다. 진행 중인 턴에 흡수되거나 응답이 없어 남으면 작업 중이 풀리지 않는다
                 prompt = (e.get('prompt') or '').lstrip()
                 if not self._system(prompt) and not prompt.startswith(TERMINAL_COMMAND_PREFIX):
-                    waiting.append(e.get('prompt') or '')
+                    waiting.append(self._unwrap(prompt))
             elif kind == 'permission':
                 permissions[e.get('request_id')] = {
                     'request_id': e.get('request_id'), 'tool_name': e.get('tool_name'),
@@ -66,12 +75,12 @@ class TurnBuilder:
             elif kind == 'permission_done':
                 permissions.pop(e.get('request_id'), None)
             elif kind == 'notification':
-                # 입력을 기다린다는 알림인데 남은 입력이 있으면, 작업 중에 넣어 앞 턴에 흡수된 입력이다
-                # 기록에서 흡수를 읽지 못한 턴(예전 훅)이라 대기로 남은 것. 앞 턴의 입력으로 옮긴다
-                if e.get('kind') == 'idle_prompt' and waiting and turns:
-                    turns[-1]['prompt'] = '\n\n'.join(p for p in [turns[-1]['prompt'], *waiting] if p)
-                    turns[-1]['open'] = False
+                # 입력을 기다린다는 알림이면 진행 중인 것이 없다. 남은 입력은 응답이 기록되지 않은 것이라 대기에서 뺀다
+                # 훅이 남기지 못한 턴은 이 알림 앞에 기록 파일에서 되살려 둔다. 앞 턴에 붙이면 엉뚱한 턴이 답한 것처럼 보인다
+                if e.get('kind') == 'idle_prompt':
                     waiting = []
+                    if turns:
+                        turns[-1]['open'] = False
                 if e.get('kind') not in QUIET_NOTICES:
                     attention = {'message': e.get('message') or '', 'kind': e.get('kind'), 'at': e.get('at'), 'seq': seq}
             elif kind == 'turn':
@@ -87,7 +96,7 @@ class TurnBuilder:
                     prompts, waiting = waiting, []
                 else:
                     # 예전 훅은 시스템 입력도 턴 입력으로 남겼다
-                    prompts = [p for p in prompts if not self._system(p)]
+                    prompts = self._typed([p for p in prompts if not self._system(p)])
                     waiting = self._consume(waiting, prompts)
                 # 기록 파일에 사용자 입력이 없는 응답(작업 알림에 대한 응답)은 앞 턴에 붙인다. /clear, compact 뒤면 맥락이 바뀌어 새 턴
                 joins = known and not prompts and after is None
@@ -181,6 +190,26 @@ class TurnBuilder:
 
     def _system(self, text: str) -> bool:
         return text.lstrip().startswith(SYSTEM_PROMPT_PREFIXES)
+
+    # 기록 파일에서 읽은 턴 입력을 사용자가 친 글로 줄인다. 붙여넣기 감싸개는 벗기고 명령 출력은 뺀다
+    # 명령 줄은 다른 입력이 없을 때만 `/이름 인자` 로 남긴다. 명령이 연 턴(스킬 등)이 앞 턴에 붙지 않게
+    def _typed(self, prompts: list[str]) -> list[str]:
+        typed, commands = [], []
+        for p in prompts:
+            text = p.lstrip()
+            if text.startswith(COMMAND_OUTPUT_PREFIXES):
+                continue
+            # 예전 판은 <command-message> 를 먼저 적었다
+            command = COMMAND.search(text) if text.startswith(('<command-name>', '<command-message>')) else None
+            if command:
+                args = COMMAND_ARGS.search(text)
+                commands.append(f"{command.group(1).strip()} {args.group(1).strip() if args else ''}".strip())
+                continue
+            typed.append(self._unwrap(p))
+        return typed or commands
+
+    def _unwrap(self, text: str) -> str:
+        return PASTED.sub(lambda m: m.group(1), text).strip() if '<pasted_content' in text else text.strip()
 
     def _key(self, text: str) -> str:
         return ' '.join(text.split())

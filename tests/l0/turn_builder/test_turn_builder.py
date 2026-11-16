@@ -51,8 +51,9 @@ def test_queued_prompt_response_joins_the_same_turn():
     assert built['turns'][1]['prompt'] == '다음'
 
 
-def test_idle_notice_moves_leftover_prompt_into_last_turn():
-    # 흡수된 입력을 기록에서 못 읽어 대기로 남아도, 입력 대기 알림이 오면 앞 턴 입력으로 옮기고 작업 중을 푼다
+def test_idle_notice_drops_leftover_prompt_without_gluing_it_to_last_turn():
+    # 응답이 기록되지 않은 입력(훅 시간 초과 등)이 남아도, 입력 대기 알림이 오면 작업 중을 푼다
+    # 앞 턴에 붙이지 않는다. 앞 턴이 그 입력에 답한 것처럼 보인다. 빠진 턴은 훅이 알림 앞에 되살려 둔다
     events = [
         {'event': 'prompt', 'prompt': '변경사항 확인'},
         {'event': 'prompt', 'prompt': '유료 API 부르나?'},
@@ -62,7 +63,7 @@ def test_idle_notice_moves_leftover_prompt_into_last_turn():
     built = TurnBuilder().build(events + [{'event': 'notification', 'kind': 'idle_prompt', 'message': 'waiting'}])
     assert built['pending'] is None
     assert built['attention'] is None
-    assert built['turns'][0]['prompt'] == '변경사항 확인\n\n유료 API 부르나?'
+    assert built['turns'][0]['prompt'] == '변경사항 확인'
     # 다음 응답은 새 턴이다
     built = TurnBuilder().build(events + [{'event': 'notification', 'kind': 'idle_prompt'}, {'event': 'prompt', 'prompt': '다음'},
                                           {**turn('d'), 'prompts': ['다음']}])
@@ -80,6 +81,53 @@ def test_compacted_turn_takes_waiting_prompts():
     assert built['pending'] is None
     assert built['turns'][0]['prompt'] == '#9S-25-3 → 승인'
     assert built['turns'][0]['after'] == 'compact'
+
+
+def test_pasted_wrapper_is_stripped_on_both_sides():
+    # 패널이 붙여 넣은 긴 메시지는 Claude Code 가 감싼다. 입력 훅 쪽과 기록 파일 쪽 모양이 조금 다르다
+    events = [
+        {'event': 'prompt', 'prompt': '\n\n<pasted_content id="61a5">\n#1S-1-1 → 승인\n둘째 줄\n</pasted_content id="61a5">\n'},
+        {**turn('응답'), 'prompts': ['<pasted_content id="61a5">\n#1S-1-1 → 승인\n둘째 줄\n</pasted_content id="61a5">']},
+    ]
+    assert TurnBuilder().build(events[:1])['pending'] == '#1S-1-1 → 승인\n둘째 줄'
+    built = TurnBuilder().build(events)
+    assert built['pending'] is None
+    assert built['turns'][0]['prompt'] == '#1S-1-1 → 승인\n둘째 줄'
+
+
+def test_terminal_command_rows_are_left_out_of_turn_prompt():
+    # 대화 기록에는 /clear, /model 같은 명령 줄과 출력이 사용자 입력처럼 남는다
+    clear = '<command-name>/clear</command-name>\n            <command-message>clear</command-message>\n            <command-args></command-args>'
+    model = '<command-name>/model</command-name>\n<command-message>model</command-message>\n<command-args></command-args>'
+    stdout = '<local-command-stdout>Set model to `Opus 5.5`</local-command-stdout>'
+    events = [
+        {'event': 'session_start', 'session_id': 's1', 'source': 'clear'},
+        {'event': 'prompt', 'prompt': '교재 API 검토'},
+        {**turn('응답'), 'prompts': [clear, '교재 API 검토']},
+        {'event': 'prompt', 'prompt': '다시 작업 진행'},
+        {**turn('응답 2'), 'prompts': [model, stdout, '다시 작업 진행']},
+    ]
+    built = TurnBuilder().build(events)
+    assert [t['prompt'] for t in built['turns']] == ['교재 API 검토', '다시 작업 진행']
+
+
+def test_command_that_opens_a_turn_keeps_its_line():
+    # 스킬 같은 명령이 연 턴은 명령 줄만 입력이다. 빼면 앞 턴에 붙는다
+    skill = '<command-message>code-review is running…</command-message>\n<command-name>/code-review</command-name>\n<command-args>high</command-args>'
+    events = [
+        {'event': 'prompt', 'prompt': '검토해 줘'},
+        {**turn('응답'), 'prompts': ['검토해 줘']},
+        {**turn('### [보고] 검토 결과'), 'prompts': [skill]},
+    ]
+    built = TurnBuilder().build(events)
+    assert [t['prompt'] for t in built['turns']] == ['검토해 줘', '/code-review high']
+
+
+def test_new_session_drops_leftover_prompt():
+    # 응답이 기록되지 않은 입력이 남은 채 /clear 하면, 새 세션은 그 입력을 처리하지 않는다. compact 는 같은 턴이 이어진다
+    events = [{'event': 'session_start', 'session_id': 's1', 'source': 'startup'}, {'event': 'prompt', 'prompt': '해 줘'}]
+    assert TurnBuilder().build(events + [{'event': 'session_start', 'session_id': 's2', 'source': 'clear'}])['pending'] is None
+    assert TurnBuilder().build(events + [{'event': 'session_start', 'session_id': 's1', 'source': 'compact'}])['pending'] == '해 줘'
 
 
 def test_terminal_command_prompt_is_not_pending():
