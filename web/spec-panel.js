@@ -2,6 +2,7 @@
 // 프로젝트 아래 용어와 구성요소, 구성요소 아래 목업, 하는 것, 하지 않는 것, 열린 것. 화면에 보이는 한 줄이 그 항목의 전부다
 // 하는 것 오른쪽에는 그것이 실행되면 이어서 일어나는 일(then)을 "이어서" 줄로 잇는다
 // 사람은 보는 방식을 바꾸고(선택, 접기, 구성요소 끌어 옮기기, 화면 이동과 확대), 개체를 더블클릭해 글을 고치거나 고른 개체 아래에 자식을 더한다
+// 개체를 고른 뒤에는 방향키로 옮겨 다니고 Enter 로 접고 편다
 // 고치거나 더하거나 지운 것은 서버가 spec.json 에 쓰고, 보내기에 [스펙 수정] [스펙 추가] [스펙 삭제] 줄로 실려 에이전트에게 간다. 누른다고 창이 뜨지 않는다. 목업은 새 탭으로 연다
 // 패널에서 한 고치기, 더하기, 삭제는 Ctrl+Z 로 되돌리고 Ctrl+Shift+Z 로 다시 한다. 에이전트가 MCP 로 고친 것은 되돌리지 않는다
 // module-panel.js 다음, app.js 보다 먼저 읽힌다. app.js 의 전역(ui, sessions, cur, esc, LIVE, pref, savePref, api, saveDraft, refreshLive)은 함수 안에서만 쓴다
@@ -285,10 +286,12 @@ function spDrawTree(s) {
   // 목업 라벨은 링크다. 누르면 새 탭으로 열린다
   const mockRow = (m, x, y) => nodes.push(
     `<a class="sp-n sp-row sp-mock" href="${esc(m.href || '#')}" target="_blank" rel="noopener" draggable="false" data-sp-id="${esc(m.id)}" style="${pos(x, y, SP_ROW_W, SP_ROW_H)}" title="${esc(m.t)}"><span class="ic">${SP_ICON.mock}</span><span class="t">${esc(m.t)}</span><span class="go">새 탭 ↗</span></a>`);
-  // 하는 것과 그것에 이어서 일어나는 일. 이어지는 일은 오른쪽에 쌓고, 차지한 높이를 돌려준다
+  // 하는 것과 그것에 이어서 일어나는 일. 이어지는 일은 오른쪽에 쌓고, 차지한 높이를 돌려준다. 접으면 이어지는 일을 숨긴다
   const doRow = (n, x, y) => {
-    row(n, 'sp-do', x, y, SP_ROW_W, SP_ROW_H);
-    if (!n.th.length) return SP_ROW_H;
+    const shut = col.has(n.id);
+    row(n, 'sp-do', x, y, SP_ROW_W, SP_ROW_H,
+      n.th.length ? spFold(shut) + (shut ? `<span class="sp-bd col">+${spCountDo(n.th)}</span>` : '') : '');
+    if (!n.th.length || shut) return SP_ROW_H;
     const tx = x + SP_ROW_W + SP_THEN_GAP, a = { x: x + SP_ROW_W, y: y + SP_ROW_H / 2 };
     nodes.push(`<span class="sp-then" style="left:${r1(a.x + SP_THEN_GAP / 2)}px;top:${r1(a.y - 17)}px">이어서</span>`);
     let ty = y;
@@ -366,8 +369,10 @@ function spZoomAt(s, z2, mx, my) {
   spSaveZoom(s);
 }
 // 선택은 테두리만 바꾼다. 트리를 다시 그리면 눌린 요소가 사라져 더블클릭이 닿지 않는다
+// 스펙 개체를 고르면 커맨드 패널의 카드 선택을 푼다. 방향키와 Enter 를 어느 패널이 받을지가 선택으로 갈린다
 function spSelect(id) {
   SP.sel = id;
+  if (id && ui.active) unpick();
   document.querySelectorAll('#sp-layer .sp-n.sel').forEach(el => el.classList.remove('sel'));
   if (id) document.querySelector(`#sp-layer [data-sp-id="${CSS.escape(id)}"]`)?.classList.add('sel');
   const s = cur();
@@ -596,6 +601,7 @@ async function spUndo(s, back) {
 function spReveal(s, path) {
   const n = spFind(s, path);
   SP.sel = n?.id || null;
+  if (n && ui.active) unpick();
   const col = spCollapsed(s);
   let opened = false;
   for (let c = n?.parent; c; c = c.parent) opened = col.delete(c.id) || opened;
@@ -611,6 +617,82 @@ document.addEventListener('keydown', e => {
   if (!s || spView(s) !== 'spec' || !$('#sp-vp')?.offsetParent) return;
   e.preventDefault();
   spUndo(s, !e.shiftKey);
+});
+
+// 키보드로 고르고 접기 ----------------------------------------------------------------
+// 스펙 패널에 고른 개체가 보이면 방향키와 Enter 는 스펙 패널이 받는다. 카드를 골랐거나 아무것도 고르지 않았으면 커맨드 패널이 받는다(app.js)
+// ↑↓ 같은 부모 아래 형제 사이(끝에서 멈춘다), ← 부모, → 첫 자식(접혀 있으면 펴고), Enter 접기와 펴기, Esc 선택 풀기. 목업은 누르면 열리는 링크라 고르지 않는다
+
+// 방향키로 오갈 자식. 화면에 놓인 순서대로다
+function spNavKids(n) {
+  if (n.kind === 'root') return [...n.w, ...n.c];
+  if (n.kind === 'comp') return [...n.c, ...n.f, ...n.n, ...n.o];
+  return n.kind === 'do' ? n.th : [];
+}
+// ▾ 단추가 붙는 개체. 구성요소는 목업만 있어도 접힌다
+const spFoldable = n => n.kind === 'root' ? n.c.length + n.w.length > 0 : n.kind === 'comp' ? spCountDesc(n) > 0 : n.kind === 'do' && n.th.length > 0;
+
+function spToggleFold(s, id) {
+  const col = spCollapsed(s);
+  col.has(id) ? col.delete(id) : col.add(id);
+  spSaveCollapsed();
+  renderModules();
+}
+
+// 고른 개체가 화면 밖에 있으면 보이는 데까지만 화면을 옮긴다. 개체가 화면보다 크면 왼쪽 위를 맞춘다
+function spFollow(s, id) {
+  const el = spNodeEl(id), vp = $('#sp-vp');
+  if (!el || !vp) return;
+  const cam = spCam(s), b = spBox(el), m = 24, z = cam.zoom;
+  const fit = (pan, at, size, view) => {
+    const lo = pan + at * z, hi = lo + size * z;
+    if (lo < m) return pan + m - lo;
+    if (hi > view - m) return pan - Math.min(hi - (view - m), lo - m);
+    return pan;
+  };
+  cam.panX = fit(cam.panX, b.x, b.w, vp.clientWidth);
+  cam.panY = fit(cam.panY, b.y, b.h, vp.clientHeight);
+  spApplyCam(s);
+}
+
+function spGo(s, id) {
+  spSelect(id);
+  spFollow(s, id);
+}
+
+// Esc(app.js 가 부른다): 스펙 패널에 보이는 고른 개체가 있으면 선택을 풀어 방향키를 카드에 돌려준다. 처리했으면 true
+function spEsc() {
+  const s = cur();
+  if (!s || !SP.sel || spView(s) !== 'spec' || !$('#sp-vp')?.offsetParent || !spNodeEl(SP.sel)) return false;
+  spSelect(null);
+  return true;
+}
+
+document.addEventListener('keydown', e => {
+  if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter'].includes(e.key)) return;
+  if (e.ctrlKey || e.altKey || e.metaKey || e.shiftKey || e.isComposing) return;
+  if (e.target.closest?.('#term, dialog, textarea, input, select, [contenteditable]')) return;
+  const s = cur();
+  if (!s || ui.active || SP.editing || spView(s) !== 'spec' || !$('#sp-vp')?.offsetParent) return;
+  // 고른 개체가 접힌 조상 밑에 숨어 있으면 고른 것이 없는 셈이다
+  const n = SP.sel && spIndex(s)?.index[SP.sel];
+  if (!n || !spNodeEl(n.id)) return;
+  // 카드 이동(app.js)과 눌린 단추의 클릭으로 번지지 않게 한다
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  const col = spCollapsed(s);
+  if (e.key === 'Enter') { if (spFoldable(n)) spToggleFold(s, n.id); return; }
+  if (e.key === 'ArrowLeft') { if (n.parent) spGo(s, n.parent.id); return; }
+  if (e.key === 'ArrowRight') {
+    const first = spNavKids(n)[0];
+    if (!first) return;
+    if (col.delete(n.id)) { spSaveCollapsed(); SP.sel = first.id; renderModules(); spFollow(s, first.id); }
+    else spGo(s, first.id);
+    return;
+  }
+  const sibs = n.parent ? spNavKids(n.parent) : [];
+  const next = sibs[sibs.indexOf(n) + (e.key === 'ArrowDown' ? 1 : -1)];
+  if (next) spGo(s, next.id);
 });
 
 // 조작 ----------------------------------------------------------------------
@@ -645,15 +727,9 @@ document.addEventListener('click', e => {
   const add = e.target.closest('[data-sp-add]');
   if (add) { spStartAdd(s, add.dataset.spAdd); return; }
   if (e.target.closest('[data-sp-remove]')) { spRemove(s); return; }
-  // 하위가 있는 노드(프로젝트, 구성요소)는 ▾ 단추로 접고 편다
+  // 하위가 있는 노드(프로젝트, 구성요소, 이어서 기능이 달린 기능)는 ▾ 단추로 접고 편다
   const fold = e.target.closest('[data-sp-fold]');
-  if (fold) {
-    const id = fold.closest('[data-sp-id]').dataset.spId, col = spCollapsed(s);
-    col.has(id) ? col.delete(id) : col.add(id);
-    spSaveCollapsed();
-    renderModules();
-    return;
-  }
+  if (fold) { spToggleFold(s, fold.closest('[data-sp-id]').dataset.spId); return; }
   const el = e.target.closest('[data-sp-id]');
   if (el && spIndex(s)?.index[el.dataset.spId]?.kind !== 'mock') spSelect(el.dataset.spId);
 });

@@ -952,6 +952,8 @@ function render({ keepScroll = true } = {}) {
 
 // 선택 표시. 화면은 스크롤하지 않고, 이어진 카드만 밝히고 나머지는 흐린다
 function showFocus() {
+  // 카드를 고르면 스펙 패널의 개체 선택을 푼다. 방향키와 Enter 를 어느 패널이 받을지가 선택으로 갈린다(spec-panel.js)
+  if (ui.active && SP.sel) spSelect(null);
   light(ui.active);
   align(ui.active);
 }
@@ -1182,8 +1184,9 @@ function unpick() {
 // 그 밖의 글자 키: 선택한 카드의 입력창에 바로 입력 시작
 // Enter: 선택한 카드의 첫 번째 처리를 고르고 다음 카드로 (의견이 필요한 처리면 입력칸으로)
 // Ctrl+Enter: 카드 입력칸에서 입력을 마치고 다음 카드로
-// Esc: 입력창에서 벗어나기, 그다음 선택 해제
+// Esc: 입력창에서 벗어나기, 그다음 선택 해제 (스펙 패널의 개체 선택 포함)
 // Ctrl+Z, Ctrl+Shift+Z: 스펙 패널에서 한 고치기, 더하기, 삭제를 되돌리고 다시 하기 (spec-panel.js 가 듣는다)
+// 스펙 패널에 고른 개체가 있으면 방향키와 Enter 는 spec-panel.js 가 먼저 받아 여기까지 오지 않는다
 document.addEventListener('keydown', e => {
   // 터미널 창 안의 키는 전부 claude 로 간다. Tab, Esc 도 거기서 쓰인다
   if (e.target.closest?.('#term, dialog')) return;
@@ -1210,6 +1213,7 @@ document.addEventListener('keydown', e => {
     if (ui.drawer) { ui.drawer = null; renderDrawer(); return; }
     if (ui.modelMenu) { closeModelMenu(); return; }
     if (mpEsc()) return;
+    if (spEsc()) return;
     if (ui.past) { ui.past = false; render(); return; }
     if (ui.active) unpick();
     return;
