@@ -4,12 +4,12 @@
 #   pwsh scripts/restart_server.ps1 -WhileStopped scripts/migrate_item_ids.py   멈춘 동안 그 파이썬 스크립트를 돌린다(DB 이전, 파이썬 판 바꾸기 등). 상대 경로는 저장소 기준
 #
 # 패널 탭 안에서 부른 프로세스는 서버를 멈출 때 같이 죽는다. 그래서 WMI 로 서버와 무관한 프로세스를 띄워 거기서 한다(-Detached)
-# 순서: 모든 탭이 working/attention 이 아닌 상태가 -Quiet 초(기본 15) 이어질 때까지 기다린다(최대 10분) → 멈춘다 → 다시 띄운다 → 떠 있던 탭을 이어서 띄운다
+# 순서: 모든 탭이 working/attention 이 아닌 상태가 -Quiet 초(기본 5) 이어질 때까지 기다린다(최대 30분) → 멈춘다 → 다시 띄운다 → 떠 있던 탭을 이어서 띄운다
 # 작업 스케줄러에 Overseer 작업이 있으면 그것으로 멈추고 띄운다. 없으면 프로세스를 끝내고 `uv run overseer` 를 창 없이 띄운다
 # WMI 로 띄운 프로세스에서는 CIM 호출이 실패하므로 그쪽에서는 CIM 을 쓰지 않는다(netstat, Get-Process, schtasks)
 # PowerShell 7 이 필요하다. Windows PowerShell 5.1 의 Get-Process 에는 Parent 가 없어 서버 프로세스 트리를 못 찾는다
 #Requires -Version 7.0
-param([switch]$DryRun, [switch]$Detached, [int]$Port = 47310, [string]$WhileStopped = '', [int]$Quiet = 15)
+param([switch]$DryRun, [switch]$Detached, [int]$Port = 47310, [string]$WhileStopped = '', [int]$Quiet = 5)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 # 이 컴퓨터의 패널 기록 폴더. 서버 기본값과 같다(OVERSEER_DATA, 없으면 ~/.overseer). WMI 로 띄운 쪽은 환경변수를 물려받지 않아 ~/.overseer
@@ -23,7 +23,9 @@ if (-not $Detached) {
     $pwsh = (Get-Process -Id $PID).Path
     $run = if ($WhileStopped) { " -WhileStopped `"$WhileStopped`"" } else { '' }
     $cmd = "`"$pwsh`" -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$PSCommandPath`" -Detached -Port $Port -Quiet $Quiet$(if ($DryRun) { ' -DryRun' })$run"
-    $r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $cmd; CurrentDirectory = $root }
+    # 기본 터미널이 Windows Terminal 이면 콘솔이 그쪽 창으로 넘어가 -WindowStyle Hidden 이 듣지 않는다. 숨김(SW_HIDE)으로 시작하면 넘기지 않고 숨은 콘솔에서 돈다
+    $startup = New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly -Property @{ ShowWindow = [uint16]0 }
+    $r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $cmd; CurrentDirectory = $root; ProcessStartupInformation = $startup }
     if ($r.ReturnValue -ne 0) { Write-Error "재시작 프로세스를 띄우지 못함: $($r.ReturnValue)"; exit 1 }
     Write-Output "$(if ($DryRun) { '점검' } else { '재시작' }) 예약됨(PID $($r.ProcessId)). 진행: $log"
     exit 0
@@ -68,11 +70,11 @@ function StartServer {
 
 try {
     Log '재시작 대기 시작'
-    $deadline = (Get-Date).AddMinutes(10)
+    $deadline = (Get-Date).AddMinutes(30)
     # 모든 탭이 Quiet 초 동안 이어서 쉬어야 멈춘다. 한 탭이 끝나자마자 다른 탭이 다음 입력을 받는 틈에 멈추지 않게
     $idleSince = $null
     while (-not $DryRun) {
-        Start-Sleep 3
+        Start-Sleep 1
         $busy = @(Tabs | Where-Object { $_.status -in 'working', 'attention' })
         if ($busy.Count) { $idleSince = $null }
         elseif (-not $idleSince) { $idleSince = Get-Date }
@@ -117,7 +119,11 @@ try {
     if (-not (Up)) { Log '시작 실패'; exit 2 }
     Log "시작됨 (서버 $(ServerPid))"
 
+    # 탭마다 2초씩 띄워 띄운다. 같은 1초 안에 뜬 cmd 는 %RANDOM% 이 같아 conda activate 의 임시 파일(__conda_tmp_%RANDOM%.txt)이 겹쳐 실패한다
+    $first = $true
     foreach ($id in $alive) {
+        if (-not $first) { Start-Sleep 2 }
+        $first = $false
         try { Invoke-WebRequest -Method Post "$api/$id/resume" -ContentType 'application/json' -Body '{}' -UseBasicParsing -TimeoutSec 30 | Out-Null; Log "이어서 띄움: $id" }
         catch { Log "이어서 띄우기 실패: $id $_" }
     }
