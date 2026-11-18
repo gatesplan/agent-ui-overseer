@@ -250,13 +250,15 @@ def test_open_permission_and_attention_and_usage_sum():
     events = [
         {'event': 'prompt', 'prompt': 'a'},
         {'event': 'prompt', 'prompt': 'b'},
-        {**turn('응답 1'), 'prompts': ['a'], 'usage': u(2, 10)},
-        {**turn('응답 2'), 'prompts': ['b'], 'usage': u(3, 5)},
+        {**turn('응답 1'), 'prompts': ['a'], 'usage': {**u(2, 10), 'model': 'claude-opus-5-5'}},
+        {**turn('응답 2'), 'prompts': ['b'], 'usage': {**u(3, 5), 'model': 'claude-fable-5-2'}},
         {'event': 'prompt', 'prompt': 'rm 해 줘'},
         {'event': 'permission', 'request_id': 'r1', 'tool_name': 'Bash', 'tool_input': {'command': 'rm -rf x'}},
     ]
     built = TurnBuilder().build(events)
     assert built['turns'][0]['usage']['calls'] == 5 and built['turns'][0]['usage']['output_tokens'] == 15
+    # 한 턴에 합쳐진 응답의 모델은 나중 응답의 것
+    assert built['turns'][0]['usage']['model'] == 'claude-fable-5-2'
     assert built['permission']['tool_input'] == {'command': 'rm -rf x'}
 
     done = events + [{'event': 'permission_done', 'request_id': 'r1', 'behavior': 'terminal'},

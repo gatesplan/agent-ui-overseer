@@ -40,7 +40,8 @@ function mpSet(s, result) {
 function onModulesEvent(msg) {
   let hit = false;
   sessions.filter(s => mpNorm(s.cwd) === mpNorm(msg.cwd)).forEach(s => { mpSet(s, msg.modules); if (s.id === ui.cur) hit = true; });
-  if (hit) { renderModules(); mpTick(); }
+  // 스펙을 보고 있으면 지도만 바꿔 두고 다시 그리지 않는다. 모듈로 돌아올 때 새 지도로 그린다
+  if (hit && spView(cur()) !== 'spec') { renderModules(); mpTick(); }
 }
 
 // 패키지 --------------------------------------------------------------------
@@ -317,6 +318,7 @@ function renderModules() {
   const s = cur();
   MP.tab = ui.cur;
   if (!s) { host.innerHTML = ''; return; }
+  if (spView(s) === 'spec') { renderSpec(s, host); return; }
   mpLoad(s);
   const r = s.modules;
   const pkgs = mpPackages(s);
@@ -335,7 +337,7 @@ function renderModules() {
   const nests = ix ? Object.values(ix.mods).filter(m => m.nested) : [];
   const readable = pkgs.filter(mpReadable);
   host.innerHTML = `<section class="mod-pane">
-    <header class="pane-bar"><span class="pane-name">모듈 패널</span><span class="pane-info">${info}</span>
+    <header class="pane-bar">${spToggleHTML('mod')}<span class="pane-name">모듈 패널</span><span class="pane-info">${info}</span>
       ${nests.length ? `<button class="bar-btn" data-mp-expand>${nests.every(m => open.has(m.name)) ? '모두 접기' : '모두 펼치기'}</button>` : ''}
       ${ix ? '<button class="bar-btn" data-mp-throw>+ 책임 카드</button>' : ''}
       <button class="pane-gear ${ui.drawer === 'map' ? 'on' : ''}" data-drawer="map" title="모듈 패널 설정">${GEAR}</button></header>
@@ -631,6 +633,8 @@ document.addEventListener('click', e => {
     const ix = mpIndex(s, pkg);
     if (!ix?.mods[id]) return;
     if (pkg !== mpPkg(s)) mpSetPkg(s, pkg);
+    // 스펙을 보고 있었으면 모듈 지도로 돌아가 그 모듈을 보인다
+    if (spView(s) === 'spec') spSetView(s, 'mod');
     const open = mpOpenSet(s);
     for (let p = ix.mods[id].scope; p && ix.mods[p]; p = ix.mods[p].scope) open.add(p);
     ui.mpPin = null;

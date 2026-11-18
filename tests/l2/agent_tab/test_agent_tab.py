@@ -278,3 +278,35 @@ def test_answers_count_turn_ends(tmp_path):
         f.write(json.dumps({'event': 'turn', 'session_id': 's', 'text': 'y', 'items': []}) + '\n')
     tab.poll()
     assert tab.answers == 2
+
+
+# 모델 교체: 쉬고 있을 때만 `/model <값>` 을 친다. 고른 값은 다음 응답이 올 때까지 보이고, 그 뒤엔 응답한 모델을 믿는다
+def test_set_model_types_model_command_and_pick_lasts_until_next_answer(tmp_path):
+    captures, project, store = setup(tmp_path, [{'kind': '보고', 'title': '가', 'body': ''}])
+    log = captures / 't.jsonl'
+    with log.open('a', encoding='utf-8') as f:
+        f.write(json.dumps({'event': 'turn', 'session_id': 's', 'text': 'y', 'items': [], 'usage': {'model': 'claude-opus-5-5', 'calls': 1}}) + '\n')
+    tab = AgentTab('t', project, '', store, captures)
+    tab.pty = FakePty()
+    assert (tab.state()['model'], tab.state()['modelPick']) == ('claude-opus-5-5', None)
+
+    # 터미널에 그대로 치는 값이라 모양이 다른 글은 받지 않는다
+    for bad in ['', 'opus; rm', 'a b', '/model', 'x' * 80]:
+        with pytest.raises(ValueError):
+            asyncio.run(tab.set_model(bad))
+    assert tab.pty.typed == []
+
+    asyncio.run(tab.set_model('fable'))
+    assert tab.pty.typed == ['/model fable', '\r']
+    assert (tab.state()['model'], tab.state()['modelPick']) == ('claude-opus-5-5', 'fable')
+
+    with log.open('a', encoding='utf-8') as f:
+        f.write(json.dumps({'event': 'prompt', 'session_id': 's', 'prompt': '다음'}) + '\n')
+    tab.poll()
+    # 작업 중에는 치지 않는다
+    with pytest.raises(RuntimeError):
+        asyncio.run(tab.set_model('opus'))
+    with log.open('a', encoding='utf-8') as f:
+        f.write(json.dumps({'event': 'turn', 'session_id': 's', 'text': 'z', 'items': [], 'usage': {'model': 'claude-fable-5-2', 'calls': 1}}) + '\n')
+    tab.poll()
+    assert (tab.state()['model'], tab.state()['modelPick']) == ('claude-fable-5-2', None)

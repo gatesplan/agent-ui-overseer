@@ -19,8 +19,13 @@
 - 캡처: 훅 `scripts/capture_hook.py`(SessionStart, UserPromptSubmit, Stop, StopFailure, Notification) → `~/.overseer/captures/<탭 ID>.jsonl`. 패널이 띄운 세션(OVERSEER_TAB)에서만 동작.
   훅이 시간 초과로 남기지 못한 턴은 다음 Stop 이나 입력 대기 알림 때 대화 기록에서 되살린다(`source: recovered`)
 - 사용량 막대: 서버가 시작할 때와 탭의 응답이 끝날 때마다 `claude -p` 를 헤드리스로 띄워 SDK 제어 요청 `get_usage` 로 /usage 의 한도 행을 받는다(`l0/plan_usage`). CLI 가 실험 기능으로 밝힌 요청이라 모양이 바뀌면 막대가 흐려지고 툴팁에 실패가 뜬다
+- 모델 교체: 커맨드 패널 머리줄 톱니 옆 단추. 목록과 버전은 서버가 시작할 때와 새 탭을 띄울 때 `claude -p` 에 SDK 시작 요청 `initialize` 를 보내 받은 models 그대로다(`l0/model_catalog`). 고르면 터미널에 `/model <값>` 을 친다
 - 저장: 프로젝트 기록은 각 프로젝트의 `.overseer/`(git 에서 스스로 빠짐). `sessions/<번호>.jsonl` 에 사안, 결정, 책임 변경, `records/D-3.md` 에 보존 기록, `launch.json` 에 탭 실행 환경 한 줄.
   이 컴퓨터의 패널 상태는 `~/.overseer/`(`overseer.db`: 탭, 보낸 메시지, 초안. 캡처, 로그). 환경변수 `OVERSEER_DATA` 로 바꾼다. 세션 번호는 프로젝트 단위이고, 한 프로젝트에는 탭 하나만 연다
+- 스펙: 프로젝트 루트의 `spec.json`(git 으로 추적). 스펙 패널이 읽어 그리고, 바뀌면 1초 안에 다시 그린다. 칸은 `l0/project_spec` 이 받는 것만 쓴다(화면에 안 보이는 칸은 거부).
+  사용자가 패널에서 개체를 고치거나(더블클릭) 자식을 더하거나 자식 없는 개체를 지우면 서버가 spec.json 에 쓰고, 보내기에 `[스펙 수정]` `[스펙 추가]` `[스펙 삭제]` 줄로 실어 에이전트에게 알린다(`docs/item-protocol.md`).
+  에이전트는 overseer MCP 의 스펙 도구(`spec_view` 등, 개체 번호로)로 보고 고친다
+  목업 `href` 는 아무 URL 이나 프로젝트 루트 기준 파일 경로(패널 서버가 `/api/tabs/<탭>/files/` 로 내준다)
 - 목업만 볼 때: `python scripts/serve_mock.py` (http://127.0.0.1:47311/)
 
 ## 추가 규칙

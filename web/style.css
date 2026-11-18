@@ -369,6 +369,29 @@ kbd.tag {
 }
 .clear-ctx:hover { color: var(--rej); border-color: var(--rej); }
 .wrapup.on { color: var(--keep); border-style: solid; border-color: var(--keep); background: color-mix(in srgb, var(--keep) 10%, transparent); }
+/* 모델 교체. 커맨드 패널 머리줄 톱니 옆에 지금 모델(버전 포함)을 보이고, 목록은 단추 아래로 연다 */
+.model-wrap { position: relative; flex: none; display: flex; }
+.model-btn {
+  height: 24px; padding: 0 10px; border: 1px solid var(--line-strong); background: none; color: var(--muted);
+  font: 600 12px var(--font-mono); white-space: nowrap;
+}
+.model-btn:hover:not(:disabled), .model-btn.on { color: var(--accent); border-color: var(--accent); }
+.model-btn:disabled { opacity: .45; cursor: default; }
+.model-menu {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 30; min-width: 300px; max-height: 70vh; overflow-y: auto;
+  display: flex; flex-direction: column; padding: 4px;
+  border: 1px solid var(--line-strong); background: var(--panel); box-shadow: 0 8px 24px rgba(0, 0, 0, .3);
+}
+.mm-group { margin: 6px 10px 2px; padding-top: 6px; border-top: 1px solid var(--line); font: 600 11px var(--font-mono); color: var(--muted); letter-spacing: .04em; }
+.model-menu button {
+  display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 7px 10px;
+  border: 0; background: none; color: var(--text); font: 600 13px var(--font-display); text-align: left;
+}
+.model-menu button:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.model-menu button.on { color: var(--accent); }
+.model-menu button.on span::before { content: '✓ '; }
+.model-menu button span, .model-menu code { white-space: nowrap; }
+.model-menu code { font: 11px var(--font-mono); color: var(--muted); }
 
 
 
@@ -673,6 +696,87 @@ kbd.tag {
 .mp-throw input, .mp-throw textarea { display: block; width: 100%; margin-top: 4px; padding: 6px 8px; background: var(--bg); border: 1px solid var(--line-strong); color: var(--text); font: 13px var(--font-body); }
 .mp-throw textarea { min-height: 54px; resize: vertical; }
 .mp-hint { font-size: 11.5px; color: var(--muted); margin: 2px 0 10px; }
+
+/* 스펙 패널 ------------------------------------------------------------- */
+/* 모듈 패널 자리에서 [모듈 | 스펙] 으로 바꿔 본다. 구성요소별 동작 트리. 누른다고 창이 뜨지 않고, 목업은 새 탭으로 연다 */
+.sp-seg2 { display: inline-flex; flex: none; border: 1px solid var(--line-strong); margin-right: 2px; }
+.sp-seg2 button { height: 22px; padding: 0 11px; border: 0; background: none; color: var(--muted); font: 600 11.5px var(--font-display); letter-spacing: .04em; }
+.sp-seg2 button:hover { color: var(--text); }
+.sp-seg2 button.on { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); box-shadow: inset 0 -2px 0 var(--accent); }
+.sp-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; }
+.sp-pane .pane-info { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sp-zoom { font: 11px var(--font-mono); color: var(--muted); min-width: 34px; text-align: center; }
+.sp-legend { flex: none; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; padding: 6px 14px; border-bottom: 1px solid var(--line); font: 11px var(--font-mono); color: var(--muted); }
+.sp-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sp-legend b { display: inline-block; width: 12px; height: 10px; }
+.sp-legend .lg-term { background: rgba(63, 208, 201, .6); }
+.sp-legend .lg-comp { background: rgba(108, 196, 255, .6); }
+.sp-legend .lg-do { background: rgba(63, 185, 80, .6); }
+.sp-legend .lg-dont { background: rgba(255, 107, 107, .6); }
+.sp-legend .lg-open { background: rgba(194, 155, 255, .6); }
+.sp-legend .lg-mock { background: #9ad8ff; }
+/* 끌어 옮길 때 글자가 잡히지 않게 한다 */
+.sp-vp { position: relative; flex: 1; min-height: 0; overflow: hidden; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
+.sp-vp * { user-select: none; -webkit-user-select: none; }
+.sp-vp.grabbing { cursor: grabbing; }
+.sp-vp > .empty { margin: 80px auto; }
+.sp-layer { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.sp-seg { position: absolute; background: rgba(108, 196, 255, .30); pointer-events: none; }
+.sp-seg.then { background: rgba(63, 185, 80, .5); }
+.sp-then { position: absolute; transform: translateX(-50%); font: 600 10px var(--font-mono); letter-spacing: .04em; color: #7ee787; white-space: nowrap; pointer-events: none; }
+/* 접고 펴는 단추, 고른 개체 아래의 더하기 단추, 더블클릭으로 뜨는 입력칸, 머리줄의 알릴 수정 수 */
+.sp-fold { flex: none; align-self: center; width: 24px; text-align: center; font-size: 11px; color: var(--muted); }
+.sp-fold:hover { color: var(--text); }
+.sp-acts { position: absolute; z-index: 9; display: flex; gap: 4px; }
+.sp-acts button { height: 24px; padding: 0 9px; border: 1px solid var(--accent); background: var(--panel); color: var(--accent); font: 600 11.5px var(--font-body); white-space: nowrap; cursor: pointer; box-shadow: 0 4px 12px -6px rgba(0, 0, 0, .7); }
+.sp-acts button:hover { background: color-mix(in srgb, var(--accent) 18%, var(--panel)); }
+.sp-acts .sp-del { border-color: var(--rej); color: var(--rej); }
+.sp-acts .sp-del:hover { background: color-mix(in srgb, var(--rej) 18%, var(--panel)); }
+.sp-vp .sp-edit { position: absolute; z-index: 10; box-sizing: border-box; margin: 0; padding: 0 10px; border: 2px solid var(--accent); background: var(--panel); color: var(--text); font: 13px var(--font-body); outline: none; cursor: text; user-select: text; -webkit-user-select: text; }
+.sp-q { flex: none; font: 600 11px var(--font-mono); color: var(--accent); border: 1px solid var(--accent); padding: 1px 6px; margin-right: 8px; cursor: help; }
+.sp-n { position: absolute; display: flex; align-items: stretch; border: 0; padding: 0; margin: 0; text-align: left; color: var(--text); font: 14px/1.4 var(--font-body); cursor: pointer; backdrop-filter: blur(6px); box-shadow: 0 5px 16px -8px rgba(0, 0, 0, .6); }
+.sp-n .ic { flex: none; display: flex; align-items: center; justify-content: center; }
+/* 글이 폭을 넘으면 … 으로 자른다. flex 상자에는 말줄임이 먹지 않아 block 으로 둔다 */
+.sp-n .t { flex: 1; min-width: 0; display: block; align-self: center; padding: 0 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sp-n.sel { outline: 2px solid var(--accent); outline-offset: 3px; z-index: 6; }
+.sp-n:focus-visible { outline: 2px dashed var(--accent); outline-offset: 3px; }
+/* 마우스를 올리면 내용만큼 늘어나되 원래 폭(--w)보다 줄지 않는다 */
+.sp-row:hover, .sp-row.sel { width: max-content !important; min-width: var(--w); z-index: 7; }
+.sp-row:hover .t, .sp-row.sel .t { overflow: visible; text-overflow: clip; }
+.sp-root { background: rgba(255, 123, 114, .13); min-height: 120px; }
+.sp-root .ic { width: 44px; background: rgba(255, 123, 114, .28); color: #ff7b72; }
+.sp-root .ic svg { width: 24px; height: 24px; }
+.sp-root .rb { display: flex; flex-direction: column; gap: 7px; flex: 1; min-width: 0; padding: 12px 14px; }
+.sp-root .rt { font: 700 16px var(--font-display); letter-spacing: .06em; }
+.sp-root .rd { height: 1px; background: rgba(255, 255, 255, .55); }
+.sp-root .rx { font-size: 12.5px; line-height: 1.5; color: #c9d1da; word-break: keep-all; }
+.sp-term { background: rgba(63, 208, 201, .12); box-shadow: inset 0 -1px 0 rgba(255, 255, 255, .05); }
+.sp-term .ic { width: 30px; background: rgba(63, 208, 201, .28); color: #3fd0c9; }
+.sp-term .t { color: #d6f5f3; }
+.sp-term .t b { color: #7ee8e2; font-weight: 600; }
+.sp-comp { background: rgba(108, 196, 255, .13); }
+.sp-comp .ic { width: 34px; background: rgba(108, 196, 255, .28); color: #6cc4ff; }
+.sp-comp .ic svg { width: 17px; height: 17px; }
+.sp-comp .t { font-size: 13.5px; font-weight: 600; }
+.sp-bd { position: absolute; top: -9px; font: 600 10px var(--font-mono); line-height: 1; padding: 3px 6px; }
+.sp-bd.open { right: 28px; color: var(--q); background: var(--panel); border: 1px solid var(--q); }
+.sp-bd.col { right: -9px; background: var(--accent); color: var(--accent-ink); }
+.sp-do { background: rgba(63, 185, 80, .12); box-shadow: inset 0 -1px 0 rgba(255, 255, 255, .05); }
+.sp-do .ic { width: 30px; background: rgba(63, 185, 80, .26); color: #3fb950; }
+.sp-dont { background: rgba(255, 107, 107, .11); box-shadow: inset 0 -1px 0 rgba(255, 255, 255, .05); }
+.sp-dont .ic { width: 30px; background: rgba(255, 107, 107, .26); color: #ff6b6b; }
+.sp-dont .t { color: #ffd9d9; }
+.sp-open { background: rgba(194, 155, 255, .11); box-shadow: inset 0 -1px 0 rgba(255, 255, 255, .05); }
+.sp-open .ic { width: 30px; background: rgba(194, 155, 255, .26); color: var(--q); }
+.sp-open .t { color: #e6dcff; }
+.sp-term .ic svg, .sp-do .ic svg, .sp-dont .ic svg, .sp-open .ic svg, .sp-mock .ic svg { width: 15px; height: 15px; }
+.sp-term .t, .sp-do .t, .sp-dont .t, .sp-open .t { font-size: 13px; }
+/* 목업: 구성요소 아래 하늘색 라벨. 누르면 새 탭으로 열린다 */
+.sp-mock { background: rgba(154, 216, 255, .9); color: #04121d; text-decoration: none; }
+.sp-mock .ic { width: 30px; background: rgba(4, 18, 29, .14); color: #04121d; }
+.sp-mock .t { font: 600 12.5px var(--font-mono); color: #04121d; }
+.sp-mock .go { flex: none; display: flex; align-items: center; padding: 0 10px; font: 600 10.5px var(--font-mono); color: #0b3a57; }
+.sp-mock:hover { background: #b8e4ff; }
 
 /* 모바일 화면 ------------------------------------------------------------ */
 /* 휴대폰에서는 커맨드 패널만 둔다. 모듈 패널, 지난 턴, 터미널은 PC 에서 본다

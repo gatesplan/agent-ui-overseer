@@ -7,6 +7,7 @@ if TYPE_CHECKING:
     from .install_layout import InstallLayout as InstallLayout
     from .item import Item as Item
     from .launch_env import LaunchEnv as LaunchEnv
+    from .model_catalog import ModelCatalog as ModelCatalog
     from .module_map import ModuleMap as ModuleMap
     from .panel_store import PanelStore as PanelStore
     from .permission_gate import PermissionGate as PermissionGate
@@ -14,6 +15,7 @@ if TYPE_CHECKING:
     from .project_finder import ProjectFinder as ProjectFinder
     from .project_journal import ProjectJournal as ProjectJournal
     from .project_key import ProjectKey as ProjectKey
+    from .project_spec import ProjectSpec as ProjectSpec
     from .record_store import RecordStore as RecordStore
     from .transcript_reader import TranscriptReader as TranscriptReader
     from .turn_builder import TurnBuilder as TurnBuilder
@@ -25,6 +27,7 @@ _EXPORTS = {
     "InstallLayout": "install_layout",
     "Item": "item",
     "LaunchEnv": "launch_env",
+    "ModelCatalog": "model_catalog",
     "ModuleMap": "module_map",
     "PanelStore": "panel_store",
     "PermissionGate": "permission_gate",
@@ -32,6 +35,7 @@ _EXPORTS = {
     "ProjectFinder": "project_finder",
     "ProjectJournal": "project_journal",
     "ProjectKey": "project_key",
+    "ProjectSpec": "project_spec",
     "RecordStore": "record_store",
     "TranscriptReader": "transcript_reader",
     "TurnBuilder": "turn_builder",

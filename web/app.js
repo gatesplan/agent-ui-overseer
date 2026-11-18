@@ -30,13 +30,16 @@ const KIND_ORDER = { 보고: 0, 질문: 1, 제안: 2 };
 const FONT_KEYS = { cur: '커맨드 카드', prev: '지난 턴 카드', head: '턴 머리', map: '모듈 카드' };
 const FONT_DEFAULT = { cur: 16, prev: 14, head: 14, map: 12 };
 
-const blank = { decisions: {}, sent: {}, log: [], extra: '', wrapup: false, running: null, turns: [], summary: {}, summarySent: {}, alive: true, map: null, modules: null };
+const blank = { decisions: {}, sent: {}, log: [], extra: '', wrapup: false, running: null, turns: [], summary: {}, summarySent: {}, alive: true, map: null, specq: [], modules: null };
 // 실제 모드: 패널 서버(scripts 의 overseer)가 있으면 그 탭을 쓴다. 없으면(serve_mock) 목업 데이터를 쓴다
 let LIVE = false;
 let sessions = [];
 // 헤더 아래 사용량 막대. 계정 단위라 에이전트 종류마다 하나: { claude: {status, limits, at, message} }. 막대는 지금 탭 에이전트의 것
 // limits 는 /usage 의 막대와 같은 행 [{kind, label, percent, resets_at, severity}]. 서버가 응답이 끝날 때마다 다시 받아 알린다
 let usage = {};
+// 모델 교체 목록. 에이전트 종류마다 CLI 가 알려 준 목록: { claude: {status, models: [{value, resolvedModel, displayName, description}], at, message} }
+// 서버가 시작할 때와 새 탭을 띄울 때 받아 알린다
+let models = {};
 
 // 목업의 사용량. 주간 전체와 모델별 주간 두 행. codex 탭으로 가면 받은 것이 없어 막대가 사라진다
 function mockUsage() {
@@ -47,12 +50,35 @@ function mockUsage() {
   ] } };
 }
 
+// 목업의 모델 목록. CLI 의 SDK 제어 요청 initialize 가 돌려준 models 를 옮겨 둔 것(Claude Code, 2026-11-18)
+function mockModels() {
+  const m = (value, resolvedModel, displayName, description) => ({ value, resolvedModel, displayName, description });
+  return { claude: { status: 'ok', at: new Date().toISOString(), message: '', models: [
+    m('default', 'claude-opus-5-5', 'Default (recommended)', 'Opus 5.5 · Best for everyday, complex tasks'),
+    m('opus', 'claude-opus-5-5', 'Opus 5.5', 'For complex work and everyday tasks'),
+    m('fable', 'claude-fable-5-2', 'Fable 5.2', 'For your toughest challenges'),
+    m('sonnet', 'claude-sonnet-5-5', 'Sonnet 5.5', 'Most efficient for simpler tasks'),
+    m('haiku', 'claude-haiku-5-5', 'Haiku 5.5', 'Fastest for quick answers'),
+    m('claude-fable-5-1', 'claude-fable-5-1', 'Fable 5.1', 'Most capable for your hardest and longest-running tasks'),
+    m('claude-haiku-4-5-20251001', 'claude-haiku-4-5-20251001', 'Haiku 4.5', 'Fastest for quick answers'),
+    m('claude-sonnet-5', 'claude-sonnet-5', 'Sonnet 5', 'Efficient for routine tasks'),
+    m('claude-opus-5', 'claude-opus-5', 'Opus 5', 'Best for everyday, complex tasks'),
+    m('claude-fable-5', 'claude-fable-5', 'Fable 5', 'Most capable for your hardest and longest-running tasks'),
+    m('claude-opus-4-8', 'claude-opus-4-8', 'Opus 4.8', 'Best for everyday, complex tasks'),
+    m('claude-opus-4-7', 'claude-opus-4-7', 'Opus 4.7', 'Best for everyday, complex tasks'),
+    m('claude-opus-4-6', 'claude-opus-4-6', 'Opus 4.6', 'Best for everyday, complex tasks'),
+    m('claude-sonnet-4-6', 'claude-sonnet-4-6', 'Sonnet 4.6', 'Efficient for routine tasks'),
+  ] } };
+}
+
 // 목업 데이터는 예전 ID(`턴-순번`)로 적혀 있다. 한 세션으로 보고 `1S-턴-순번` 으로 바꾼다
 function mockSessions() {
   const id = k => /^\d+-\d+$/.test(k) ? `1S-${k}` : k;
   const text = t => t.replace(/#(\d+-\d+)\b/g, '#1S-$1');
   const list = window.MOCK.sessions.map(s => ({
     ...blank, ...s,
+    // 모델 교체 단추. 실제 탭은 서버가 마지막 응답의 모델을 싣는다
+    model: s.agent === 'claude' ? 'claude-opus-5-5' : null,
     session: 1,
     turns: s.turns.map(t => ({
       ...t, id: `1S-${t.turn}`, session: 1, prompt: text(t.prompt),
@@ -79,11 +105,17 @@ function fromServer(t, prev, turns) {
     wrapup: prev ? prev.wrapup : !!d.wrapup,
     // 모듈 패널에서 한 일(보낼 것)과 받아 둔 지도는 탭 알림이 와도 이어 간다
     map: prev ? prev.map : (d.map || null),
+    // 스펙 패널에서 고치거나 더한 것(에이전트에게 알릴 줄)도 이어 간다
+    specq: prev ? prev.specq : (d.specq || []),
     modules: prev ? prev.modules : null,
     _mpIndex: prev ? prev._mpIndex : null,
     _mpGood: prev ? prev._mpGood : null,
     _mpItems: prev ? prev._mpItems : null,
     _mpLoading: prev ? prev._mpLoading : false,
+    // 스펙 패널이 받아 둔 스펙도 이어 간다. 놓치면 탭 알림마다 다시 받는다
+    spec: prev ? prev.spec : null,
+    _spIx: prev ? prev._spIx : null,
+    _spLoading: prev ? prev._spLoading : false,
     log: [],
   };
 }
@@ -109,8 +141,8 @@ const ui = {
   refs: pref('overseer.refs', '1') === '1',
   // 지난 턴 펼침, 보류 막을 걷은 사안, 추가 지시 칸
   past: false, unveil: new Set(), extraOpen: false,
-  // 보내기 요청이 오가는 중인 탭
-  sending: null,
+  // 보내기 요청이 오가는 중인 탭, 모델 목록을 연 탭
+  sending: null, modelMenu: null,
   // 띄우면서 터미널 창을 연 탭. 시작 훅이 오면 접고, 사용자가 직접 여닫으면 그대로 둔다
   autoTerm: null,
   // 모듈 패널: 고정한 모듈, 탭별 펼친 중첩 모듈, 책임 카드 창
@@ -345,6 +377,7 @@ function compose(s) {
   }
   if (confirmed.length) lines.push(`확인: ${confirmed.join(', ')} 사안 종료됨.`);
   lines.push(...mapLines(s));
+  lines.push(...specLines(s));
   if (s.wrapup) lines.push(WRAPUP);
   if (s.extra.trim()) lines.push(s.extra.trim());
   return lines.join('\n');
@@ -597,13 +630,58 @@ function unhold(id) {
   flash(cardEl(id));
 }
 
+// 모델 교체: 커맨드 패널 머리줄 톱니 옆. 고르면 터미널에 `/model <값>` 을 쳐 넣는다. 값을 받으면 CLI 는 고르는 창 없이 바로 바꾼다
+// 목록은 CLI 가 알려 준 그대로다(models). 별칭(opus 등)은 지금 가리키는 버전을 함께 보이고, 버전을 못 박은 값은 아래 묶음에 둔다
+// 서버가 탭 상태에 마지막 응답의 모델 ID(s.model)와 패널에서 고른 값(s.modelPick, 다음 응답이 오면 비움)을 싣는다
+const isAlias = m => !m.value.startsWith('claude-');
+const modelList = s => models[s.agent]?.models || [];
+// 모델 ID(claude-opus-5-5)의 화면 이름. 별칭 쪽 이름(버전 포함)을 먼저 쓴다
+function modelName(list, id) {
+  const hit = list.find(m => m.resolvedModel === id && m.value !== 'default') || list.find(m => m.resolvedModel === id);
+  return hit ? hit.displayName : id;
+}
+// 목록 한 줄의 이름. 기본은 지금 가리키는 모델을 붙인다
+const modelLabel = (list, m) => m.value === 'default' ? `기본 · ${modelName(list, m.resolvedModel)}` : m.displayName;
+// 지금 고른 항목. 패널에서 고른 값이 있으면 그것, 없으면 지금 모델을 가리키는 별칭
+const modelCurrent = (list, s) => list.find(m => m.value === s.modelPick) || list.find(m => isAlias(m) && m.value !== 'default' && m.resolvedModel === s.model);
+function modelButton(s) {
+  const list = modelList(s);
+  if (!list.length || !s.alive) return '';
+  const open = ui.modelMenu === s.id, now = modelCurrent(list, s);
+  // 작업 중에 바꾸면 터미널 입력이 응답과 섞인다. /clear 처럼 잠근다
+  const busy = !!s.running || s.starting || ui.sending === s.id;
+  const row = m => `<button type="button" role="menuitemradio" aria-checked="${m === now}" class="${m === now ? 'on' : ''}" data-model-pick="${esc(m.value)}"
+      title="${esc(m.description || '')}"><span>${esc(modelLabel(list, m))}</span><code>/model ${esc(m.value)}</code></button>`;
+  const pinned = list.filter(m => !isAlias(m));
+  const menu = open ? `<div class="model-menu" role="menu">${list.filter(isAlias).map(row).join('')}${
+    pinned.length ? `<div class="mm-group">버전 지정</div>${pinned.map(row).join('')}` : ''}</div>` : '';
+  // 첫 응답 전에는 어느 모델인지 모른다
+  const label = s.modelPick && now ? modelLabel(list, now) : s.model ? modelName(list, s.model) : '모델';
+  const stale = models[s.agent].status !== 'ok' ? `\n목록을 새로 받지 못했다: ${models[s.agent].message || models[s.agent].status}` : '';
+  return `<span class="model-wrap"><button class="model-btn ${open ? 'on' : ''}" data-model-menu ${busy ? 'disabled' : ''}
+    title="모델 교체. 고르면 터미널에 /model 을 쳐 넣는다${busy ? '. 에이전트가 작업 중이라 잠김' : ''}${esc(stale)}">${esc(label)} ▾</button>${menu}</span>`;
+}
+function closeModelMenu() {
+  ui.modelMenu = null;
+  $('.model-menu')?.remove();
+  $('.model-btn.on')?.classList.remove('on');
+}
+async function pickModel(s, value) {
+  closeModelMenu();
+  if (!modelList(s).some(m => m.value === value)) return;
+  // 바뀐 상태(modelPick)는 탭 알림으로 온다. 목업은 화면만 바꾼다
+  if (LIVE) { await api(`/api/tabs/${s.id}/model`, 'POST', { value }); return; }
+  s.modelPick = value;
+  render();
+}
+
 // 보내기 줄: 정리 요청, 추가 지시, /clear, 보내기. 작업 중이면 보낸 메시지를 접어 보인다
 function sendLabel(s) {
   const { done, total } = progress(s);
-  const maps = mapCount(s);
+  const maps = mapCount(s), specs = specCount(s);
   if (s.starting) return '시작 대기';
   if (ui.sending === s.id) return '보내는 중';
-  return `보내기<span class="send-n">${total ? `${done}/${total}` : ''}${maps ? ` · 지도 ${maps}` : ''}</span>`;
+  return `보내기<span class="send-n">${total ? `${done}/${total}` : ''}${maps ? ` · 지도 ${maps}` : ''}${specs ? ` · 스펙 ${specs}` : ''}</span>`;
 }
 
 // fresh: 처리할 카드가 없는 새 맥락(첫 실행, /clear 뒤). 지시 칸을 늘 열어 두고 거기서 첫 입력을 한다
@@ -690,6 +768,7 @@ function renderMain(s) {
   const bar = extra => `<header class="pane-bar"><span class="pane-name">커맨드 패널</span><span class="pane-info">턴 ${s.turns.length} · 사안 ${allItems(s).length}</span>
       ${extra}
       ${LIVE ? `<button class="pane-rec ${ui.drawer === 'records' ? 'on' : ''}" data-drawer="records" title="이 프로젝트의 결정 기록과 용어">기록 ${(s.records || []).filter(r => r.status === 'active').length}</button>` : ''}
+      ${modelButton(s)}
       <button class="pane-gear ${ui.drawer === 'flow' ? 'on' : ''}" data-drawer="flow" title="커맨드 패널 설정">${GEAR}</button></header>`;
   if (!s.turns.length && !(LIVE && s.alive)) {
     const msg = !s.alive ? '세션 꺼짐' : '아직 사안 없음';
@@ -979,6 +1058,7 @@ async function send() {
   ui.extraOpen = false;
   ui.unveil.clear();
   mapClear(s);
+  specClear(s);
   saveDraft(s);
   render();
   renderModules();
@@ -1070,6 +1150,7 @@ function fitNotes() {
 
 document.addEventListener('click', e => {
   if (ui.drawer && !e.target.closest('#drawer, [data-drawer]')) { ui.drawer = null; renderDrawer(); }
+  if (ui.modelMenu && !e.target.closest('.model-wrap')) closeModelMenu();
   if (e.target.closest('[data-unpick]')) { unpick(); return; }
   // 본문 링크는 새 창으로 열기만 한다. 카드를 고르면 맨 위로 올라가 누른 자리가 달아난다
   if (e.target.closest('.md a.link')) return;
@@ -1102,6 +1183,7 @@ function unpick() {
 // Enter: 선택한 카드의 첫 번째 처리를 고르고 다음 카드로 (의견이 필요한 처리면 입력칸으로)
 // Ctrl+Enter: 카드 입력칸에서 입력을 마치고 다음 카드로
 // Esc: 입력창에서 벗어나기, 그다음 선택 해제
+// Ctrl+Z, Ctrl+Shift+Z: 스펙 패널에서 한 고치기, 더하기, 삭제를 되돌리고 다시 하기 (spec-panel.js 가 듣는다)
 document.addEventListener('keydown', e => {
   // 터미널 창 안의 키는 전부 claude 로 간다. Tab, Esc 도 거기서 쓰인다
   if (e.target.closest?.('#term, dialog')) return;
@@ -1126,6 +1208,7 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     if (typing) { e.target.blur(); return; }
     if (ui.drawer) { ui.drawer = null; renderDrawer(); return; }
+    if (ui.modelMenu) { closeModelMenu(); return; }
     if (mpEsc()) return;
     if (ui.past) { ui.past = false; render(); return; }
     if (ui.active) unpick();
@@ -1195,7 +1278,7 @@ function step(dir) {
 }
 
 function act(e) {
-  const t = e.target.closest('[data-unhold],[data-closeheld],[data-retire],[data-perm],[data-open-term],[data-close],[data-newtab],[data-resume],[data-tab],[data-jump],[data-act],[data-toggle],[data-prompt],[data-drawer],[data-fs],[data-peek],[data-oldturns],[data-past],[data-extra-toggle],#toggle-term,#btn-send,#btn-wrapup,#btn-clear');
+  const t = e.target.closest('[data-unhold],[data-closeheld],[data-retire],[data-perm],[data-open-term],[data-close],[data-newtab],[data-resume],[data-tab],[data-jump],[data-act],[data-toggle],[data-prompt],[data-drawer],[data-fs],[data-peek],[data-oldturns],[data-past],[data-extra-toggle],[data-model-menu],[data-model-pick],#toggle-term,#btn-send,#btn-wrapup,#btn-clear');
   if (!t) return;
   const s = cur();
   if (t.dataset.unhold) { unhold(t.dataset.unhold); }
@@ -1228,6 +1311,8 @@ function act(e) {
     render();
     if (ui.extraOpen) document.querySelector('[data-extra]')?.focus();
   }
+  else if ('modelMenu' in t.dataset) { ui.modelMenu = ui.modelMenu === s.id ? null : s.id; render(); }
+  else if (t.dataset.modelPick) { pickModel(s, t.dataset.modelPick); }
   else if (t.dataset.tab) { ui.cur = t.dataset.tab; ui.active = null; ui.mpPin = null; ui.past = false; ui.unveil.clear(); render({ keepScroll: false }); }
   else if (t.dataset.jump) { e.stopPropagation(); jumpTo(t.dataset.jump); }
   else if ('oldturns' in t.dataset) { ui.showOld.has(s.id) ? ui.showOld.delete(s.id) : ui.showOld.add(s.id); render(); }
@@ -1339,7 +1424,7 @@ function saveDraft(s) {
   draftTimers[s.id] = setTimeout(() => {
     fetch(`/api/tabs/${s.id}/draft`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ decisions: s.decisions, summary: s.summary, extra: s.extra, wrapup: s.wrapup, map: s.map }),
+      body: JSON.stringify({ decisions: s.decisions, summary: s.summary, extra: s.extra, wrapup: s.wrapup, map: s.map, specq: s.specq }),
     }).catch(() => {});
   }, 400);
 }
@@ -1639,13 +1724,17 @@ async function refetchTab(id) {
 }
 
 // 탭 상태 알림. 끊기면 다시 붙는다
+let listened = false;
 function listen() {
   const ws = new WebSocket(`${WS}//${location.host}/ws/events`);
+  ws.onopen = () => { if (listened) spReset(); listened = true; };
   ws.onmessage = e => {
     const msg = JSON.parse(e.data);
     if (msg.type === 'closed') { if (sessions.some(s => s.id === msg.id)) removeTab(msg.id); return; }
     if (msg.type === 'modules') { onModulesEvent(msg); return; }
+    if (msg.type === 'spec') { onSpecEvent(msg); return; }
     if (msg.type === 'usage') { usage = msg.usage || {}; renderTabs(); return; }
+    if (msg.type === 'models') { models = msg.models || {}; if (cur()) renderKeepFocus(); return; }
     // tab: 전체 상태(예전 서버), tab-delta: 바뀐 턴만 실은 상태
     if (msg.type !== 'tab' && msg.type !== 'tab-delta') return;
     const was = sessions.find(s => s.id === msg.tab.id)?.starting;
@@ -1720,6 +1809,7 @@ async function boot() {
   if (!LIVE) {
     sessions = mockSessions();
     usage = mockUsage();
+    models = mockModels();
     // 처음엔 미처리 사안만 펼쳐 둔다
     sessions.forEach(s => allItems(s).forEach(i => { if (statusOf(s, i) === 'todo') ui.open.add(i.id); }));
   } else {
@@ -1731,6 +1821,11 @@ async function boot() {
       if (Object.keys(usage).length) return;
       usage = u;
       renderTabs();
+    }).catch(() => {});
+    fetch('/api/models').then(r => r.ok ? r.json() : {}).then(m => {
+      if (Object.keys(models).length) return;
+      models = m;
+      if (cur()) renderKeepFocus();
     }).catch(() => {});
   }
   // 새로고침해도 보던 탭으로 돌아온다

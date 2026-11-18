@@ -169,12 +169,14 @@ class TurnBuilder:
                     i['parent'] = f'{turn_id(m.group(1))}-{m.group(2)}'
 
     # 토큰 사용량을 더한다. 기록이 없는 응답(이전 버전 훅)이 섞이면 아는 것만 더한다
+    # model 은 응답한 모델 ID. 한 턴이 여러 기록으로 나뉘면 나중 기록의 것이다
     def _usage(self, total: dict | None, add: dict | None) -> dict | None:
         if not add:
             return total
-        if not total:
-            return {k: add.get(k, 0) for k in USAGE_KEYS}
-        return {k: total.get(k, 0) + add.get(k, 0) for k in USAGE_KEYS}
+        total = total or {}
+        out = {k: total.get(k, 0) + add.get(k, 0) for k in USAGE_KEYS}
+        out['model'] = add.get('model') or total.get('model')
+        return out
 
     # 턴이 받은 입력을 대기 목록에서 지운다. 맞춘 것보다 앞에 남은 입력은 이미 지나간 것이라 함께 지운다
     def _consume(self, waiting: list[str], prompts: list[str]) -> list[str]:

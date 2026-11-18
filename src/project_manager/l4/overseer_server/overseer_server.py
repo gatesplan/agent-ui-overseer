@@ -11,10 +11,13 @@ from loguru import logger
 from ...l0.conda_envs import CondaEnvs
 from ...l0.install_layout import InstallLayout
 from ...l0.launch_env import LaunchEnv
+from ...l0.model_catalog import ModelCatalog
 from ...l0.module_map import ModuleMap
 from ...l0.panel_store import PanelStore
 from ...l0.plan_usage import PlanUsage
 from ...l0.project_finder import ProjectFinder
+from ...l0.project_key import ProjectKey
+from ...l0.project_spec import ProjectSpec
 from ...l0.record_store import RecordStore
 from ...l1.map_watcher import MapWatcher
 from ...l2.agent_tab import AgentTab
@@ -39,11 +42,18 @@ class OverseerServer:
         self.finder = ProjectFinder(roots=project_roots)
         # 모듈 패널의 지도. 화면이 연 프로젝트만 지켜본다
         self.maps = MapWatcher(ModuleMap())
+        # 스펙 패널이 한 번이라도 받은 프로젝트의 spec.json 서명: {프로젝트 키: {cwd, sig}}. 바뀌면 알린다
+        self.specs: dict[str, dict] = {}
         # 탭 아래 사용량 막대. 계정 단위라 에이전트 종류마다 하나: {'claude': PlanUsage.fetch 결과}
         self.plan = PlanUsage(env=AgentTab.child_env(dict(os.environ)))
         self.usage: dict[str, dict] = {}
         self._usage_task: asyncio.Task | None = None
         self._usage_again = False
+        # 커맨드 패널 머리줄의 모델 교체 목록. 에이전트 종류마다 하나: {'claude': ModelCatalog.fetch 결과}
+        # CLI 가 업데이트될 때만 바뀌므로 서버가 시작할 때와 새 탭을 띄울 때 받는다
+        self.catalog = ModelCatalog(env=AgentTab.child_env(dict(os.environ)))
+        self.models: dict[str, dict] = {}
+        self._models_task: asyncio.Task | None = None
         # 탭마다 마지막으로 본 응답 수. 늘면 응답이 끝난 것이라 사용량을 다시 받는다
         self._answers: dict[str, int] = {}
         self.clients: set[web.WebSocketResponse] = set()
@@ -53,6 +63,7 @@ class OverseerServer:
             web.get('/api/health', self._health),
             web.get('/api/projects', self._projects),
             web.get('/api/usage', self._usage),
+            web.get('/api/models', self._models),
             web.get('/api/launch', self._launch),
             web.post('/api/tabs/{id}/permission', self._permission),
             web.post('/api/tabs/{id}/close-held', self._close_held),
@@ -63,9 +74,13 @@ class OverseerServer:
             web.delete('/api/tabs/{id}', self._close),
             web.post('/api/tabs/{id}/send', self._send),
             web.post('/api/tabs/{id}/clear', self._clear),
+            web.post('/api/tabs/{id}/model', self._set_model),
             web.put('/api/tabs/{id}/draft', self._draft),
             web.post('/api/tabs/{id}/records/retire', self._retire_record),
             web.get('/api/tabs/{id}/modules', self._modules),
+            web.get('/api/tabs/{id}/spec', self._spec),
+            web.post('/api/tabs/{id}/spec', self._spec_write),
+            web.get('/api/tabs/{id}/files/{path:.+}', self._file),
             web.get('/ws/events', self._events),
             web.get('/ws/term/{id}', self._term),
         ])
@@ -101,12 +116,14 @@ class OverseerServer:
         app['poller'] = asyncio.create_task(self._poll_loop())
         app['mapper'] = asyncio.create_task(self._map_loop())
         self._check_usage()
+        self._check_models()
 
     async def _cleanup(self, app: web.Application) -> None:
         app['poller'].cancel()
         app['mapper'].cancel()
-        if self._usage_task:
-            self._usage_task.cancel()
+        for task in (self._usage_task, self._models_task):
+            if task:
+                task.cancel()
         self.tabs.shutdown()
 
     # 훅 기록과 프로세스 종료를 살펴 바뀐 탭 상태를 알린다. 응답이 끝난 탭이 있으면 사용량을 다시 받는다
@@ -152,20 +169,58 @@ class OverseerServer:
             if not self._usage_again:
                 return
 
+    # 모델 목록을 다시 받는다. 받는 중이면 그대로 둔다
+    def _check_models(self) -> None:
+        if self._models_task and not self._models_task.done():
+            return
+        self._models_task = asyncio.create_task(self._fetch_models())
+
+    # 받지 못하면 지난 목록을 남기고 실패만 표시한다
+    async def _fetch_models(self) -> None:
+        try:
+            result = await asyncio.to_thread(self.catalog.fetch)
+        except Exception as e:
+            logger.exception("모델 목록 받기 실패")
+            result = {'status': 'error', 'models': [], 'message': str(e)}
+        last = self.models.get('claude')
+        if result['status'] != 'ok':
+            logger.info(f"모델 목록 받기 실패: {result['status']} {result.get('message')}")
+            if last and last.get('models'):
+                result = {**last, 'status': result['status'], 'message': result.get('message', '')}
+        self.models['claude'] = result
+        await self._broadcast({'type': 'models', 'models': self.models})
+
     # 화면이 연 프로젝트의 소스가 바뀌면 모듈 지도를 다시 받아 알린다. 닫힌 탭의 폴더는 그만 본다
-    # 책임이 바뀐 모듈은 그 폴더 탭의 세션 이력에 남긴다
+    # 책임이 바뀐 모듈은 그 폴더 탭의 세션 이력에 남긴다. spec.json 이 바뀌어도 같은 간격으로 알린다
     async def _map_loop(self) -> None:
         while True:
             await asyncio.sleep(MAP_INTERVAL)
             try:
-                self.maps.keep_only([tab.cwd for tab in self.tabs.tabs.values()])
+                cwds = [tab.cwd for tab in self.tabs.tabs.values()]
+                self.maps.keep_only(cwds)
                 for cwd, result, before in await asyncio.to_thread(self.maps.changed):
                     await self._broadcast({'type': 'modules', 'cwd': cwd, 'modules': result})
                     tab = self.tabs.find(cwd)
                     if tab and tab.note_map(before, result):
                         await self._announce(tab)
+                for cwd, spec in await asyncio.to_thread(self._spec_changes, cwds):
+                    await self._broadcast({'type': 'spec', 'cwd': cwd, 'spec': spec})
             except Exception:
                 logger.exception("모듈 지도 갱신 실패")
+
+    # 스펙 패널이 받은 뒤 spec.json 이 바뀐(생기거나 지워진 것 포함) 프로젝트: [(폴더, 새 스펙)]. 열린 탭이 없는 프로젝트는 그만 본다
+    def _spec_changes(self, cwds: list[str]) -> list[tuple[str, dict]]:
+        keep = {ProjectKey.of(c) for c in cwds}
+        for key in [k for k in self.specs if k not in keep]:
+            del self.specs[key]
+        out = []
+        for entry in self.specs.values():
+            spec = ProjectSpec(entry['cwd'])
+            sig = spec.signature()
+            if sig != entry['sig']:
+                entry['sig'] = sig
+                out.append((entry['cwd'], spec.read()))
+        return out
 
     # 탭 상태 알림. 바뀐 턴만 싣는다(AgentTab.delta). 예전 화면은 tab-delta 를 몰라 무시하고 새로고침 때 전체를 받는다
     async def _announce(self, tab: AgentTab) -> None:
@@ -228,6 +283,10 @@ class OverseerServer:
     async def _usage(self, request: web.Request) -> web.Response:
         return web.json_response(self.usage, dumps=lambda o: json.dumps(o, ensure_ascii=False))
 
+    # 커맨드 패널 머리줄의 모델 교체 목록. 처음 열 때 받고, 그 뒤 바뀐 것은 models 알림으로 간다
+    async def _models(self, request: web.Request) -> web.Response:
+        return web.json_response(self.models, dumps=lambda o: json.dumps(o, ensure_ascii=False))
+
     # 새 세션 창의 폴더 목록: 드라이브마다 루트 Projects 폴더 안의 프로젝트. 실행 환경 칸의 conda 단추 목록도 함께 준다
     async def _projects(self, request: web.Request) -> web.Response:
         return web.json_response({'roots': self.finder.scan(), 'default_root': str(self.finder.default_root()),
@@ -264,6 +323,7 @@ class OverseerServer:
         except ValueError as e:
             return web.json_response({'error': str(e)}, status=400)
         await self._announce(tab)
+        self._check_models()
         return web.json_response(tab.state())
 
     async def _resume(self, request: web.Request) -> web.Response:
@@ -303,6 +363,22 @@ class OverseerServer:
         await self._announce(tab)
         return web.json_response({'held': held})
 
+    # 모델 교체: {value}. CLI 가 알려 준 목록의 값만 터미널에 친다. 목록을 아직 못 받았으면 값 모양만 본다
+    async def _set_model(self, request: web.Request) -> web.Response:
+        tab = self._tab(request)
+        value = str((await request.json()).get('value', ''))
+        known = [m['value'] for m in (self.models.get('claude') or {}).get('models') or []]
+        if known and value not in known:
+            return web.json_response({'error': f'CLI 가 알려 준 모델 목록에 없는 값이다: {value}'}, status=400)
+        try:
+            await tab.set_model(value)
+        except ValueError as e:
+            return web.json_response({'error': str(e)}, status=400)
+        except RuntimeError as e:
+            return web.json_response({'error': str(e)}, status=409)
+        await self._announce(tab)
+        return web.json_response({'ok': True})
+
     # 기록 창의 폐기: {ref, reason}. 그 탭 프로젝트의 유효한 기록만. 그 기록이 적용되는 탭(하위 폴더 탭 포함)에 알린다
     async def _retire_record(self, request: web.Request) -> web.Response:
         tab = self._tab(request)
@@ -319,6 +395,45 @@ class OverseerServer:
     async def _modules(self, request: web.Request) -> web.Response:
         tab = self._tab(request)
         return web.json_response({'cwd': tab.cwd, 'modules': await asyncio.to_thread(self.maps.get, tab.cwd)})
+
+    # 스펙 패널의 스펙: 탭 프로젝트 루트의 spec.json. 처음 받은 뒤로는 바뀐 것이 spec 알림으로 간다
+    async def _spec(self, request: web.Request) -> web.Response:
+        tab = self._tab(request)
+        spec = ProjectSpec(tab.cwd)
+        self.specs[ProjectKey.of(tab.cwd)] = {'cwd': tab.cwd, 'sig': spec.signature()}
+        return web.json_response({'cwd': tab.cwd, 'spec': spec.read()}, dumps=lambda o: json.dumps(o, ensure_ascii=False))
+
+    # 스펙 패널에서 사용자가 고친 글(op: edit), 고른 개체 아래에 더한 자식(op: add, 실행취소로 되살릴 때는 순번 at), 지운 자식 없는 개체(op: remove)
+    # spec.json 에 쓰고 바뀐 스펙을 돌려준다
+    # 다른 화면에는 spec 알림으로 간다. 화면이 본 뒤 파일이 바뀌었거나 스펙에 맞지 않으면 쓰지 않고 409 로 까닭을 알린다
+    async def _spec_write(self, request: web.Request) -> web.Response:
+        tab = self._tab(request)
+        body = await request.json()
+        spec = ProjectSpec(tab.cwd)
+        op = body.get('op')
+        if op == 'edit':
+            got = await asyncio.to_thread(spec.edit, body.get('changes') or [])
+        elif op == 'add':
+            got = await asyncio.to_thread(spec.add, body.get('path') or [], body.get('expect'), body.get('kind'), body.get('text', ''), body.get('at'))
+        elif op == 'remove':
+            got = await asyncio.to_thread(spec.remove, body.get('path') or [], body.get('expect'))
+        else:
+            return web.json_response({'error': f'모르는 스펙 작업: {op}'}, status=400)
+        if got['status'] != 'ok':
+            return web.json_response({'error': got['message']}, status=409)
+        logger.info(f"스펙 {op}: cwd={tab.cwd}")
+        return web.json_response({'cwd': tab.cwd, 'spec': {'status': 'ok', 'spec': got['spec']}, 'path': got.get('path')},
+                                 dumps=lambda o: json.dumps(o, ensure_ascii=False))
+
+    # 목업 라벨이 가리키는 프로젝트 안 파일. 경로째 내주어 목업이 상대 경로로 읽는 css, js 도 같은 자리에서 풀린다
+    async def _file(self, request: web.Request) -> web.FileResponse:
+        tab = self._tab(request)
+        rel = request.match_info['path']
+        path = ProjectSpec(tab.cwd).mock_file(rel)
+        if not path:
+            raise web.HTTPNotFound(text=f'프로젝트 안에서 내줄 수 있는 파일이 아니다: {rel}\n'
+                                        f'프로젝트 밖, 점으로 시작하는 폴더나 파일, 없는 파일은 열지 않는다')
+        return web.FileResponse(path)
 
     async def _draft(self, request: web.Request) -> web.Response:
         self._tab(request).save_draft(await request.json())

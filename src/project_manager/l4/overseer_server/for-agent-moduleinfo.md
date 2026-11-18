@@ -23,17 +23,23 @@ GET    /api/tabs                탭 상태 목록
 GET    /api/health              {ok, permissions} 훅이 권한 결정을 맡겨도 되는지 묻는다
 POST   /api/tabs/{id}/close-held {ids} 보류함에서 닫기(에이전트에게 보내지 않음)
 POST   /api/tabs/{id}/permission {request_id, behavior: allow | deny | terminal, message} 화면의 권한 결정
+GET    /api/models              {claude: {status, models: [{value, resolvedModel, displayName, description}], at, message}} 모델 교체 목록(ModelCatalog). 서버 시작과 새 탭 때 받고, 바뀐 것은 models 알림으로
 GET    /api/projects            {roots: [{root, dirs: [{name, path}]}], default_root} 새 세션 창 폴더 목록
 POST   /api/tabs                {cwd | create: {root, name}, rows, cols, skip_permissions} 새 탭. create 면 Projects 안에 폴더를 만들어 연다
 POST   /api/tabs/{id}/resume    {rows, cols} 이어서 띄우기
 DELETE /api/tabs/{id}           세션 끝내고 탭 닫기
 POST   /api/tabs/{id}/send      {message, decisions: [{id, action, note}]} 결정 저장 후 붙여넣기 전송
 POST   /api/tabs/{id}/clear     {decisions: [{id, action, note}]} 결정을 패널에만 저장하고 /clear. 미처리 사안은 보류로. {held, tab}
+POST   /api/tabs/{id}/model     {value} 터미널에 `/model <value>` 를 친다. 받은 모델 목록에 없는 값이면 400, 작업 중이면 409
 PUT    /api/tabs/{id}/draft     작성 중 초안 저장
 POST   /api/tabs/{id}/records/retire {ref, reason} 기록 창의 폐기. 그 탭 프로젝트의 유효한 기록만, 아니면 400. 그 기록이 적용되는 탭들에 상태를 알린다
+GET    /api/tabs/{id}/modules   {cwd, modules} 모듈 패널의 지도. 그 뒤 바뀐 것은 modules 알림으로
+GET    /api/tabs/{id}/spec      {cwd, spec: {status: ok | none | error, spec, message}} 탭 프로젝트 루트의 spec.json(ProjectSpec). 그 뒤 바뀐 것은 spec 알림으로
+POST   /api/tabs/{id}/spec      {op: edit, changes: [{path, old, new}]} | {op: add, path, expect, kind: component | do | dont, text} | {op: remove, path, expect} 스펙 패널에서 사용자가 고치거나 더하거나 지운 것을 spec.json 에 쓴다. {cwd, spec, path}. 화면이 본 뒤 바뀌었거나 스펙에 맞지 않으면 409 {error}
+GET    /api/tabs/{id}/files/{path} 목업 라벨이 가리키는 프로젝트 안 파일. 프로젝트 밖, 점으로 시작하는 폴더나 파일, 없는 파일은 404
 
 ### WebSocket
-/ws/events      서버 → 화면: {type: 'tab', tab} | {type: 'closed', id}
+/ws/events      서버 → 화면: {type: 'tab', tab} | {type: 'closed', id} | {type: 'modules', cwd, modules} | {type: 'spec', cwd, spec} | {type: 'usage', usage} | {type: 'models', models}
 /ws/term/{id}   붙으면 남은 출력부터 보낸다. 화면 → 서버: {type: 'input', data} | {type: 'resize', rows, cols}
                 입력이 들어오면 떠 있던 확인 알림을 내린다(AgentTab.acknowledge)
 

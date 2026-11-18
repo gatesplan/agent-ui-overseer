@@ -33,7 +33,7 @@ UV_RUN_VARS = ('VIRTUAL_ENV', 'UV', 'UV_RUN_RECURSION_DEPTH', '_')
 TAB_VARS = ('OVERSEER_TAB', 'OVERSEER_PROJECT')
 # 보존 사안 본문의 대체 대상: `대체: D-3`
 REPLACES = re.compile(r'^대체:\s*([DW]-\d+)', re.M)
-# claude 에 붙이는 결정 아카이브 조회 MCP 서버 이름. 도구는 mcp__overseer__records 처럼 보인다
+# claude 에 붙이는 결정 아카이브 조회와 스펙 도구 MCP 서버 이름. 도구는 mcp__overseer__records 처럼 보인다
 MCP_NAME = 'overseer'
 # 보류 사안을 패널에서 끝내는 처리. 에이전트에게는 보내지 않는다
 CLOSE = 'close'
@@ -42,6 +42,8 @@ KEEP_ACTIONS = ('approve', 'answer')
 # 모듈 패널에서 보낸 책임 수정, 새 책임 카드 줄. 책임이 바뀐 모듈을 사용자가 요청한 것인지 가린다
 RESP_LINE = re.compile(r'^\[책임 수정\] (\S+): (.*)$', re.M)
 CARD_LINE = re.compile(r'^\[새 책임 카드\] (?:([^:\n]+): )?(.*?)(?: → .*)?$', re.M)
+# /model 에 넘길 수 있는 값. 별칭(opus)이나 모델 ID(claude-opus-4-8, sonnet[1m]). 터미널에 그대로 치므로 다른 글자는 받지 않는다
+MODEL_VALUE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._\[\]-]{0,63}$')
 
 
 # 패널 탭 하나. claude 프로세스, 훅 기록, 프로젝트 세션 이력을 묶고 화면에 줄 상태를 만든다
@@ -74,6 +76,8 @@ class AgentTab:
         self._journaled = 0
         # 마지막 탭 알림에 실은 턴 수. 다음 알림은 그 마지막 턴부터 싣는다
         self._announced = 0
+        # 패널에서 고른 모델 {value, answers: 고를 때의 응답 수}. 그 뒤 응답이 오면 응답한 모델을 믿는다
+        self._model_pick: dict | None = None
         self.gate = PermissionGate(captures_dir.parent / 'permissions', None)
         self.records = records
         self.project = ProjectKey.of(cwd)
@@ -226,6 +230,32 @@ class AgentTab:
         self.pty.write('\r')
         return holds
 
+    # 모델 교체: 터미널에 `/model <값>` 을 친다. 값을 받으면 CLI 는 고르는 창 없이 바로 바꾼다. 대화에는 남지 않는다
+    # 작업 중에 치면 응답 중인 입력칸에 섞이므로 /clear 처럼 쉬고 있을 때만 받는다
+    async def set_model(self, value: str) -> None:
+        if not MODEL_VALUE.match(value):
+            raise ValueError(f'모델 값이 아니다: {value!r}')
+        if not self.alive:
+            raise RuntimeError('세션이 떠 있지 않다')
+        if self.starting:
+            raise RuntimeError('세션이 시작 중이다. 시작 확인 창은 터미널에서 처리한다')
+        if self._build()['pending'] is not None or self._sending:
+            raise RuntimeError('에이전트가 작업 중이다')
+        logger.info(f"모델 교체: tab={self.id}, value={value}")
+        self._model_pick = {'value': value, 'answers': self.answers}
+        self.pty.write(f'/model {value}')
+        await asyncio.sleep(SUBMIT_DELAY)
+        self.pty.write('\r')
+
+    # 마지막 응답의 모델 ID. 응답이 없으면 None
+    @staticmethod
+    def _last_model(built: dict) -> str | None:
+        for turn in reversed(built['turns']):
+            model = (turn.get('usage') or {}).get('model')
+            if model:
+                return model
+        return None
+
     # 보류 사안을 이어받은 사안(출처가 보류 사안)을 처리하면 원래 보류 사안을 닫는 결정. 에이전트에게는 보내지 않는다
     def takeovers(self, decisions: list[tuple[str, str, str]]) -> list[tuple[str, str, str]]:
         held = self.held()
@@ -371,6 +401,9 @@ class AgentTab:
             'launch': self.launch.command(),
             'status': self._status(built, running, permission or attention), 'alive': self.alive, 'starting': self.starting,
             'running': running,
+            # 모델 교체 단추: 마지막 응답의 모델 ID, 그 뒤 패널에서 고른 /model 값(다음 응답이 오면 None)
+            'model': self._last_model(built),
+            'modelPick': pick['value'] if (pick := self._model_pick) and pick['answers'] == self.answers else None,
             'permission': permission, 'attention': attention,
             # 이 프로젝트의 결정 기록과 용어. 대체된 것도 넣는다(카드의 대체 대상 표시)
             'records': self.records.records_in_scope(self.project) if self.records else [],
