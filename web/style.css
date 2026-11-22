@@ -44,7 +44,8 @@
 }
 
 * { box-sizing: border-box; }
-html, body { height: 100%; margin: 0; }
+/* 가로 스와이프가 끝까지 번져도 브라우저가 뒤로가기(앞으로가기)를 하지 않는다. 휴대폰 OS 의 가장자리 뒤로가기 동작은 페이지가 막지 못한다 */
+html, body { height: 100%; margin: 0; overscroll-behavior-x: none; }
 /* PC, 태블릿 기준. 모바일은 맨 끝의 모바일 화면이 커맨드 패널만 남긴다 */
 body { min-width: 768px; }
 body {

@@ -813,9 +813,11 @@ document.addEventListener('click', e => {
     if (act === 'in') spZoomAt(s, spCam(s).zoom * 1.15, r.width / 2, r.height / 2);
     if (act === 'out') spZoomAt(s, spCam(s).zoom / 1.15, r.width / 2, r.height / 2);
     if (act === 'home') { Object.assign(spCam(s), SP_HOME); spApplyCam(s); spSaveZoom(s); }
+    // 모두 접기는 접을 수 있는 개체(하위 구성요소, 이어서 일이 달린 기능까지)를 다 접는다. 하나를 펴도 그 아래는 접힌 채다. 프로젝트는 펴 둔다
     if (act === 'all') {
       const col = spCollapsed(s), ix = spIndex(s);
-      if (col.size) col.clear(); else ix?.root.c.forEach(c => col.add(c.id));
+      if (col.size) col.clear();
+      else Object.values(ix?.index || {}).forEach(n => { if (n.kind !== 'root' && spFoldable(n)) col.add(n.id); });
       spSaveCollapsed();
       renderModules();
     }
@@ -943,6 +945,15 @@ document.getElementById('modhost').addEventListener('wheel', e => {
   const vp = s && e.target.closest('#sp-vp');
   if (!vp || !spIndex(s)) return;
   e.preventDefault();
+  // 가로가 더 큰 휠(터치패드 가로 스와이프, Shift+휠)은 화면을 좌우로 옮기고, 세로 휠만 확대·축소한다
+  // 가로 스와이프는 deltaY 가 0 이라 부호만 보면 이벤트마다 축소됐다
   const r = vp.getBoundingClientRect();
+  if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+    const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? r.width : 1;
+    spCam(s).panX -= e.deltaX * unit;
+    spApplyCam(s);
+    return;
+  }
+  if (!e.deltaY) return;
   spZoomAt(s, spCam(s).zoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1), e.clientX - r.left, e.clientY - r.top);
 }, { passive: false });
