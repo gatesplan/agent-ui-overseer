@@ -8,22 +8,26 @@ FILE = 'spec.json'
 # 칸마다 받는 키. 화면에 보이지 않는 칸은 숨은 설명이 되므로 받지 않는다
 TOP_KEYS = {'title', 'summary', 'terms', 'components'}
 TERM_KEYS = {'word', 'meaning'}
-COMP_KEYS = {'name', 'mocks', 'does', 'donts', 'open', 'children'}
+COMP_KEYS = {'name', 'descs', 'mocks', 'does', 'donts', 'children'}
 MOCK_KEYS = {'name', 'href'}
 # 이어서 일어나는 일(then)이 있는 하는 것. 없으면 한 줄 글로 쓴다
 DO_KEYS = {'text', 'then'}
 # 목록 키가 담는 개체의 종류
-ROLES = {'components': 'comp', 'children': 'comp', 'does': 'do', 'then': 'do', 'donts': 'dont', 'open': 'open',
+ROLES = {'components': 'comp', 'children': 'comp', 'descs': 'desc', 'does': 'do', 'then': 'do', 'donts': 'dont',
          'terms': 'term', 'mocks': 'mock'}
-# 고른 개체(종류) 아래에 더할 수 있는 자식(kind) 과 그것을 담는 목록 키
+# 고른 개체(종류) 아래에 더할 수 있는 자식(kind) 과 그것을 담는 목록 키. 옮길 수 있는 자리도 이것을 따른다
 ADDS = {('root', 'component'): 'components', ('root', 'term'): 'terms',
-        ('comp', 'component'): 'children', ('comp', 'do'): 'does', ('comp', 'dont'): 'donts', ('comp', 'open'): 'open',
+        ('comp', 'component'): 'children', ('comp', 'desc'): 'descs', ('comp', 'do'): 'does', ('comp', 'dont'): 'donts',
         ('comp', 'mock'): 'mocks', ('do', 'do'): 'then'}
+# 개체의 종류(role)를 자식으로 더할 때 부르는 이름(kind)
+KINDS = {'comp': 'component', 'desc': 'desc', 'do': 'do', 'dont': 'dont', 'term': 'term', 'mock': 'mock'}
 # 자식으로 치는 목록. 자식이 있는 개체는 지우지 않는다
-KIDS = {'comp': ('children', 'mocks', 'does', 'donts', 'open'), 'do': ('then',)}
+KIDS = {'comp': ('children', 'descs', 'mocks', 'does', 'donts'), 'do': ('then',)}
 
 
-# 프로젝트의 스펙. 스펙 패널이 그리는 모양 그대로다(용어, 구성요소, 목업, 하는 것, 하지 않는 것, 열린 것)
+# 프로젝트의 스펙. 스펙 패널이 그리는 모양 그대로다(용어, 구성요소, 설명, 목업, 하는 것, 하지 않는 것)
+# 설명은 그 구성요소가 무엇인지 적는 글이고, 하는 것(기능)은 만들어야 할 동작이다
+# 스펙은 사람이 정하는 것이다. 에이전트의 제안이나 미정 사항을 담는 칸은 두지 않는다(그런 것은 사안으로 주고받는다)
 # 하는 것에는 그것이 실행되면 이어서 일어나는 일을 달고, 그 일도 다시 이어 간다
 # 목업은 아무 URL 이나 프로젝트 안 파일 경로를 가리킨다. 프로젝트 안 파일은 패널 서버가 읽기 전용으로 내준다
 # 사용자가 스펙 패널에서, 에이전트가 overseer MCP 로 고치고 더하고 지운 것도 여기서 파일에 쓴다
@@ -71,8 +75,8 @@ class ProjectSpec:
             return {}
         return self._write(apply)
 
-    # 고른 개체(path) 아래에 자식을 더한다. kind: component | do | dont | open | term | mock
-    # 프로젝트([]) 에는 구성요소와 용어, 구성요소에는 구성요소, 기능, 하지 않는 것, 열린 것, 목업, 기능에는 이어서 일어나는 기능(then)
+    # 고른 개체(path) 아래에 자식을 더한다. kind: component | desc | do | dont | term | mock
+    # 프로젝트([]) 에는 구성요소와 용어, 구성요소에는 구성요소, 설명, 기능, 하지 않는 것, 목업, 기능에는 이어서 일어나는 기능(then)
     # text 는 한 줄 글. 용어는 {word, meaning}, 목업은 {name, href} 다
     # expect 는 화면이 본 그 개체의 글(seen). 바뀌었으면 더하지 않는다
     # at 이 없으면 목록 끝에 붙이고, 있으면 그 순번에 끼운다(지운 개체를 제자리에 되살릴 때)
@@ -91,9 +95,7 @@ class ProjectSpec:
             size = len(node.get(key, [])) if isinstance(node, dict) else 0
             if at is not None and not (type(at) is int and 0 <= at <= size):
                 raise ValueError(f'{self._where(where + [key]) or key}: 끼울 순번 {at} 이 목록 밖이다 (0~{size})')
-            if role == 'do' and isinstance(node, str):
-                node = {'text': node}
-                self.at(spec, where[:-1])[where[-1]] = node
+            node = self._open_do(spec, where, node)
             items = node.setdefault(key, [])
             pos = size if at is None else at
             items.insert(pos, item)
@@ -114,21 +116,71 @@ class ProjectSpec:
                 raise ValueError(f'{self._where(where)}: 화면이 본 뒤 바뀌었다. 다시 보고 지운다')
             if isinstance(node, dict) and any(node.get(k) for k in KIDS.get(role, ())):
                 raise ValueError(f'{self._where(where)}: 자식이 있는 개체는 지우지 않는다')
-            holder_path, key = where[:-2], where[-2]
-            holder = self.at(spec, holder_path)
-            holder[key].pop(where[-1])
-            if not holder[key]:
-                del holder[key]
-                if key == 'then' and set(holder) == {'text'}:
-                    self.at(spec, holder_path[:-1])[holder_path[-1]] = holder['text']
+            self._take(spec, where)
             return {'path': where}
         return self._write(apply)
+
+    # 개체(path)를 자식째 다른 개체(to) 아래로 옮긴다. 갈 수 있는 자리는 더하기와 같다(ADDS)
+    # expect, to_expect 는 화면이 본 두 개체의 글(seen). 프로젝트와 그 칸, 자기 아래, 지금 부모 아래로는 옮기지 않는다
+    # at 이 없으면 새 부모 목록 끝에 붙이고, 있으면 그 순번에 끼운다(옮긴 것을 실행취소로 제자리에 돌릴 때)
+    # 빠진 자리 뒤 형제는 순번이 하나씩 당겨진다. 빈 목록은 키째 지우고, 이어지는 일이 다 없어진 기능은 한 줄 글로 돌아간다
+    # {'status': 'ok', 'spec', 'path': 옮긴 개체의 새 자리} | {'status': 'error', 'message'}
+    def move(self, path: list, expect: str, to: list, to_expect: str, at: int | None = None) -> dict:
+        def apply(spec):
+            where, dest = list(path), list(to)
+            role, dest_role = self.role(where), self.role(dest)
+            if role in ('root', 'other'):
+                raise ValueError(f'{self._where(where) or "스펙"} 는 옮길 수 없다')
+            node, target = self.at(spec, where), self.at(spec, dest)
+            if self.seen(role, node) != expect:
+                raise ValueError(f'{self._where(where)}: 화면이 본 뒤 바뀌었다. 다시 보고 옮긴다')
+            if self.seen(dest_role, target) != to_expect:
+                raise ValueError(f'{self._where(dest) or "스펙"}: 화면이 본 뒤 바뀌었다. 다시 보고 옮긴다')
+            key = ADDS.get((dest_role, KINDS[role]))
+            if not key:
+                raise ValueError(f'{self._where(dest) or "스펙"} 아래로는 {KINDS[role]} 를 옮길 수 없다')
+            if dest[:len(where)] == where:
+                raise ValueError(f'{self._where(where)}: 자기 아래로는 옮길 수 없다')
+            if dest == where[:-2]:
+                raise ValueError(f'{self._where(where)}: 이미 {self._where(dest) or "스펙"} 아래에 있다')
+            size = len(target.get(key, [])) if isinstance(target, dict) else 0
+            if at is not None and not (type(at) is int and 0 <= at <= size):
+                raise ValueError(f'{self._where(dest + [key])}: 끼울 순번 {at} 이 목록 밖이다 (0~{size})')
+            # 한 줄 글 기능은 먼저 {text} 로 바꿔 둔다. 그 뒤로는 개체를 빼내도 같은 객체를 가리킨다
+            target = self._open_do(spec, dest, target)
+            self._take(spec, where)
+            items = target.setdefault(key, [])
+            pos = len(items) if at is None else at
+            items.insert(pos, node)
+            # 빠진 개체 뒤 형제 아래에 있던 새 부모는 순번이 하나 당겨졌다
+            k = len(where) - 1
+            if len(dest) > k and dest[:k] == where[:k] and dest[k] > where[k]:
+                dest[k] -= 1
+            return {'path': dest + [key, pos]}
+        return self._write(apply)
+
+    # 한 줄 글 기능(path)에 자식을 달 수 있게 {text} 로 바꾼다. 다른 개체는 그대로 돌려준다
+    def _open_do(self, spec, path: list, node):
+        if self.role(path) == 'do' and isinstance(node, str):
+            node = {'text': node}
+            self.at(spec, path[:-1])[path[-1]] = node
+        return node
+
+    # 개체(path)를 목록에서 빼낸다. 빈 목록은 키째 지우고, 이어지는 일이 다 없어진 기능은 다시 한 줄 글이 된다
+    def _take(self, spec, path: list) -> None:
+        holder_path, key = path[:-2], path[-2]
+        holder = self.at(spec, holder_path)
+        holder[key].pop(path[-1])
+        if not holder[key]:
+            del holder[key]
+            if key == 'then' and set(holder) == {'text'}:
+                self.at(spec, holder_path[:-1])[holder_path[-1]] = holder['text']
 
     # 개체를 알아보는 글. 프로젝트는 제목, 구성요소와 목업은 이름, 용어는 낱말, 나머지는 그 한 줄
     @staticmethod
     def seen(role: str, node) -> str | None:
         if isinstance(node, str):
-            return node if role in ('do', 'dont', 'open') else None
+            return node if role in ('desc', 'do', 'dont') else None
         if not isinstance(node, dict):
             return None
         return {'root': node.get('title', ''), 'comp': node.get('name'), 'mock': node.get('name'),
@@ -148,7 +200,7 @@ class ProjectSpec:
             raise ValueError('빈 글은 더하지 않는다')
         return {'name': item} if kind == 'component' else item
 
-    # 자리가 가리키는 개체의 종류: root | comp | do | dont | open | term | mock | other
+    # 자리가 가리키는 개체의 종류: root | comp | desc | do | dont | term | mock | other
     @staticmethod
     def role(path: list) -> str:
         if not path:
@@ -237,7 +289,7 @@ class ProjectSpec:
                     raise ValueError(f'{where}.mocks[{i}].{key}: 글이어야 한다')
         for i, line in enumerate(self._list(comp, 'does', where)):
             self._check_do(line, f'{where}.does[{i}]')
-        for key in ('donts', 'open'):
+        for key in ('descs', 'donts'):
             for i, line in enumerate(self._list(comp, key, where)):
                 if not isinstance(line, str):
                     raise ValueError(f'{where}.{key}[{i}]: 한 줄 글이어야 한다')

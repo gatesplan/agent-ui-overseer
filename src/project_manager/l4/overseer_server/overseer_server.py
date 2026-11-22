@@ -403,7 +403,8 @@ class OverseerServer:
         self.specs[ProjectKey.of(tab.cwd)] = {'cwd': tab.cwd, 'sig': spec.signature()}
         return web.json_response({'cwd': tab.cwd, 'spec': spec.read()}, dumps=lambda o: json.dumps(o, ensure_ascii=False))
 
-    # 스펙 패널에서 사용자가 고친 글(op: edit), 고른 개체 아래에 더한 자식(op: add, 실행취소로 되살릴 때는 순번 at), 지운 자식 없는 개체(op: remove)
+    # 스펙 패널에서 사용자가 고친 글(op: edit), 고른 개체 아래에 더한 자식(op: add, 실행취소로 되살릴 때는 순번 at), 지운 자식 없는 개체(op: remove),
+    # 끌어서 다른 개체(to) 아래로 옮긴 개체(op: move, 실행취소로 제자리에 돌릴 때는 순번 at)
     # spec.json 에 쓰고 바뀐 스펙을 돌려준다
     # 다른 화면에는 spec 알림으로 간다. 화면이 본 뒤 파일이 바뀌었거나 스펙에 맞지 않으면 쓰지 않고 409 로 까닭을 알린다
     async def _spec_write(self, request: web.Request) -> web.Response:
@@ -417,6 +418,8 @@ class OverseerServer:
             got = await asyncio.to_thread(spec.add, body.get('path') or [], body.get('expect'), body.get('kind'), body.get('text', ''), body.get('at'))
         elif op == 'remove':
             got = await asyncio.to_thread(spec.remove, body.get('path') or [], body.get('expect'))
+        elif op == 'move':
+            got = await asyncio.to_thread(spec.move, body.get('path') or [], body.get('expect'), body.get('to') or [], body.get('toExpect'), body.get('at'))
         else:
             return web.json_response({'error': f'모르는 스펙 작업: {op}'}, status=400)
         if got['status'] != 'ok':

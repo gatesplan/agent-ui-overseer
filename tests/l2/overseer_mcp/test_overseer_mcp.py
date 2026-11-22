@@ -9,10 +9,11 @@ SPEC = {
     'terms': [{'word': '주문', 'meaning': '고른 상품 묶음'}],
     'components': [
         {'name': '장바구니',
+         'descs': ['고른 상품을 모아 둔다'],
          'mocks': [{'name': '시안', 'href': 'mocks/cart.html'}],
          'does': ['상품을 담는다', {'text': '수량을 합친다', 'then': ['합계를 다시 계산한다']}],
          'donts': ['결제는 하지 않는다'],
-         'children': [{'name': '쿠폰', 'open': ['쿠폰 여러 장']}]},
+         'children': [{'name': '쿠폰', 'donts': ['쿠폰 여러 장은 쓰지 않는다']}]},
         {'name': '결제'},
     ],
 }
@@ -36,16 +37,17 @@ def test_view_whole_spec_and_subtree(tmp_path):
         'summary: 주문을 받는 앱',
         'w1 주문: 고른 상품 묶음',
         'c1 장바구니',
+        '  c1.d1 고른 상품을 모아 둔다',
+        '  c1.c1 쿠폰',
+        '    c1.c1.n1 쿠폰 여러 장은 쓰지 않는다',
         '  c1.m1 시안 | mocks/cart.html',
         '  c1.f1 상품을 담는다',
         '  c1.f2 수량을 합친다',
         '    c1.f2.f1 합계를 다시 계산한다',
         '  c1.n1 결제는 하지 않는다',
-        '  c1.c1 쿠폰',
-        '    c1.c1.o1 쿠폰 여러 장',
         'c2 결제',
     ])
-    assert mcp.spec_view('c1.c1') == 'c1 장바구니\nc1.c1 쿠폰\n  c1.c1.o1 쿠폰 여러 장'
+    assert mcp.spec_view('c1.c1') == 'c1 장바구니\nc1.c1 쿠폰\n  c1.c1.n1 쿠폰 여러 장은 쓰지 않는다'
     assert mcp.spec_view('c1.f2') == 'c1 장바구니\nc1.f2 수량을 합친다\n  c1.f2.f1 합계를 다시 계산한다'
     assert mcp.spec_view('c1.n1').startswith('실패:')
     assert mcp.spec_view('c9').startswith('실패:')
@@ -70,6 +72,29 @@ def test_add_edit_remove_by_number(tmp_path):
     assert s['components'][0]['name'] == '카트'
     assert s['components'][0]['does'] == [{'text': '상품을 담는다', 'then': ['재고를 잡아 둔다']}, '같은 상품은 합친다']
     assert s['components'][1] == {'name': '결제', 'does': ['카드 결제를 받는다'], 'mocks': [{'name': '결제 화면', 'href': 'https://example.com/pay'}]}
+
+
+# 설명은 d 번호로 더하고 고친다
+def test_desc_by_number(tmp_path):
+    mcp = tools(tmp_path)
+    assert mcp.spec_add('c2', 'desc', '주문 값을 받는다') == '더함: c2.d1 주문 값을 받는다'
+    assert mcp.spec_edit('c1.d1', '손님이 고른 상품을 모아 둔다') == 'c1.d1: "고른 상품을 모아 둔다" → "손님이 고른 상품을 모아 둔다"'
+    assert mcp.spec_add('', 'desc', '프로젝트 아래 설명').startswith('실패:')
+    assert stored(tmp_path)['components'][1]['descs'] == ['주문 값을 받는다']
+
+
+# 개체를 자식째 다른 개체 아래로 옮긴다. 돌려주는 글에 새 번호가 있다
+def test_move_by_number(tmp_path):
+    mcp = tools(tmp_path)
+    assert mcp.spec_move('c1.f2', 'c2').startswith('옮김: c1.f2 → c2.f1 수량을 합친다')
+    assert stored(tmp_path)['components'][1]['does'] == [{'text': '수량을 합친다', 'then': ['합계를 다시 계산한다']}]
+    assert mcp.spec_move('c1.c1', '').startswith('옮김: c1.c1 → c3 쿠폰')
+    assert mcp.spec_move('c1', 'c2').startswith('옮김: c1 → c1.c1 장바구니')
+    before = (tmp_path / 'spec.json').read_text(encoding='utf-8')
+    assert mcp.spec_move('c1', 'c1.c1').startswith('실패:')
+    assert mcp.spec_move('c1.c1.n1', 'c1.f1').startswith('실패:')
+    assert mcp.spec_move('c9', 'c1').startswith('실패:')
+    assert (tmp_path / 'spec.json').read_text(encoding='utf-8') == before
 
 
 def test_refusals_come_back_as_failure_text(tmp_path):

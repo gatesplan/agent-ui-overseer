@@ -167,7 +167,14 @@ def test_spec_write_route_edits_and_adds(tmp_path):
         status, body = await post({'op': 'add', 'path': ['components', 0], 'expect': '카트', 'kind': 'do', 'text': '상품을 담는다', 'at': 0})
         assert status == 200 and body['path'] == ['components', 0, 'does', 0]
         assert body['spec']['spec']['components'][0]['does'] == ['상품을 담는다', '수량을 합친다']
-        status, body = await post({'op': 'move'})
+        # 끌어서 다른 개체 아래로 옮긴다. 기능을 기능 위에 놓으면 이어서 기능이 된다
+        status, body = await post({'op': 'move', 'path': ['components', 0, 'does', 1], 'expect': '수량을 합친다',
+                                   'to': ['components', 0, 'does', 0], 'toExpect': '상품을 담는다'})
+        assert status == 200 and body['path'] == ['components', 0, 'does', 0, 'then', 0]
+        assert body['spec']['spec']['components'][0]['does'] == [{'text': '상품을 담는다', 'then': ['수량을 합친다']}]
+        status, body = await post({'op': 'move', 'path': ['components', 0], 'expect': '카트', 'to': ['components', 0, 'does', 0], 'toExpect': '상품을 담는다'})
+        assert status == 409
+        status, body = await post({'op': 'rename'})
         assert status == 400
 
     asyncio.run(scenario())

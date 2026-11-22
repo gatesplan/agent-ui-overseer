@@ -12,7 +12,7 @@ sources:
 
 ### __init__
 __init__(query: ArchiveQuery, spec: ProjectSpec | None = None)
-    MCPServer(mcp 2.x) 에 결정 아카이브 도구 넷을 read_only 표시로, spec 이 있으면 스펙 도구 넷을 등록한다. 서버 instructions 에 언제 쓰는지 적는다.
+    MCPServer(mcp 2.x) 에 결정 아카이브 도구 넷을 read_only 표시로, spec 이 있으면 스펙 도구 다섯을 등록한다. 서버 instructions 에 언제 쓰는지 적는다.
 
 ### Methods
 
@@ -21,10 +21,11 @@ record(ref: str) -> str                                                         
 decisions(query: str = '', action: str = '', limit: int = 20) -> str               # 도구 decisions
 module(name: str) -> str                                                           # 도구 module
 spec_view(at: str = '') -> str                                                     # 도구 spec_view. 개체 번호가 붙은 들여쓰기 글
-spec_add(parent: str, kind: str, text: str) -> str                                # 도구 spec_add. kind: component | do | dont | open | term | mock
+spec_add(parent: str, kind: str, text: str) -> str                                # 도구 spec_add. kind: component | desc | do | dont | term | mock
 spec_edit(id: str, text: str) -> str                                              # 도구 spec_edit. id 는 개체 번호나 title, summary
 spec_remove(id: str) -> str                                                       # 도구 spec_remove. 자식 없는 개체만
-    스펙 도구는 실패를 예외 대신 `실패: 까닭` 글로 돌려준다. 개체 번호: c 구성요소, w 용어, f 기능, n 하지 않는 것, o 열린 것, m 목업. 점으로 잇고 1부터(c1.c2.f1).
+spec_move(id: str, parent: str) -> str                                            # 도구 spec_move. 자식째 parent 아래 목록 끝으로
+    스펙 도구는 실패를 예외 대신 `실패: 까닭` 글로 돌려준다. 개체 번호: c 구성요소, w 용어, d 설명, f 기능, n 하지 않는 것, m 목업. 점으로 잇고 1부터(c1.c2.f1).
     용어 글은 `낱말: 뜻`, 목업 글은 `이름 | 경로나 URL`.
 run() -> None
     stdio 로 돈다. claude 가 띄우고 끝낸다.

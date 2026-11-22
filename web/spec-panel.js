@@ -1,10 +1,13 @@
 // 스펙 패널: 모듈 패널 자리에서 [모듈 | 스펙] 으로 바꿔 보는 구성요소별 동작 트리
-// 프로젝트 아래 용어와 구성요소, 구성요소 아래 목업, 하는 것, 하지 않는 것, 열린 것. 화면에 보이는 한 줄이 그 항목의 전부다
+// 프로젝트 아래 용어와 구성요소, 구성요소 아래 위에서부터 설명, 하위 구성요소, 목업, 하는 것, 하지 않는 것. 화면에 보이는 한 줄이 그 항목의 전부다
+// 설명은 그 구성요소가 무엇인지 적는 글이고, 하는 것(기능)은 만들어야 할 동작이다
 // 하는 것 오른쪽에는 그것이 실행되면 이어서 일어나는 일(then)을 "이어서" 줄로 잇는다
-// 사람은 보는 방식을 바꾸고(선택, 접기, 구성요소 끌어 옮기기, 화면 이동과 확대), 개체를 더블클릭해 글을 고치거나 고른 개체 아래에 자식을 더한다
+// 사람은 보는 방식을 바꾸고(선택, 접기, 화면 이동과 확대), 개체를 더블클릭해 글을 고치거나 고른 개체 아래에 자식을 더한다
+// 개체를 끌어 다른 개체 위에 놓으면 자식째 그 아래로 옮긴다. 구성요소를 빈 곳에 놓으면 화면 배치만 하위째 옮긴다
 // 개체를 고른 뒤에는 방향키로 옮겨 다니고 Enter 로 접고 편다
-// 고치거나 더하거나 지운 것은 서버가 spec.json 에 쓰고, 보내기에 [스펙 수정] [스펙 추가] [스펙 삭제] 줄로 실려 에이전트에게 간다. 누른다고 창이 뜨지 않는다. 목업은 새 탭으로 연다
-// 패널에서 한 고치기, 더하기, 삭제는 Ctrl+Z 로 되돌리고 Ctrl+Shift+Z 로 다시 한다. 에이전트가 MCP 로 고친 것은 되돌리지 않는다
+// 고치거나 더하거나 지우거나 옮긴 것은 서버가 spec.json 에 쓰고, 보내기에 [스펙 수정] [스펙 추가] [스펙 삭제] [스펙 이동] 줄로 실려 에이전트에게 간다
+// 누른다고 창이 뜨지 않는다. 목업은 새 탭으로 연다
+// 패널에서 한 고치기, 더하기, 삭제, 옮기기는 Ctrl+Z 로 되돌리고 Ctrl+Shift+Z 로 다시 한다. 에이전트가 MCP 로 고친 것은 되돌리지 않는다
 // module-panel.js 다음, app.js 보다 먼저 읽힌다. app.js 의 전역(ui, sessions, cur, esc, LIVE, pref, savePref, api, saveDraft, refreshLive)은 함수 안에서만 쓴다
 'use strict';
 
@@ -20,12 +23,12 @@ const SP_ICON = {
   comp: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2 3 7v10l9 5 9-5V7z"/><path d="M3 7l9 5 9-5M12 12v10"/></svg>',
   do: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
   dont: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M6 6l12 12"/></svg>',
-  open: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>',
+  desc: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 6.5h14M5 12h14M5 17.5h9"/></svg>',
   mock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16"/><path d="M3 9h18M7 6.5h.01M10 6.5h.01"/></svg>',
 };
 const SP_LEGEND = `<div class="sp-legend">
-  <span><b class="lg-term"></b>용어</span><span><b class="lg-comp"></b>구성요소</span><span><b class="lg-do"></b>하는 것</span>
-  <span><b class="lg-dont"></b>하지 않는 것</span><span><b class="lg-open"></b>열린 것</span><span><b class="lg-mock"></b>목업 (새 탭으로 열림)</span></div>`;
+  <span><b class="lg-term"></b>용어</span><span><b class="lg-comp"></b>구성요소</span><span><b class="lg-desc"></b>설명</span>
+  <span><b class="lg-mock"></b>목업 (새 탭으로 열림)</span><span><b class="lg-do"></b>하는 것</span><span><b class="lg-dont"></b>하지 않는 것</span></div>`;
 
 // 보기 전환 ------------------------------------------------------------------
 
@@ -117,42 +120,47 @@ function spIndex(s) {
       l.th = (typeof x === 'string' ? [] : x.then || []).map((y, j) => doLeaf(y, `${id}.${j}`, l, [...lp, 'then', j]));
       return l;
     };
+    n.d = (c.descs || []).map(leaf('desc', 'd', 'descs'));
     n.m = (c.mocks || []).map(leaf('mock', 'm', 'mocks'));
     n.f = (c.does || []).map((x, i) => doLeaf(x, `${n.id}:f${i}`, n, [...p, 'does', i]));
     n.n = (c.donts || []).map(leaf('dont', 'n', 'donts'));
-    n.o = (c.open || []).map(leaf('open', 'o', 'open'));
     n.c = (c.children || []).map((k, i) => comp(k, n, `${path}/${k.name}`, [...p, 'children', i]));
     return n;
   };
   root.c = (spec.components || []).map((c, i) => comp(c, root, c.name, ['components', i]));
-  const stats = { terms: root.w.length, comps: 0, do: 0, dont: 0, open: 0, mock: 0 };
-  (function walk(list) { list.forEach(c => { stats.comps++; stats.do += spCountDo(c.f); stats.dont += c.n.length; stats.open += c.o.length; stats.mock += c.m.length; walk(c.c); }); })(root.c);
+  const stats = { terms: root.w.length, comps: 0, desc: 0, do: 0, dont: 0, mock: 0 };
+  (function walk(list) { list.forEach(c => { stats.comps++; stats.desc += c.d.length; stats.do += spCountDo(c.f); stats.dont += c.n.length; stats.mock += c.m.length; walk(c.c); }); })(root.c);
   return (s._spIx = { src: s.spec, root, index, stats });
 }
 const spCountDo = list => list.reduce((k, l) => k + 1 + spCountDo(l.th), 0);
-const spCountDesc = c => c.m.length + spCountDo(c.f) + c.n.length + c.o.length + c.c.reduce((k, s) => k + 1 + spCountDesc(s), 0);
-const spCountOpen = c => c.o.length + c.c.reduce((k, s) => k + spCountOpen(s), 0);
+// 구성요소 아래 개체 수(하위 구성요소 아래까지)
+const spCountSub = c => c.d.length + c.m.length + spCountDo(c.f) + c.n.length + c.c.reduce((k, s) => k + 1 + spCountSub(s), 0);
 const spSame = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
-// 보낼 것: 사용자가 고치거나 더한 개체 ------------------------------------------------
+// 보낼 것: 사용자가 고치거나 더하거나 지우거나 옮긴 개체 ------------------------------------------------
 // 파일은 이미 바뀌었다. 에이전트가 알도록 다음 보내기에 한 줄씩 싣는다
 // [스펙 수정] 기능 (좌측 패널 > 스펙 패널): "옛 글" → "새 글", [스펙 추가] 구성요소 (프로젝트): "헤더"
+// [스펙 이동] 기능 (좌측 패널 > 스펙 패널): "글" → 이어서 기능 (커맨드 패널 > "다른 기능")
 
 // 줄에 쓰는 자리: 그 개체까지 이어진 구성요소 이름
 const spCrumb = n => { const names = []; for (let c = n; c && c.kind !== 'root'; c = c.parent) if (c.kind === 'comp') names.unshift(c.t); return names.join(' > '); };
 const spDoWhere = parent => parent.kind === 'do' ? { label: '이어서 기능', crumb: `${spCrumb(parent)} > "${parent.t}"` } : { label: '기능', crumb: spCrumb(parent) };
+// 구성요소 아래 한 줄 개체의 이름
+const SP_LEAF_LABEL = { desc: '설명', dont: '하지 않는 것', mock: '목업' };
 function spWhereOf(n) {
   if (n.kind === 'term') return { label: '용어', crumb: '' };
   if (n.kind === 'comp') return { label: '구성요소', crumb: spCrumb(n.parent) || '프로젝트' };
   if (n.kind === 'do') return spDoWhere(n.parent);
-  return { label: n.kind === 'dont' ? '하지 않는 것' : '열린 것', crumb: spCrumb(n.parent) };
+  return { label: SP_LEAF_LABEL[n.kind], crumb: spCrumb(n.parent) };
 }
 // 고른 개체(parent) 아래에 더할 자식의 자리
 function spWhereNew(parent, kind) {
+  if (kind === 'term') return { label: '용어', crumb: '' };
   if (kind === 'component') return { label: '구성요소', crumb: spCrumb(parent) || '프로젝트' };
-  if (kind === 'dont') return { label: '하지 않는 것', crumb: spCrumb(parent) };
-  return spDoWhere(parent);
+  if (kind === 'do') return spDoWhere(parent);
+  return { label: SP_LEAF_LABEL[kind], crumb: spCrumb(parent) };
 }
+const spWhereText = w => `${w.label}${w.crumb ? ` (${w.crumb})` : ''}`;
 
 // 줄의 자리는 보낼 때 지금 스펙에서 다시 읽는다. 구성요소 이름을 바꿔도 그 아래에 더한 줄이 새 이름을 따른다
 // 개체를 찾지 못했거나(에이전트가 옮겼다) 글이 달라졌으면 적어 둘 때의 자리를 쓴다. 지운 개체는 적어 둔 자리 그대로다
@@ -163,12 +171,13 @@ function spWhereNow(s, e) {
   return n && n.t === e.text ? spWhereOf(n) : e;
 }
 
+// 옮긴 줄은 옮기기 전 자리(from)를 적어 둘 때 그대로 쓰고, 옮긴 자리만 지금 스펙에서 다시 읽는다
 function specLines(s) {
   return (s.specq || []).map(e => {
-    const w = spWhereNow(s, e);
-    const where = `${w.label}${w.crumb ? ` (${w.crumb})` : ''}`;
+    const where = spWhereText(spWhereNow(s, e));
     if (e.op === 'add') return `[스펙 추가] ${where}: "${e.text}"`;
     if (e.op === 'remove') return `[스펙 삭제] ${where}: "${e.text}"`;
+    if (e.op === 'move') return `[스펙 이동] ${spWhereText(e.from)}: "${e.text}" → ${where}`;
     return `[스펙 수정] ${where}: "${e.old}" → "${e.text}"`;
   });
 }
@@ -191,19 +200,48 @@ function spNote(id, e) {
 }
 
 // 지운 개체(n). 이번 보내기에서 더한 개체면 더한 줄만 뺀다. 고친 개체면 고치기 전 글을 지운 것으로 알린다
+// 옮긴 개체면 옮긴 줄을 빼고 옮기기 전 자리에서 지운 것으로 알린다(에이전트는 옮긴 것을 아직 모른다)
 // 지운 자리 뒤 형제들은 순번이 하나씩 당겨지므로 그 줄들의 자리도 당긴다. 지운 줄은 자리로 찾지 않는다(다른 개체가 그 자리에 온다)
 function spNoteRemove(id, n, where) {
   const s = sessions.find(x => x.id === id);
   if (!s) return;
   const q = (s.specq ||= []);
-  const key = JSON.stringify(n.p);
-  const prev = q.find(x => x.key === key);
+  const prev = q.find(x => x.key === spKey({ p: n.p }));
   if (prev) q.splice(q.indexOf(prev), 1);
-  if (prev?.op !== 'add') q.push({ op: 'remove', key: null, ...where, text: prev?.op === 'edit' ? prev.old : n.t });
+  const moved = q.find(x => x.key === spKey({ op: 'move', p: n.p }));
+  if (moved) q.splice(q.indexOf(moved), 1);
+  if (prev?.op !== 'add') q.push({ op: 'remove', key: null, ...(moved?.from || where), text: prev?.op === 'edit' ? prev.old : n.t });
   spShiftQ(q, n.p, -1);
   saveDraft(s);
   refreshLive(s, null);
 }
+
+// 옮긴 개체. m: { from: 옮기기 전 자리, to: 옮긴 자리, fromWhere, where, text }
+// 그 개체와 그 아래를 가리키던 줄은 새 자리를 따라가고, 빠진 자리와 끼운 자리 뒤 형제를 가리키던 줄은 순번을 옮긴다
+// 이번 보내기에서 더한 개체면 더한 줄이 새 자리로 알린다. 이미 옮긴 개체면 그 줄의 옮긴 자리만 바꾸고, 처음 자리로 돌아왔으면 줄을 뺀다
+function spNoteMove(id, m) {
+  const s = sessions.find(x => x.id === id);
+  if (!s) return;
+  const q = (s.specq ||= []);
+  const inside = q.filter(e => e.p && spSame(e.p.slice(0, m.from.length), m.from));
+  const rest = q.filter(e => !inside.includes(e));
+  spShiftQ(rest, m.from, -1);
+  spShiftQ(rest, m.to, 1);
+  inside.forEach(e => { e.p = [...m.to, ...e.p.slice(m.from.length)]; e.key = spKey(e); });
+  const added = q.find(e => e.op === 'add' && spSame(e.p, m.to));
+  const prev = q.find(e => e.key === spKey({ op: 'move', p: m.to }));
+  if (prev) {
+    if (spWhereText(prev.from) === spWhereText(m.where)) q.splice(q.indexOf(prev), 1);
+    else Object.assign(prev, { label: m.where.label, crumb: m.where.crumb });
+  } else if (!added) {
+    q.push({ op: 'move', p: m.to, key: spKey({ op: 'move', p: m.to }), from: m.fromWhere, ...m.where, text: m.text });
+  }
+  saveDraft(s);
+  refreshLive(s, null);
+}
+
+// 줄을 찾는 열쇠는 개체 자리다. 옮긴 줄은 같은 개체를 고친 줄과 따로 찾도록 앞에 표시를 붙인다
+const spKey = e => (e.op === 'move' ? 'mv:' : '') + JSON.stringify(e.p);
 
 // 자리 p 에서 개체가 빠지거나(d = -1) 끼워지면(d = 1) 같은 목록에서 그 뒤에 오는 형제를 가리키는 줄의 자리를 옮긴다
 function spShiftQ(q, p, d) {
@@ -211,7 +249,7 @@ function spShiftQ(q, p, d) {
   for (const e of q) {
     if (!e.p || e.p.length <= k || !spSame(e.p.slice(0, k), base) || e.p[k] < p[k] + (d < 0 ? 1 : 0)) continue;
     e.p = [...e.p.slice(0, k), e.p[k] + d, ...e.p.slice(k + 1)];
-    e.key = JSON.stringify(e.p);
+    e.key = spKey(e);
   }
 }
 
@@ -247,7 +285,7 @@ function renderSpec(s, host) {
   const st = ix?.stats;
   const col = spCollapsed(s);
   const info = !s.spec ? '불러오는 중' : st
-    ? `용어 ${st.terms} · 구성요소 ${st.comps} · 하는 것 ${st.do} · 하지 않는 것 ${st.dont} · 열린 것 ${st.open} · 목업 ${st.mock}` : '';
+    ? `용어 ${st.terms} · 구성요소 ${st.comps} · 설명 ${st.desc} · 목업 ${st.mock} · 하는 것 ${st.do} · 하지 않는 것 ${st.dont}` : '';
   const empty = !s.spec ? '스펙을 불러오는 중' : s.spec.status === 'error' ? esc(s.spec.message || '스펙을 받지 못했다') : '이 프로젝트에는 스펙이 아직 없다';
   const nq = specCount(s);
   const queued = nq ? `<span class="sp-q" title="다음 보내기에 실려 에이전트에게 간다&#10;${esc(specLines(s).join('\n'))}">알릴 수정 ${nq}</span>` : '';
@@ -269,7 +307,10 @@ function spDrawTree(s) {
   const col = spCollapsed(s), off = spOff(s), sel = SP.sel;
   const segs = [], nodes = [];
   const r1 = v => Math.round(v * 10) / 10;
-  const cls = (base, n) => base + (sel === n.id ? ' sel' : '');
+  // 끄는 중이면 놓을 수 있는 개체와 지금 놓일 개체를 표시한다. 구성요소를 끌 때는 움직일 때마다 다시 그리므로 여기서 붙인다
+  // 누르기만 하고 아직 움직이지 않았으면(moved: false) 표시하지 않는다. false 를 그대로 두면 drop?.has 가 터져 레이어가 빈 채로 남는다
+  const drop = SP.drag?.moved ? SP.drag.targets : null;
+  const cls = (base, n) => base + (sel === n.id ? ' sel' : '') + (drop?.has(n.id) ? ` drop-ok${SP.drag.hot === n.id ? ' drop-hot' : ''}` : '');
   const seg = (x, y, w, h, k) => { if (w > 0 && h > 0) segs.push(`<i class="sp-seg${k}" style="left:${r1(x)}px;top:${r1(y)}px;width:${r1(w)}px;height:${r1(h)}px"></i>`); };
   // k 는 선의 종류. '' 은 품는 관계, ' then' 은 이어서 일어나는 관계
   const elbow = (p, t, gap, k = '') => {
@@ -306,9 +347,9 @@ function spDrawTree(s) {
     const o = off[c.id] || { dx: 0, dy: 0 };
     const ox = ax + o.dx, oy = ay + o.dy, X = x + ox, Y = ly + oy;
     elbow(pa, { x: X, y: Y + SP_COMP_H / 2 }, gap);
-    const shut = col.has(c.id), nOpen = spCountOpen(c);
+    const shut = col.has(c.id);
     row(c, 'sp-comp', X, Y, SP_COMP_W, SP_COMP_H,
-      (spCountDesc(c) ? spFold(shut) : '') + (nOpen ? `<span class="sp-bd open">? ${nOpen}</span>` : '') + (shut ? `<span class="sp-bd col">+${spCountDesc(c)}</span>` : ''));
+      (spCountSub(c) ? spFold(shut) : '') + (shut ? `<span class="sp-bd col">+${spCountSub(c)}</span>` : ''));
     if (shut) return SP_COMP_H;
     const cx = x + SP_COMP_W + SP_GAP, anchor = { x: X + SP_COMP_W, y: Y + SP_COMP_H / 2 };
     let cy = ly;
@@ -321,15 +362,15 @@ function spDrawTree(s) {
         cy += draw ? draw(n, rx, ry) : (row(n, kc, rx, ry, SP_ROW_W, SP_ROW_H), SP_ROW_H);
       });
     };
-    // 목업이 맨 위, 그다음 하위 구성요소, 하는 것, 하지 않는 것, 열린 것
-    rows(c.m, 'sp-mock', (m, x, y) => (mockRow(m, x, y), SP_ROW_H));
+    // 위에서부터 설명, 하위 구성요소, 목업, 하는 것, 하지 않는 것
+    rows(c.d, 'sp-desc');
     c.c.forEach(sub => {
       if (cy > ly) cy += SP_SUB_GAP;
       cy += lay(sub, cx, cy, ox, oy, anchor, SP_GAP);
     });
+    rows(c.m, 'sp-mock', (m, x, y) => (mockRow(m, x, y), SP_ROW_H));
     rows(c.f, 'sp-do', doRow);
     rows(c.n, 'sp-dont');
-    rows(c.o, 'sp-open');
     return Math.max(SP_COMP_H, cy - ly);
   };
 
@@ -381,18 +422,19 @@ function spSelect(id) {
 
 // 고치기와 더하기 ----------------------------------------------------------------
 
-// 고른 개체 아래에 자식을 더하는 단추. 프로젝트에는 구성요소, 구성요소에는 구성요소와 기능과 금지(하지 않는 것), 기능에는 이어서 일어나는 기능
+// 고른 개체 아래에 자식을 더하는 단추. 프로젝트에는 용어와 구성요소, 구성요소에는 설명과 구성요소와 기능과 금지(하지 않는 것), 기능에는 이어서 일어나는 기능
+// 목업은 단추로 더하지 않는다. 어떻게 만들지 설명이 따라야 해서 사용자의 지시로 에이전트가 만들어 등록한다
 const SP_ADDS = {
-  root: [['component', '+ 구성요소']],
-  comp: [['component', '+ 구성요소'], ['do', '+ 기능'], ['dont', '+ 금지']],
+  root: [['term', '+ 용어'], ['component', '+ 구성요소']],
+  comp: [['desc', '+ 설명'], ['component', '+ 구성요소'], ['do', '+ 기능'], ['dont', '+ 금지']],
   do: [['do', '+ 이어서 기능']],
 };
-const SP_ADD_HINT = { component: '새 구성요소 이름', do: '새 기능', dont: '새 금지 (하지 않는 것)' };
-// 지울 수 있는 개체: 자식이 하나도 없는 구성요소, 이어서 기능이 없는 기능, 하지 않는 것, 열린 것, 용어. 프로젝트와 목업은 아니다
+const SP_ADD_HINT = { term: '새 용어 (낱말: 뜻)', component: '새 구성요소 이름', desc: '새 설명 (이 구성요소가 무엇인지)', do: '새 기능', dont: '새 금지 (하지 않는 것)' };
+// 지울 수 있는 개체: 자식이 하나도 없는 구성요소, 이어서 기능이 없는 기능, 설명, 하지 않는 것, 용어. 프로젝트와 목업은 아니다
 function spCanRemove(n) {
-  if (n.kind === 'comp') return !(n.c.length || n.f.length || n.n.length || n.o.length || n.m.length);
+  if (n.kind === 'comp') return !(n.c.length || n.d.length || n.f.length || n.n.length || n.m.length);
   if (n.kind === 'do') return !n.th.length;
-  return n.kind === 'dont' || n.kind === 'open' || n.kind === 'term';
+  return ['desc', 'dont', 'term'].includes(n.kind);
 }
 const spNodeEl = id => document.querySelector(`#sp-layer [data-sp-id="${CSS.escape(id)}"]`);
 
@@ -405,11 +447,12 @@ function spBox(el) {
 }
 
 // 고른 개체 바로 아래에 더하기 단추와, 자식이 없으면 삭제 단추를 띄운다. 고르기는 다시 그리지 않으므로 단추만 옮긴다
+// 고치거나 개체를 끄는 동안은 띄우지 않는다
 function spPlaceActs(s) {
   $('#sp-acts')?.remove();
   const n = SP.sel && spIndex(s)?.index[SP.sel];
   const adds = (n && SP_ADDS[n.kind]) || [], del = n && spCanRemove(n);
-  const el = (adds.length || del) && !SP.editing && spNodeEl(n.id);
+  const el = (adds.length || del) && !SP.editing && !(SP.drag?.moved && SP.drag.targets) && spNodeEl(n.id);
   if (!el) return;
   const b = spBox(el);
   $('#sp-layer').insertAdjacentHTML('beforeend', `<div class="sp-acts" id="sp-acts" style="left:${b.x}px;top:${b.y + b.h + 4}px">${
@@ -498,6 +541,7 @@ function spStartEdit(s, n, el, target) {
 }
 
 // 고른 개체 아래에 자식을 더한다. 입력칸은 그 개체 바로 아래에 뜬다. 더한 자식을 고르고 부모가 접혀 있으면 편다
+// 용어는 `낱말: 뜻` 한 칸으로 받는다. 낱말이나 뜻이 비면 더하지 않는다
 function spStartAdd(s, kind) {
   const n = SP.sel && spIndex(s)?.index[SP.sel];
   const el = n && spNodeEl(n.id);
@@ -505,13 +549,22 @@ function spStartAdd(s, kind) {
   const b = spBox(el);
   const where = spWhereNew(n, kind);
   spOpenEditor(s, { x: b.x + 24, y: b.y + b.h + 4, w: SP_ROW_W, h: SP_ROW_H }, '', SP_ADD_HINT[kind], async text => {
+    let item = text, expect = text;
+    if (kind === 'term') {
+      const k = text.search(/[:：]/);
+      const word = k < 0 ? '' : text.slice(0, k).trim(), meaning = k < 0 ? '' : text.slice(k + 1).trim();
+      if (!word || !meaning) { alert('용어는 `낱말: 뜻` 으로 쓴다'); return; }
+      item = { word, meaning };
+      expect = word;
+      text = `${word}: ${meaning}`;
+    }
     const before = spQ(s.id);
-    const res = await spWrite(s.id, { op: 'add', path: n.p, expect: n.t, kind, text });
+    const res = await spWrite(s.id, { op: 'add', path: n.p, expect: n.t, kind, text: item });
     if (!res) return;
     spNote(s.id, { op: 'add', key: JSON.stringify(res.path), p: res.path, ...where, text });
     spRecord(s.id, before, {
-      back: spRemoveStep(res.path, text, where, text),
-      fwd: spAddStep(n.p, n.t, kind, text, res.path.at(-1), where, text),
+      back: spRemoveStep(res.path, expect, where, text),
+      fwd: spAddStep(n.p, n.t, kind, item, res.path.at(-1), where, text),
     });
     const t = sessions.find(x => x.id === s.id);
     const added = t && Object.values(spIndex(t)?.index || {}).find(x => spSame(x.p, res.path));
@@ -538,6 +591,48 @@ async function spRemove(s) {
   renderModules();
 }
 
+// 끌어 옮기기 ----------------------------------------------------------------------
+// 개체를 다른 개체 위에 놓으면 자식째 그 아래 목록 끝으로 옮긴다. 놓을 수 있는 자리는 더하기와 같다
+// 자기 아래, 지금 부모, 프로젝트는 놓을 자리가 아니다. 구성요소를 빈 곳에 놓으면 지금처럼 화면 배치만 옮긴다
+
+// 종류마다 부모가 될 수 있는 개체
+const SP_PARENTS = { comp: ['root', 'comp'], desc: ['comp'], do: ['comp', 'do'], dont: ['comp'], mock: ['comp'], term: ['root'] };
+const spUnder = (t, n) => { for (let c = t; c; c = c.parent) if (c === n) return true; return false; };
+function spDropTargets(s, n) {
+  const ok = SP_PARENTS[n.kind] || [];
+  return new Set(Object.values(spIndex(s)?.index || {}).filter(t => ok.includes(t.kind) && t !== n.parent && !spUnder(t, n)).map(t => t.id));
+}
+
+// 접은 상태는 노드 이름(구성요소 이름을 이은 경로와 순번)에 붙어 있어, 옮긴 개체와 그 아래의 것을 새 이름으로 옮겨 단다
+function spRename(s, from, to) {
+  const col = spCollapsed(s), off = spOff(s);
+  const hit = id => id === from || ['/', ':', '.'].some(c => id.startsWith(from + c));
+  let changed = false;
+  [...col].filter(hit).forEach(id => { col.delete(id); col.add(to + id.slice(from.length)); changed = true; });
+  if (changed) spSaveCollapsed();
+  Object.keys(off).filter(id => id !== from && hit(id)).forEach(id => { off[to + id.slice(from.length)] = off[id]; delete off[id]; });
+  delete off[from];
+}
+
+async function spMove(s, n, t) {
+  const fromWhere = spWhereOf(n), expect = n.kind === 'term' ? n.word : n.t;
+  const back = { path: n.parent.p, seen: n.parent.t, at: n.p.at(-1) };
+  const before = spQ(s.id);
+  const res = await spWrite(s.id, { op: 'move', path: n.p, expect, to: t.p, toExpect: t.t });
+  const u = sessions.find(x => x.id === s.id);
+  if (!res || !u) return;
+  const moved = spFind(u, res.path);
+  const where = moved ? spWhereOf(moved) : fromWhere;
+  if (moved) spRename(u, n.id, moved.id);
+  spNoteMove(u.id, { from: n.p, to: res.path, fromWhere, where, text: n.t });
+  spRecord(u.id, before, {
+    back: spMoveStep(res.path, expect, back.path, back.seen, back.at, where, fromWhere, n.t),
+    fwd: spMoveStep(n.p, expect, t.p, t.t, undefined, fromWhere, where, n.t),
+  });
+  spReveal(u, res.path);
+  renderModules();
+}
+
 // 실행취소 ----------------------------------------------------------------------
 // 사용자가 이 패널에서 한 고치기, 더하기, 삭제만 되돌린다. 에이전트가 MCP 로 고친 것은 기록에 없다(git 으로 되돌린다)
 // 기록은 탭마다 브라우저에만 둔다. 새로고침하면 사라진다. 새로 무엇을 하면 다시 할 것(redo)은 버린다
@@ -546,7 +641,7 @@ async function spRemove(s) {
 // 그 사이 에이전트가 같은 개체를 고쳤으면 서버가 쓰지 않고 까닭을 띄운다. 그 기록은 버린다
 
 // 지운 개체를 되살릴 때 쓰는 자식 종류
-const SP_ADD_KIND = { comp: 'component', do: 'do', dont: 'dont', open: 'open', term: 'term' };
+const SP_ADD_KIND = { comp: 'component', desc: 'desc', do: 'do', dont: 'dont', term: 'term' };
 const spHist = id => (SP.hist[id] ||= { back: [], fwd: [], gen: 0 });
 const spQ = id => JSON.parse(JSON.stringify(sessions.find(x => x.id === id)?.specq || []));
 
@@ -570,6 +665,12 @@ const spAddStep = (path, expect, kind, item, at, where, shown) => ({
     spShiftQ(t.specq ||= [], res.path, 1);
     spNote(t.id, { op: 'add', key: JSON.stringify(res.path), p: res.path, ...where, text: shown });
   },
+  sel: res => res.path,
+});
+// 옮기기는 옮긴 자리에서 옛 부모의 옛 순번(at)으로 되돌린다. 다시 할 때는 새 부모 목록 끝에 붙인다
+const spMoveStep = (path, expect, to, toExpect, at, fromWhere, where, shown) => ({
+  body: { op: 'move', path, expect, to, toExpect, at },
+  note: (t, res) => spNoteMove(t.id, { from: path, to: res.path, fromWhere, where, text: shown }),
   sel: res => res.path,
 });
 
@@ -626,11 +727,11 @@ document.addEventListener('keydown', e => {
 // 방향키로 오갈 자식. 화면에 놓인 순서대로다
 function spNavKids(n) {
   if (n.kind === 'root') return [...n.w, ...n.c];
-  if (n.kind === 'comp') return [...n.c, ...n.f, ...n.n, ...n.o];
+  if (n.kind === 'comp') return [...n.d, ...n.c, ...n.f, ...n.n];
   return n.kind === 'do' ? n.th : [];
 }
 // ▾ 단추가 붙는 개체. 구성요소는 목업만 있어도 접힌다
-const spFoldable = n => n.kind === 'root' ? n.c.length + n.w.length > 0 : n.kind === 'comp' ? spCountDesc(n) > 0 : n.kind === 'do' && n.th.length > 0;
+const spFoldable = n => n.kind === 'root' ? n.c.length + n.w.length > 0 : n.kind === 'comp' ? spCountSub(n) > 0 : n.kind === 'do' && n.th.length > 0;
 
 function spToggleFold(s, id) {
   const col = spCollapsed(s);
@@ -745,39 +846,97 @@ document.addEventListener('dblclick', e => {
   spStartEdit(s, n, el, e.target);
 });
 
-// 빈 곳을 끌면 화면이 움직이고, 구성요소를 끌면 하위째 옮겨진다
+// 빈 곳을 끌면 화면이 움직인다. 개체를 끌어 다른 개체 위에 놓으면 그 아래로 옮긴다
+// 구성요소는 끄는 동안 하위째 따라 움직이고, 빈 곳에 놓으면 그 배치로 남는다. 다른 개체는 끄는 동안 사본이 따라온다
 document.addEventListener('pointerdown', e => {
   const s = cur();
   const vp = s && e.button === 0 && e.target.closest('#sp-vp');
-  if (!vp || !spIndex(s) || e.target.closest('.sp-acts, .sp-edit')) return;
+  if (!vp || !spIndex(s) || SP.editing || e.target.closest('.sp-acts, .sp-edit')) return;
   const el = e.target.closest('[data-sp-id]');
   const n = el && spIndex(s).index[el.dataset.spId];
   const cam = spCam(s);
+  const at = { sx: e.clientX, sy: e.clientY, moved: false };
   if (n) {
+    const targets = n.kind === 'root' ? new Set() : spDropTargets(s, n);
     const o = spOff(s)[n.id] || { dx: 0, dy: 0 };
-    SP.drag = n.kind === 'comp' ? { mode: 'node', id: n.id, sx: e.clientX, sy: e.clientY, o: { ...o }, moved: false } : { mode: 'none', sx: e.clientX, sy: e.clientY, moved: false };
+    SP.drag = n.kind === 'comp' ? { ...at, mode: 'node', id: n.id, o: { ...o }, targets }
+      : targets.size ? { ...at, mode: 'item', id: n.id, targets } : { ...at, mode: 'none' };
   } else {
-    SP.drag = { mode: 'pan', sx: e.clientX, sy: e.clientY, px: cam.panX, py: cam.panY, moved: false };
+    SP.drag = { ...at, mode: 'pan', px: cam.panX, py: cam.panY };
     vp.classList.add('grabbing');
   }
 });
+
+// 끄는 개체 밑에서 놓을 수 있는 개체. 끄는 구성요소와 그 하위, 사본은 놓을 자리가 아니라 건너뛴다
+function spHotAt(d, x, y) {
+  for (const el of document.elementsFromPoint(x, y)) {
+    const id = el.closest?.('#sp-layer [data-sp-id]')?.dataset.spId;
+    if (id && d.targets.has(id)) return id;
+  }
+  return null;
+}
+// 끌기를 처음 움직였을 때: 놓을 수 있는 개체를 표시하고, 구성요소가 아니면 따라올 사본을 띄운다
+function spDragStart(s, d) {
+  $('#sp-acts')?.remove();
+  $('#sp-vp')?.classList.add('grabbing');
+  d.targets.forEach(id => spNodeEl(id)?.classList.add('drop-ok'));
+  if (d.mode !== 'item') return;
+  const el = spNodeEl(d.id);
+  if (!el) return;
+  d.box = spBox(el);
+  d.ghost = el.cloneNode(true);
+  d.ghost.classList.remove('sel');
+  d.ghost.classList.add('sp-ghost');
+  delete d.ghost.dataset.spId;
+  $('#sp-layer').appendChild(d.ghost);
+  el.classList.add('dragging');
+}
+function spMarkHot(d, hot) {
+  if (d.hot === hot) return;
+  if (d.hot) spNodeEl(d.hot)?.classList.remove('drop-hot');
+  d.hot = hot;
+  if (hot) spNodeEl(hot)?.classList.add('drop-hot');
+}
+
 window.addEventListener('pointermove', e => {
   const d = SP.drag, s = cur();
   if (!d || !s) return;
   const dx = e.clientX - d.sx, dy = e.clientY - d.sy;
   if (!d.moved && Math.abs(dx) + Math.abs(dy) < 4) return;
+  const first = !d.moved;
   d.moved = true;
   const cam = spCam(s);
-  if (d.mode === 'pan') { cam.panX = d.px + dx; cam.panY = d.py + dy; spApplyCam(s); }
-  else if (d.mode === 'node') { spOff(s)[d.id] = { dx: d.o.dx + dx / cam.zoom, dy: d.o.dy + dy / cam.zoom }; spDrawTree(s); }
+  if (d.mode === 'pan') { cam.panX = d.px + dx; cam.panY = d.py + dy; spApplyCam(s); return; }
+  if (d.mode === 'none') return;
+  if (first) spDragStart(s, d);
+  if (d.mode === 'node') {
+    // 다시 그리면 표시가 cls 로 다시 붙는다. 그리기 전에 놓일 자리를 정한다
+    spOff(s)[d.id] = { dx: d.o.dx + dx / cam.zoom, dy: d.o.dy + dy / cam.zoom };
+    d.hot = spHotAt(d, e.clientX, e.clientY);
+    spDrawTree(s);
+    return;
+  }
+  if (d.ghost) Object.assign(d.ghost.style, { left: `${d.box.x + dx / cam.zoom}px`, top: `${d.box.y + dy / cam.zoom}px` });
+  spMarkHot(d, spHotAt(d, e.clientX, e.clientY));
 });
+
 window.addEventListener('pointerup', () => {
-  const d = SP.drag;
+  const d = SP.drag, s = cur();
   if (!d) return;
   SP.drag = null;
   $('#sp-vp')?.classList.remove('grabbing');
   SP.dragMoved = d.moved;
   if (d.mode === 'pan' && !d.moved) spSelect(null);
+  if (!d.moved || !s || (d.mode !== 'node' && d.mode !== 'item')) return;
+  d.ghost?.remove();
+  document.querySelectorAll('#sp-layer .drop-ok, #sp-layer .dragging').forEach(el => el.classList.remove('drop-ok', 'drop-hot', 'dragging'));
+  const ix = spIndex(s), n = ix?.index[d.id], t = d.hot && ix?.index[d.hot];
+  if (n && t) {
+    // 구성요소는 끈 만큼 비켜 그렸던 자리를 되돌리고 옮긴다
+    if (d.mode === 'node') { spOff(s)[d.id] = d.o; spDrawTree(s); }
+    spMove(s, n, t);
+  } else if (d.mode === 'node') spDrawTree(s);
+  else spPlaceActs(s);
 });
 document.getElementById('modhost').addEventListener('wheel', e => {
   const s = cur();

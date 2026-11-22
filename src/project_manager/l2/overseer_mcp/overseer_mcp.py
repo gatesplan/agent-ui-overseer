@@ -11,22 +11,22 @@ INSTRUCTIONS = (
     '제안하기 전에 decisions(action="reject")로 비슷한 제안이 기각된 적이 있는지 본다. '
     '결정 기록과 용어의 목록과 검색은 records, 기록 하나의 이력과 근거는 record 로 본다. '
     '모듈의 책임이 언제 누구의 요청으로 바뀌었는지는 module 로 본다. '
-    '스펙은 spec.json 을 직접 열지 않고 spec_view 로 보고 spec_add, spec_edit, spec_remove 로 고친다. 고친 것은 스펙 패널에 곧바로 보인다.'
+    '스펙은 spec.json 을 직접 열지 않고 spec_view 로 보고 spec_add, spec_edit, spec_remove, spec_move 로 고친다. 고친 것은 스펙 패널에 곧바로 보인다.'
 )
 READ_ONLY = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False)
 WRITE = ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=False)
 REMOVE = ToolAnnotations(read_only_hint=False, destructive_hint=True, idempotent_hint=False, open_world_hint=False)
 
-# 스펙 개체 번호. 프로젝트 아래 c(구성요소)와 w(용어), 구성요소 아래 c(하위 구성요소), f(기능), n(하지 않는 것), o(열린 것), m(목업),
+# 스펙 개체 번호. 프로젝트 아래 c(구성요소)와 w(용어), 구성요소 아래 c(하위 구성요소), d(설명), f(기능), n(하지 않는 것), m(목업),
 # 기능 아래 f(이어서 일어나는 기능). 점으로 잇는다: c1.c2.f1.f3. 순번은 1부터
-SEGMENT = re.compile(r'^([cwfnom])([1-9]\d*)$')
+SEGMENT = re.compile(r'^([cwdfnm])([1-9]\d*)$')
 STEP = {('root', 'c'): 'components', ('root', 'w'): 'terms',
-        ('comp', 'c'): 'children', ('comp', 'f'): 'does', ('comp', 'n'): 'donts', ('comp', 'o'): 'open', ('comp', 'm'): 'mocks',
+        ('comp', 'c'): 'children', ('comp', 'd'): 'descs', ('comp', 'f'): 'does', ('comp', 'n'): 'donts', ('comp', 'm'): 'mocks',
         ('do', 'f'): 'then'}
 LETTER = {key: letter for (_, letter), key in STEP.items()}
 # 개체 번호 대신 쓰는 프로젝트의 글 칸
 TOP_FIELDS = ('title', 'summary')
-SPEC_HELP = ('개체 번호: 프로젝트 아래 c 구성요소, w 용어. 구성요소 아래 c 하위 구성요소, f 기능(하는 것), n 하지 않는 것, o 열린 것, m 목업. '
+SPEC_HELP = ('개체 번호: 프로젝트 아래 c 구성요소, w 용어. 구성요소 아래 c 하위 구성요소, d 설명(그 구성요소가 무엇인지), f 기능(하는 것), n 하지 않는 것, m 목업. '
              '기능 아래 f 이어서 일어나는 기능. 점으로 잇고 순번은 1부터다(c1.c2.f1). 용어 글은 `낱말: 뜻`, 목업 글은 `이름 | 경로나 URL`.')
 
 
@@ -54,12 +54,15 @@ class OverseerMcp:
         self.server.add_tool(self.spec_view, name='spec_view', annotations=READ_ONLY,
                              description='프로젝트 스펙을 개체 번호가 붙은 들여쓰기 글로 본다. at 에 구성요소나 기능 번호를 주면 그 아래만 본다. ' + SPEC_HELP)
         self.server.add_tool(self.spec_add, name='spec_add', annotations=WRITE,
-                             description='parent 개체 아래에 자식을 더한다(parent 가 빈 글이면 프로젝트). kind: component | do | dont | open | term | mock. '
-                                         '프로젝트에는 component, term. 구성요소에는 component, do, dont, open, mock. 기능에는 do(이어서 일어나는 기능). ' + SPEC_HELP)
+                             description='parent 개체 아래에 자식을 더한다(parent 가 빈 글이면 프로젝트). kind: component | desc | do | dont | term | mock. '
+                                         '프로젝트에는 component, term. 구성요소에는 component, desc, do, dont, mock. 기능에는 do(이어서 일어나는 기능). ' + SPEC_HELP)
         self.server.add_tool(self.spec_edit, name='spec_edit', annotations=WRITE,
                              description='개체 하나의 글을 바꾼다. id 는 개체 번호나 title, summary. 구성요소는 이름, 나머지는 그 한 줄을 바꾼다. ' + SPEC_HELP)
         self.server.add_tool(self.spec_remove, name='spec_remove', annotations=REMOVE,
                              description='자식이 없는 개체 하나를 지운다. 지운 자리 뒤 형제의 번호는 하나씩 당겨진다. ' + SPEC_HELP)
+        self.server.add_tool(self.spec_move, name='spec_move', annotations=WRITE,
+                             description='개체 하나(id)를 자식째 parent 개체 아래로 옮긴다(parent 가 빈 글이면 프로젝트). 새 부모 목록 끝에 붙는다. '
+                                         '갈 수 있는 자리는 spec_add 와 같다. 빠진 자리 뒤 형제의 번호는 하나씩 당겨진다. ' + SPEC_HELP)
 
     def records(self, query: str = '', kind: str = '', include_replaced: bool = False) -> str:
         return self.query.list_records(query, kind, include_replaced)
@@ -142,6 +145,18 @@ class OverseerMcp:
         except ValueError as e:
             return f'실패: {e}'
 
+    def spec_move(self, id: str, parent: str) -> str:
+        try:
+            spec = self._spec()
+            path = self._path(id)
+            dest = self._path(parent) if parent.strip() else []
+            role = ProjectSpec.role(path)
+            node, target = ProjectSpec.at(spec, path), ProjectSpec.at(spec, dest)
+            got = self._done(self.spec.move(path, ProjectSpec.seen(role, node), dest, ProjectSpec.seen(ProjectSpec.role(dest), target)))
+            return f'옮김: {id} → {self._id(got["path"])} {self._line(role, node)}. 옛 자리 뒤 형제의 번호는 하나씩 당겨졌다'
+        except ValueError as e:
+            return f'실패: {e}'
+
     def run(self) -> None:
         self.server.run('stdio')
 
@@ -177,14 +192,14 @@ class OverseerMcp:
     def _id(path: list) -> str:
         return '.'.join(f'{LETTER[path[k]]}{path[k + 1] + 1}' for k in range(0, len(path), 2))
 
-    # 구성요소나 기능 하나와 그 아래를 들여쓴 줄로. 구성요소 아래는 목업, 기능, 하지 않는 것, 열린 것, 하위 구성요소 순
+    # 구성요소나 기능 하나와 그 아래를 들여쓴 줄로. 구성요소 아래는 스펙 패널에 놓인 차례대로 설명, 하위 구성요소, 목업, 기능, 하지 않는 것
     def _tree(self, node, path: list, depth: int) -> list[str]:
         role = ProjectSpec.role(path)
         pad = '  ' * depth
         lines = [f'{pad}{self._id(path)} {self._line(role, node)}']
         if not isinstance(node, dict):
             return lines
-        keys = ('mocks', 'does', 'donts', 'open', 'children') if role == 'comp' else ('then',)
+        keys = ('descs', 'children', 'mocks', 'does', 'donts') if role == 'comp' else ('then',)
         for key in keys:
             for i, kid in enumerate(node.get(key) or []):
                 kid_path = path + [key, i]

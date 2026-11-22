@@ -11,7 +11,6 @@ SPEC = {
          'mocks': [{'name': '장바구니 화면', 'href': 'mocks/cart.html'}, {'name': '시안', 'href': 'https://example.com/a'}],
          'does': ['같은 상품은 수량을 합친다'],
          'donts': ['결제는 하지 않는다'],
-         'open': ['품절 상품을 어떻게 보일지'],
          'children': [{'name': '쿠폰', 'does': ['쿠폰 하나만 적용한다']}]},
     ],
 }
@@ -89,9 +88,9 @@ def test_bad_then_is_error_naming_where(tmp_path):
         assert where in got['message'], got['message']
 
 
-# 이어서 일어나는 일은 실행되는 하는 것에만 단다. 하지 않는 것과 열린 것은 한 줄 글뿐이다
+# 이어서 일어나는 일은 실행되는 하는 것에만 단다. 설명과 하지 않는 것은 한 줄 글뿐이다
 def test_then_only_on_does(tmp_path):
-    for key in ('donts', 'open'):
+    for key in ('descs', 'donts'):
         write(tmp_path, {'components': [{'name': '가', key: [{'text': '줄', 'then': ['뒤']}]}]})
         assert ProjectSpec(tmp_path).read()['status'] == 'error', key
 
@@ -255,16 +254,14 @@ def test_writes_need_a_readable_spec(tmp_path):
     assert ProjectSpec(tmp_path).edit([{'path': ['title'], 'old': '', 'new': '가게'}])['status'] == 'error'
 
 
-# 에이전트 도구가 쓰는 자식: 프로젝트의 용어, 구성요소의 열린 것과 목업
-def test_add_terms_open_and_mocks(tmp_path):
+# 에이전트 도구가 쓰는 자식: 프로젝트의 용어, 구성요소의 목업
+def test_add_terms_and_mocks(tmp_path):
     write(tmp_path, cart_spec())
     spec = ProjectSpec(tmp_path)
     assert spec.add([], '가게', 'term', {'word': ' 손님 ', 'meaning': '주문하는 사람'})['path'] == ['terms', 1]
-    assert spec.add(['components', 0], '장바구니', 'open', '품절 상품 표시')['path'] == ['components', 0, 'open', 0]
     assert spec.add(['components', 0], '장바구니', 'mock', {'name': '시안', 'href': 'mocks/cart.html'})['path'] == ['components', 0, 'mocks', 0]
     s = stored(tmp_path)
     assert s['terms'][1] == {'word': '손님', 'meaning': '주문하는 사람'}
-    assert s['components'][0]['open'] == ['품절 상품 표시']
     assert s['components'][0]['mocks'] == [{'name': '시안', 'href': 'mocks/cart.html'}]
 
 
@@ -296,4 +293,114 @@ def test_remove_refuses_parents_root_stale_or_missing(tmp_path):
         got = spec.remove(*args)
         assert got['status'] == 'error', args
     assert '자식이 있는' in spec.remove(['components', 0], '장바구니')['message']
+    assert (tmp_path / 'spec.json').read_text(encoding='utf-8') == before
+
+
+# 스펙은 사람이 정한다. 에이전트의 제안이나 미정 사항을 담던 열린 것(open)은 받지 않는다
+def test_open_items_are_not_part_of_spec(tmp_path):
+    write(tmp_path, {'components': [{'name': '가', 'open': ['정하지 않은 것']}]})
+    assert ProjectSpec(tmp_path).read()['status'] == 'error'
+    write(tmp_path, cart_spec())
+    assert ProjectSpec(tmp_path).add(['components', 0], '장바구니', 'open', '정하지 않은 것')['status'] == 'error'
+
+
+# 설명은 구성요소가 무엇인지 적는 한 줄 글이다. 구성요소 아래에만 단다
+def test_descs_under_components(tmp_path):
+    write(tmp_path, cart_spec())
+    spec = ProjectSpec(tmp_path)
+    assert spec.add(['components', 0], '장바구니', 'desc', ' 손님이 고른 상품을 모아 둔다 ')['path'] == ['components', 0, 'descs', 0]
+    assert stored(tmp_path)['components'][0]['descs'] == ['손님이 고른 상품을 모아 둔다']
+    assert spec.add([], '가게', 'desc', '프로젝트 아래 설명')['status'] == 'error'
+    assert spec.add(['components', 0, 'does', 0], '상품을 담는다', 'desc', '기능 아래 설명')['status'] == 'error'
+    assert spec.remove(['components', 0, 'descs', 0], '손님이 고른 상품을 모아 둔다')['status'] == 'ok'
+    assert 'descs' not in stored(tmp_path)['components'][0]
+    write(tmp_path, {'components': [{'name': '가', 'descs': [3]}]})
+    assert spec.read()['status'] == 'error'
+
+
+def move_spec():
+    return {'title': '가게',
+            'components': [
+                {'name': '장바구니', 'descs': ['고른 상품을 모은다'],
+                 'does': ['상품을 담는다', {'text': '수량을 합친다', 'then': ['합계를 다시 계산한다']}],
+                 'donts': ['결제는 하지 않는다'],
+                 'children': [{'name': '쿠폰', 'does': ['한 장만 쓴다']}]},
+                {'name': '결제', 'mocks': [{'name': '시안', 'href': 'mocks/pay.html'}]},
+            ]}
+
+
+# 개체를 자식째 다른 개체 아래로 옮긴다. 새 부모 목록 끝에 붙고, 새 자리를 돌려준다
+def test_move_carries_children_to_new_parent(tmp_path):
+    write(tmp_path, move_spec())
+    spec = ProjectSpec(tmp_path)
+    # 이어지는 일이 달린 기능을 다른 구성요소로. 빈 목록이 된 키는 지운다
+    got = spec.move(['components', 0, 'does', 1], '수량을 합친다', ['components', 1], '결제')
+    assert got['status'] == 'ok' and got['path'] == ['components', 1, 'does', 0]
+    s = stored(tmp_path)
+    assert s['components'][0]['does'] == ['상품을 담는다']
+    assert s['components'][1]['does'] == [{'text': '수량을 합친다', 'then': ['합계를 다시 계산한다']}]
+    # 기능을 한 줄 글 기능 아래로 옮기면 이어서 기능이 된다
+    got = spec.move(['components', 0, 'does', 0], '상품을 담는다', ['components', 1, 'does', 0, 'then', 0], '합계를 다시 계산한다')
+    assert got['path'] == ['components', 1, 'does', 0, 'then', 0, 'then', 0]
+    assert 'does' not in stored(tmp_path)['components'][0]
+    # 이어서 기능을 빼면 남은 것이 없는 기능은 한 줄 글로 돌아간다
+    got = spec.move(['components', 1, 'does', 0, 'then', 0, 'then', 0], '상품을 담는다', ['components', 0, 'children', 0], '쿠폰')
+    assert got['path'] == ['components', 0, 'children', 0, 'does', 1]
+    assert stored(tmp_path)['components'][1]['does'] == [{'text': '수량을 합친다', 'then': ['합계를 다시 계산한다']}]
+    # 하위 구성요소를 프로젝트 바로 아래로, 설명과 금지와 목업은 다른 구성요소로
+    got = spec.move(['components', 0, 'children', 0], '쿠폰', [], '가게')
+    assert got['path'] == ['components', 2]
+    assert stored(tmp_path)['components'][2] == {'name': '쿠폰', 'does': ['한 장만 쓴다', '상품을 담는다']}
+    assert spec.move(['components', 0, 'descs', 0], '고른 상품을 모은다', ['components', 2], '쿠폰')['path'] == ['components', 2, 'descs', 0]
+    assert spec.move(['components', 0, 'donts', 0], '결제는 하지 않는다', ['components', 2], '쿠폰')['path'] == ['components', 2, 'donts', 0]
+    assert spec.move(['components', 1, 'mocks', 0], '시안', ['components', 0], '장바구니')['path'] == ['components', 0, 'mocks', 0]
+    assert stored(tmp_path)['components'][0] == {'name': '장바구니', 'mocks': [{'name': '시안', 'href': 'mocks/pay.html'}]}
+
+
+# 빠진 개체 뒤에 있던 새 부모는 순번이 당겨진다. 돌려주는 자리는 옮긴 뒤의 자리다
+def test_move_path_follows_shifted_parent(tmp_path):
+    write(tmp_path, move_spec())
+    spec = ProjectSpec(tmp_path)
+    got = spec.move(['components', 0], '장바구니', ['components', 1], '결제')
+    assert got['path'] == ['components', 0, 'children', 0]
+    s = stored(tmp_path)
+    assert [c['name'] for c in s['components']] == ['결제']
+    assert s['components'][0]['children'][0]['name'] == '장바구니'
+    assert s['components'][0]['children'][0]['children'][0]['name'] == '쿠폰'
+
+
+# 순번(at)을 주면 그 자리에 끼운다. 옮긴 것을 실행취소로 제자리에 돌릴 때 쓴다
+def test_move_at_puts_back_in_place(tmp_path):
+    write(tmp_path, move_spec())
+    spec = ProjectSpec(tmp_path)
+    spec.move(['components', 0, 'does', 0], '상품을 담는다', ['components', 1], '결제')
+    got = spec.move(['components', 1, 'does', 0], '상품을 담는다', ['components', 0], '장바구니', 0)
+    assert got['path'] == ['components', 0, 'does', 0]
+    assert stored(tmp_path) == move_spec()
+
+
+def test_move_refuses_bad_targets(tmp_path):
+    write(tmp_path, move_spec())
+    spec = ProjectSpec(tmp_path)
+    before = (tmp_path / 'spec.json').read_text(encoding='utf-8')
+    for args in [
+        (['components', 0, 'does', 0], '상품을 담는다', [], '가게'),
+        (['components', 0, 'donts', 0], '결제는 하지 않는다', ['components', 0, 'does', 0], '상품을 담는다'),
+        (['components', 0, 'descs', 0], '고른 상품을 모은다', ['components', 0, 'does', 0], '상품을 담는다'),
+        (['components', 0], '장바구니', ['components', 1, 'mocks', 0], '시안'),
+        (['components', 0], '장바구니', ['components', 0, 'children', 0], '쿠폰'),
+        (['components', 0], '장바구니', ['components', 0], '장바구니'),
+        (['components', 0, 'does', 0], '상품을 담는다', ['components', 0], '장바구니'),
+        (['components', 0, 'does', 0], '옛 글', ['components', 1], '결제'),
+        (['components', 0, 'does', 0], '상품을 담는다', ['components', 1], '옛 이름'),
+        (['components', 0, 'does', 9], '상품을 담는다', ['components', 1], '결제'),
+        ([], '가게', ['components', 1], '결제'),
+        (['title'], '가게', ['components', 1], '결제'),
+    ]:
+        got = spec.move(*args)
+        assert got['status'] == 'error', args
+    for at in (1, -1, '0', True):
+        assert spec.move(['components', 0, 'does', 0], '상품을 담는다', ['components', 1], '결제', at)['status'] == 'error', at
+    assert '자기 아래' in spec.move(['components', 0], '장바구니', ['components', 0, 'children', 0], '쿠폰')['message']
+    assert '이미' in spec.move(['components', 0, 'does', 0], '상품을 담는다', ['components', 0], '장바구니')['message']
     assert (tmp_path / 'spec.json').read_text(encoding='utf-8') == before
