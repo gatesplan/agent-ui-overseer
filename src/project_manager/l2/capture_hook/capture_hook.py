@@ -121,6 +121,7 @@ class CaptureHook:
         if reader:
             try:
                 record['prompts'] = reader.turn_prompts(since)
+                record['system_prompts'] = reader.turn_system_prompts(since)
                 record['usage'] = reader.turn_usage(since)
                 record['files'] = reader.turn_files(since)
                 record['transcript_rows'] = reader.row_count()
@@ -129,12 +130,12 @@ class CaptureHook:
         logger.info(f"turn 캡처: source={source}, items={len(record['items'])}, text_len={len(text)}, usage={record['usage']}")
         return record
 
-    # 턴 기록. facts: 기록 파일에서 읽은 prompts, usage, files, transcript_rows (없으면 모름)
+    # 턴 기록. facts: 기록 파일에서 읽은 prompts, system_prompts, usage, files, transcript_rows (없으면 모름)
     def _record(self, text: str, source: str, facts: dict | None = None) -> dict:
         facts = facts or {}
         preamble, items = self.splitter.split(text)
         return {'source': source, 'text': text, 'preamble': preamble, 'items': [item.to_dict() for item in items],
-                **{k: facts.get(k) for k in ('prompts', 'usage', 'files', 'transcript_rows')}}
+                **{k: facts.get(k) for k in ('prompts', 'system_prompts', 'usage', 'files', 'transcript_rows')}}
 
     # 훅이 남기지 못하고 지나간 턴을 기록 파일에서 읽은 대로 남긴다
     def _recover(self, tab_id: str, base: dict, turns: list[dict]) -> None:

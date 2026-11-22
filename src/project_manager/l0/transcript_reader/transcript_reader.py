@@ -37,6 +37,29 @@ class TranscriptReader:
             return None
         return self._prompts(rows[start:])
 
+    # 이번 턴에 전달된 시스템 입력(예약 깨우기 같은 것). 입력 훅도 불려 대기 입력으로 남으니 이것으로 지운다
+    # 경계는 turn_prompts 와 같다. 경계를 모르면 None
+    def turn_system_prompts(self, since: int | None = None) -> list[str] | None:
+        rows = self._rows()
+        start = self._turn_start(rows, since)
+        if start is None:
+            return None
+        return self._system_prompts(rows[start:])
+
+    # 메타 주입(isMeta)이어도 시스템이 넣은 입력이면 넣는다. 예약 깨우기는 isMeta, promptSource=system 으로 남는다
+    def _system_prompts(self, rows: list[dict]) -> list[str]:
+        out = []
+        for row in rows:
+            if row.get('type') != 'user' or row.get('isSidechain') or not self._is_system(row):
+                continue
+            blocks = self._blocks(row)
+            if any(b.get('type') == 'tool_result' for b in blocks):
+                continue
+            text = '\n'.join(b['text'] for b in blocks if b.get('type') == 'text' and b.get('text')).strip()
+            if text:
+                out.append(text)
+        return out
+
     def _prompts(self, rows: list[dict]) -> list[str]:
         prompts = []
         for row in rows:
@@ -105,7 +128,7 @@ class TranscriptReader:
 
     # since 뒤에 끝 표시(turn_duration)까지 붙은 턴들. 훅이 그 턴을 남기지 못한 것이다(시간 초과, API 오류로 Stop 훅 없음)
     # since 는 훅이 지난번에 남긴 기록 길이라, 바로 뒤에는 그 턴의 끝 표시가 온다. 입력도 응답도 없는 구간은 턴이 아니라 뺀다
-    # 각 턴: prompts, text(마지막 응답 메시지의 글. Stop 훅이 주는 것과 같다), usage, files, transcript_rows(끝 표시 앞까지의 길이)
+    # 각 턴: prompts, system_prompts, text(마지막 응답 메시지의 글. Stop 훅이 주는 것과 같다), usage, files, transcript_rows(끝 표시 앞까지의 길이)
     def ended_turns(self, since: int) -> list[dict]:
         rows = self._rows()
         turns = []
@@ -117,8 +140,8 @@ class TranscriptReader:
             prompts = self._prompts(part)
             if not prompts and not self._has_reply(part):
                 continue
-            turns.append({'prompts': prompts, 'text': self._last_text(part), 'usage': self._usage(part),
-                          'files': self._files(part), 'transcript_rows': i})
+            turns.append({'prompts': prompts, 'system_prompts': self._system_prompts(part), 'text': self._last_text(part),
+                          'usage': self._usage(part), 'files': self._files(part), 'transcript_rows': i})
         return turns
 
     # 마지막 끝 표시 뒤에 진행 중인 턴이 있는지. 입력(시스템 입력 포함)이나 응답이 하나라도 있으면 있다

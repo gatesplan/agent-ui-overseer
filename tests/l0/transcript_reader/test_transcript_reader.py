@@ -85,6 +85,32 @@ def test_system_prompt_is_not_turn_prompt(tmp_path):
     assert reader.last_turn_text() == '다시 걸지 않습니다.'
 
 
+def test_scheduled_wakeup_is_system_prompt_not_turn_prompt(tmp_path):
+    # 예약 깨우기(/loop wakeup)는 isMeta, promptSource=system 인 user 줄로 남는다. 입력 훅은 불리니 시스템 입력으로 따로 알린다
+    path = tmp_path / 't.jsonl'
+    end = {'type': 'system', 'subtype': 'turn_duration'}
+    rows = [
+        {'type': 'user', 'origin': {'kind': 'human'}, 'promptSource': 'typed', 'message': {'content': '원인 찾아 줘'}},
+        {'type': 'assistant', 'message': {'content': [{'type': 'text', 'text': '찾는 중입니다.'}]}},
+        end,
+        {'type': 'system', 'subtype': 'scheduled_task_fire', 'prompt': 'fuzz 결과 확인'},
+        {'type': 'user', 'isMeta': True, 'promptSource': 'system', 'wakeupSource': 'loop_wakeup', 'turnOrigin': 'scheduled',
+         'message': {'content': 'fuzz 결과 확인'}},
+        {'type': 'user', 'promptSource': 'system', 'message': {'content': [{'type': 'tool_result', 'tool_use_id': 't', 'content': 'ok'}]}},
+        {'type': 'assistant', 'message': {'content': [{'type': 'text', 'text': '찾았습니다.'}]}},
+    ]
+    # Stop 훅 때: 깨우기 턴의 끝 표시는 아직 없다
+    _write(path, rows)
+    reader = TranscriptReader(path)
+    assert reader.turn_prompts() == []
+    assert reader.turn_system_prompts() == ['fuzz 결과 확인']
+    # 끝난 턴으로 다시 보면 사람이 친 입력은 시스템 입력이 아니다
+    _write(path, rows + [end])
+    ended = TranscriptReader(path).ended_turns(0)
+    assert [(t['prompts'], t['system_prompts'], t['text']) for t in ended] == [
+        (['원인 찾아 줘'], [], '찾는 중입니다.'), ([], ['fuzz 결과 확인'], '찾았습니다.')]
+
+
 def test_turn_prompts_without_turn_end_marker(tmp_path):
     # 턴 끝 표시가 없는 버전: 첫 턴이면 처음부터, 이전 응답이 있으면 경계를 몰라 None
     path = tmp_path / 't.jsonl'

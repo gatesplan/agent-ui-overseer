@@ -53,6 +53,21 @@ def test_turn_uses_transcript_rows_left_at_session_start_and_records_usage(tmp_p
     assert rows[2] == {**rows[2], 'event': 'notification', 'kind': 'permission_prompt'}
 
 
+def test_turn_records_system_prompts_from_transcript(tmp_path):
+    # 예약 깨우기 같은 시스템 입력은 턴 입력(prompts)이 아니라 system_prompts 로 남는다. 화면이 대기 입력에서 지운다
+    transcript = tmp_path / 's.jsonl'
+    rows = [
+        {'type': 'user', 'isMeta': True, 'promptSource': 'system', 'wakeupSource': 'loop_wakeup', 'message': {'content': '다시 확인'}},
+        {'type': 'assistant', 'message': {'id': 'm1', 'content': [{'type': 'text', 'text': '### [보고] a'}]}},
+    ]
+    transcript.write_text(''.join(json.dumps(r, ensure_ascii=False) + '\n' for r in rows), encoding='utf-8')
+    hook = CaptureHook(tmp_path / 'cap')
+    hook.run({'hook_event_name': 'UserPromptSubmit', 'session_id': 's', 'prompt': '다시 확인'}, 'tab')
+    hook.run({'hook_event_name': 'Stop', 'session_id': 's', 'last_assistant_message': '### [보고] a', 'transcript_path': str(transcript)}, 'tab')
+    turn = [json.loads(line) for line in (tmp_path / 'cap' / 'tab.jsonl').read_text(encoding='utf-8').splitlines()][-1]
+    assert (turn['event'], turn['prompts'], turn['system_prompts']) == ('turn', [], ['다시 확인'])
+
+
 def test_turn_record_survives_unreadable_transcript(tmp_path):
     bad = tmp_path / 'bad.jsonl'
     bad.write_bytes(b'\xff\xfe not utf8')

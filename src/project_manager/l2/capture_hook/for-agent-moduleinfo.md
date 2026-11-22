@@ -27,6 +27,8 @@ run(hook_input: dict, tab_id: str) -> str
       그 세션의 시작 기록이 아예 없으면(시작 훅 실패) 규약과 기록 목록을 이 입력과 함께 넣고 {event: session_start, source: recovered} 를 남긴다
     Stop: {event: turn, source, text, preamble, items, prompts} 기록. 응답은 `last_assistant_message`(2.1.x) 우선, 없으면 transcript
       prompts: 이 턴이 실제로 받은 입력(TranscriptReader.turn_prompts). 기록 파일이 없으면 None
+      system_prompts: 이 턴에 전달된 시스템 입력(TranscriptReader.turn_system_prompts, 예: 예약 깨우기). 입력 훅도 불려 prompt 로 남으니
+        화면(TurnBuilder)이 이것으로 대기 입력을 지운다. 기록 파일이 없으면 None. 되살린 턴(recovered)에도 남긴다
       usage: 이 턴의 토큰 사용량 {model, calls, tools, input_tokens, cache_creation_input_tokens, cache_read_input_tokens, output_tokens}
       transcript_rows: 이 시점의 기록 파일 줄 수. 다음 턴은 이 뒤에서 시작한다(since). SessionStart 도 남긴다
       기록 파일 읽기가 실패해도 응답 기록은 남긴다(prompts, usage 는 None)

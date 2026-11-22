@@ -170,6 +170,26 @@ def test_system_prompt_response_joins_previous_turn():
     assert [x['id'] for x in built['turns']] == ['1S-1', '2S-1']
 
 
+def test_scheduled_wakeup_prompt_does_not_stay_pending():
+    # 예약 깨우기는 입력 훅이 불려 대기에 들어가지만, 기록 파일에서는 시스템 입력이라 턴 입력(prompts)에 없다
+    # Stop 기록의 system_prompts 로 지운다. 지우지 않으면 응답이 끝나도 작업 중으로 남는다
+    events = [
+        {'event': 'prompt', 'prompt': '원인 찾아 줘'},
+        {**turn('찾는 중입니다.'), 'prompts': ['원인 찾아 줘']},
+        {'event': 'prompt', 'prompt': 'fuzz 결과 확인'},
+        {**turn('### [보고] a', [{'kind': '보고', 'title': 'a'}]), 'prompts': [], 'system_prompts': ['fuzz 결과 확인']},
+    ]
+    built = TurnBuilder().build(events)
+    assert built['pending'] is None
+    # 깨우기에 대한 응답은 사용자 입력이 없어 앞 턴에 붙는다
+    assert [(t['id'], t['prompt'], t['parts']) for t in built['turns']] == [('1S-1', '원인 찾아 줘', 2)]
+    assert [i['id'] for i in built['turns'][0]['items']] == ['1S-1-1']
+
+    # 깨우기 턴 중에 사용자가 넣은 입력은 다음에 처리할 것이라 남는다
+    events = events[:3] + [{'event': 'prompt', 'prompt': '이것도 봐 줘'}] + events[3:]
+    assert TurnBuilder().build(events)['pending'] == '이것도 봐 줘'
+
+
 def test_clear_starts_a_new_session_number():
     # /clear 마다 세션 번호가 오르고 턴 번호는 1부터. compact 는 맥락을 이어 가므로 세션을 나누지 않는다
     events = [{'event': 'prompt', 'prompt': 'a'}, {**turn('### [질문] a', [{'kind': '질문', 'title': 'a'}]), 'prompts': ['a']}]

@@ -35,6 +35,13 @@ turn_prompts(since: int | None = None) -> list[str] | None
     last_turn_text 의 경계로는 그대로 쓴다. 알림에 대한 응답만 그 턴의 텍스트다.
     입력 훅(UserPromptSubmit)은 작업 중 대기열에 넣는 순간 불려 어느 턴 입력인지 알 수 없어서 이것으로 정한다.
 
+turn_system_prompts(since: int | None = None) -> list[str] | None
+    raise OSError
+    이번 턴에 전달된 시스템 입력의 글. 경계는 turn_prompts 와 같고, 모르면 None.
+    type=user 이고 시스템이 넣은 줄(origin.kind 가 human 이 아니거나 promptSource=system)이다. isMeta 여도 넣는다.
+    예약 깨우기(/loop wakeup)는 isMeta, promptSource=system 인 user 줄로 남는다. tool_result 줄은 뺀다.
+    입력 훅은 이런 입력에도 불려 대기 입력으로 남는다. 패널이 이것으로 그 대기 입력을 지운다.
+
 turn_usage(since: int | None = None) -> dict | None
     raise OSError
     이번 턴의 토큰 사용량 {model, calls, tools, input_tokens, cache_creation_input_tokens, cache_read_input_tokens, output_tokens}.

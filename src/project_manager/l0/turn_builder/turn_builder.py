@@ -98,6 +98,9 @@ class TurnBuilder:
                     # 예전 훅은 시스템 입력도 턴 입력으로 남겼다
                     prompts = self._typed([p for p in prompts if not self._system(p)])
                     waiting = self._consume(waiting, prompts)
+                # 이 턴이 처리한 시스템 입력(예약 깨우기 등). 입력 훅도 불려 대기에 들어갔지만 기록 파일에서는 사용자 입력이 아니다
+                # 그대로 두면 응답이 끝나도 작업 중으로 남는다. 순서와 상관없이 같은 글 하나씩만 지운다(뒤에 넣은 사용자 입력은 남긴다)
+                waiting = self._drop(waiting, e.get('system_prompts') or [])
                 # 기록 파일에 사용자 입력이 없는 응답(작업 알림에 대한 응답)은 앞 턴에 붙인다. /clear, compact 뒤면 맥락이 바뀌어 새 턴
                 joins = known and not prompts and after is None
                 if turns and (turns[-1]['open'] or joins):
@@ -189,6 +192,17 @@ class TurnBuilder:
                     last = i
                     break
         return waiting[last + 1:]
+
+    # 대기 목록에서 texts 와 같은 입력을 하나씩 지운다
+    def _drop(self, waiting: list[str], texts: list[str]) -> list[str]:
+        left = list(waiting)
+        for t in texts:
+            k = self._key(self._unwrap(t))
+            for i, w in enumerate(left):
+                if self._key(w) == k:
+                    del left[i]
+                    break
+        return left
 
     def _system(self, text: str) -> bool:
         return text.lstrip().startswith(SYSTEM_PROMPT_PREFIXES)
